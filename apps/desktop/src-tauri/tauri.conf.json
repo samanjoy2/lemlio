@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui-unofficial/nicegui-tauri-template/main/src-tauri/tauri.conf-v2-schema.json",
-  "identifier": "com.claude-prism.desktop",
-  "productName": "ClaudePrism",
-  "version": "1.1.6",
+  "identifier": "com.prismpro.desktop",
+  "productName": "Lemlio",
+  "version": "1.2.0",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "ClaudePrism",
+        "title": "Lemlio",
         "fullscreen": false,
         "maximized": true,
         "width": 1400,
@@ -31,13 +31,13 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' ipc: http://ipc.localhost https://api.zotero.org https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' asset: http://asset.localhost data: blob:; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'self' blob:",
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' ipc: http://ipc.localhost https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' asset: http://asset.localhost data: blob:; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'self' blob:",
       "dangerousDisableAssetCspModification": true
     }
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -53,16 +53,13 @@
     },
     "windows": {
       "nsis": {
-        "installMode": "perMachine"
+        "installMode": "currentUser"
       }
-    }
+    },
+    "license": "MIT",
+    "licenseFile": "../../../LICENSE",
+    "publisher": "Lemlio",
+    "shortDescription": "LaTeX projects with Codex and Google Drive backups"
   },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENBNjAzOTI2NzdDQjdBNkMKUldSc2VzdDNKamxneXMzUnZIK0h3TzZ4WVo4QVFVQlRaSFA1TEhCcGtUYW53ZkhNaDluaWgwZWQK",
-      "endpoints": [
-        "https://github.com/delibae/claude-prism/releases/latest/download/latest.json"
-      ]
-    }
-  }
+  "plugins": {}
 }

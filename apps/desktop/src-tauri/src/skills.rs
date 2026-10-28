@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use tauri::{Emitter, WebviewWindow};
 
 const TARBALL_URL: &str =
-    "https://github.com/K-Dense-AI/claude-scientific-skills/archive/refs/heads/main.tar.gz";
-const SKILLS_SUBFOLDER: &str = "scientific-skills";
+    "https://github.com/K-Dense-AI/scientific-agent-skills/archive/refs/heads/main.tar.gz";
+const SKILLS_SUBFOLDER: &str = "skills";
 
 // ─── Data Types ───
 
@@ -349,10 +349,10 @@ fn skill_categories() -> Vec<SkillCategory> {
 /// Resolve the target skills directory.
 fn skills_dir(project_path: Option<&str>) -> PathBuf {
     match project_path {
-        Some(p) => PathBuf::from(p).join(".claude").join("skills"),
+        Some(p) => PathBuf::from(p).join(".agents").join("skills"),
         None => dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join(".claude")
+            .join(".agents")
             .join("skills"),
     }
 }
@@ -383,7 +383,7 @@ async fn download_tarball(tmp_dir: &Path) -> Result<(), String> {
         .unpack(tmp_dir.join("repo-raw"))
         .map_err(|e| format!("Failed to extract tarball: {}", e))?;
 
-    // The tarball extracts to claude-scientific-skills-main/
+    // The upstream tarball extracts to a single repository directory.
     // We need to find it and rename to repo/
     let raw_dir = tmp_dir.join("repo-raw");
     if let Ok(mut entries) = std::fs::read_dir(&raw_dir) {
@@ -475,21 +475,46 @@ fn parse_skill_md(skill_dir: &Path) -> Option<SkillInfo> {
         .map(|l| l.trim_start_matches("# ").trim().to_string())
         .unwrap_or_else(|| folder.clone());
 
-    // Extract description from first paragraph after heading
-    let description = content
-        .lines()
-        .skip_while(|l| !l.starts_with("# "))
-        .skip(1)
-        .skip_while(|l| l.trim().is_empty())
-        .take_while(|l| !l.trim().is_empty() && !l.starts_with('#'))
-        .collect::<Vec<_>>()
-        .join(" ")
+    // Codex skills describe themselves in YAML frontmatter. Keep the heading
+    // as the display name while preferring the machine-readable description.
+    let frontmatter = content
+        .trim_start_matches('\u{feff}')
+        .strip_prefix("---")
+        .and_then(|text| text.split_once("\n---"))
+        .and_then(|(yaml, _)| serde_yaml::from_str::<serde_yaml::Value>(yaml).ok());
+    let description = frontmatter
+        .as_ref()
+        .and_then(|yaml| yaml.get("description"))
+        .and_then(serde_yaml::Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            content
+                .lines()
+                .skip_while(|l| !l.starts_with("# "))
+                .skip(1)
+                .skip_while(|l| l.trim().is_empty())
+                .take_while(|l| !l.trim().is_empty() && !l.starts_with('#'))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
         .chars()
         .take(200)
         .collect::<String>();
 
     // Infer domain from folder name prefix (e.g., "bioinformatics-rna-seq" → "bioinformatics")
-    let domain = folder.split('-').next().unwrap_or("general").to_string();
+    let domain = match folder.as_str() {
+        "scientific-writing"
+        | "citation-management"
+        | "literature-review"
+        | "peer-review"
+        | "scientific-critical-thinking" => "Academic writing",
+        "statistical-analysis" | "statistical-power" => "Statistics",
+        "scientific-visualization" | "latex-posters" => "Figures & posters",
+        "research-grants" => "Proposals",
+        "scikit-learn" | "transformers" => "Machine learning",
+        _ => "Research",
+    }
+    .to_string();
 
     Some(SkillInfo {
         id: folder.clone(),
@@ -520,7 +545,7 @@ pub async fn install_scientific_skills_global(
 }
 
 /// Ensure the target directory is creatable and writable.
-/// If creation fails (e.g. ~/.claude is owned by root), prompt for admin password via osascript.
+/// If creation fails (e.g. ~/.codex is owned by root), prompt for admin password via osascript.
 fn ensure_target_writable(target: &Path) -> Result<(), String> {
     // Try without elevation first
     if std::fs::create_dir_all(target).is_ok() {
@@ -531,13 +556,13 @@ fn ensure_target_writable(target: &Path) -> Result<(), String> {
     {
         let home = dirs::home_dir().ok_or("Could not determine home directory")?;
         let user = std::env::var("USER").unwrap_or_default();
-        let claude_dir = home.join(".claude");
+        let codex_dir = home.join(".codex");
 
         let script = format!(
             "mkdir -p '{}' && chown -R {} '{}'",
             target.display(),
             user,
-            claude_dir.display()
+            codex_dir.display()
         );
 
         let output = std::process::Command::new("osascript")
@@ -555,7 +580,7 @@ fn ensure_target_writable(target: &Path) -> Result<(), String> {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!(
                 "Failed to fix directory permissions. Error: {}. \
-                 You can fix this manually by running: sudo chown -R $(whoami) ~/.claude",
+                 You can fix this manually by running: sudo chown -R $(whoami) ~/.codex",
                 stderr.trim()
             ));
         }
@@ -606,7 +631,7 @@ async fn install_skills_to(
 
     // Create a temporary directory for the clone/download
     let tmp_dir = std::env::temp_dir().join(format!(
-        "claude-scientific-skills-{}",
+        "codex-scientific-skills-{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -739,7 +764,7 @@ pub async fn get_skill_content(
 
     // Fallback: fetch from GitHub
     let url = format!(
-        "https://raw.githubusercontent.com/K-Dense-AI/claude-scientific-skills/main/scientific-skills/{}/SKILL.md",
+        "https://raw.githubusercontent.com/K-Dense-AI/scientific-agent-skills/main/skills/{}/SKILL.md",
         skill_folder
     );
 
@@ -770,14 +795,14 @@ mod tests {
     #[test]
     fn test_skills_dir_global() {
         let dir = skills_dir(None);
-        assert!(dir.to_string_lossy().contains(".claude"));
+        assert!(dir.to_string_lossy().contains(".agents"));
         assert!(dir.to_string_lossy().ends_with("skills"));
     }
 
     #[test]
     fn test_skills_dir_project() {
         let dir = skills_dir(Some("/tmp/my-project"));
-        assert_eq!(dir, PathBuf::from("/tmp/my-project/.claude/skills"));
+        assert_eq!(dir, PathBuf::from("/tmp/my-project/.agents/skills"));
     }
 
     #[test]
@@ -806,5 +831,14 @@ mod tests {
         assert!(info.description.contains("RNA-seq"));
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn reads_codex_skill_frontmatter_description() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("SKILL.md"), "---\nname: scientific-writing\ndescription: Draft and review scientific manuscripts.\n---\n\n# Scientific Writing\n\n## Purpose\n\nDetailed instructions.").unwrap();
+        let info = parse_skill_md(dir.path()).unwrap();
+        assert_eq!(info.name, "Scientific Writing");
+        assert_eq!(info.description, "Draft and review scientific manuscripts.");
     }
 }

@@ -1,14 +1,15 @@
-mod claude;
+mod codex;
+mod drive;
 mod history;
 mod latex;
+mod projects;
 mod skills;
 mod slash_commands;
 mod uv;
-mod zotero;
 
 use std::path::Path;
-use tauri_plugin_fs::FsExt;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_fs::FsExt;
 
 /// Entry point for the `--tectonic-compile` subprocess mode.
 /// Runs tectonic compilation in an isolated process so that C-level global state
@@ -17,6 +18,58 @@ pub fn tectonic_compile_subprocess(work_dir: &Path, main_file: &str) -> Result<(
     latex::compile_with_tectonic(work_dir, main_file)
 }
 
+pub fn system_tex_compile_subprocess(work_dir: &Path, main_file: &str) -> Result<(), String> {
+    latex::compile_with_system_tex(work_dir, main_file)
+}
+
+pub fn configure_drive_client(path: &Path) -> Result<(), String> {
+    drive::configure_client(path)
+}
+
+#[tauri::command]
+fn startup_settings_tab() -> Option<String> {
+    static CONSUMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !CONSUMED.swap(true, std::sync::atomic::Ordering::SeqCst)
+        && std::env::args().any(|arg| arg == "--settings-backup")
+    {
+        Some("Backup".into())
+    } else {
+        None
+    }
+}
+
+/// Exercise project staging, compilation, and PDF retrieval without opening a window.
+pub fn compile_project_headless(
+    project_dir: &str,
+    main_file: &str,
+    use_system_tex: bool,
+) -> Result<usize, String> {
+    let state = latex::LatexCompilerState::default();
+    tauri::async_runtime::block_on(latex::compile_project(
+        &state,
+        project_dir.to_string(),
+        main_file.to_string(),
+        use_system_tex,
+    ))
+    .map(|pdf| pdf.len())
+}
+
+#[tauri::command]
+fn open_project_folder(project_path: String) -> Result<(), String> {
+    let path = std::fs::canonicalize(project_path).map_err(|e| e.to_string())?;
+    if !path.is_dir() {
+        return Err("Not a folder".into());
+    }
+    let mut command = std::process::Command::new(if cfg!(target_os = "windows") {
+        "explorer.exe"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    });
+    command.arg(path).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
 // --- External editor detection & opening ---
 
 #[derive(serde::Serialize, Clone)]
@@ -180,7 +233,7 @@ fn create_new_window(app: tauri::AppHandle) -> Result<(), String> {
 
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
-        .title("ClaudePrism")
+        .title("Lemlio")
         .inner_size(1400.0, 900.0)
         .min_inner_size(800.0, 600.0)
         .visible(false);
@@ -233,7 +286,7 @@ fn open_debug_window(app: tauri::AppHandle) -> Result<(), String> {
 
     let url = WebviewUrl::App("index.html?debug=1".into());
     WebviewWindowBuilder::new(&app, "debug", url)
-        .title("ClaudePrism — Debug")
+        .title("Lemlio — Debug")
         .inner_size(560.0, 700.0)
         .min_inner_size(400.0, 400.0)
         .visible(true)
@@ -334,14 +387,13 @@ pub fn run() {
 
     #[allow(clippy::expect_used)]
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
-        .manage(claude::ClaudeProcessState::default())
+        .manage(codex::CodexProcessState::default())
         .manage(latex::LatexCompilerState::default())
-        .manage(zotero::ZoteroOAuthState::default())
+        .manage(drive::DriveState::default())
         .setup(|app| {
             // Safety net: force-show the main window after a timeout if the
             // frontend JS never calls `getCurrentWindow().show()`.
@@ -353,9 +405,7 @@ pub fn run() {
                 tokio::time::sleep(std::time::Duration::from_secs(8)).await;
                 if let Some(window) = handle.get_webview_window("main") {
                     if !window.is_visible().unwrap_or(true) {
-                        eprintln!(
-                            "[safety] Main window still hidden after 8s, force-showing"
-                        );
+                        eprintln!("[safety] Main window still hidden after 8s, force-showing");
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
@@ -365,29 +415,40 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             create_new_window,
+            startup_settings_tab,
             allow_project_directory,
             detect_editors,
             open_in_editor,
+            open_project_folder,
             js_log,
             read_clipboard_file_paths,
             latex::compile_latex,
             latex::synctex_edit,
             latex::detect_texlive,
-            claude::check_claude_status,
-            claude::install_claude_cli,
-            claude::login_claude,
-            claude::execute_claude_code,
-            claude::continue_claude_code,
-            claude::resume_claude_code,
-            claude::cancel_claude_execution,
-            claude::run_shell_command,
-            claude::get_claude_fast_mode,
-            claude::set_claude_fast_mode,
-            claude::list_claude_sessions,
-            claude::load_session_history,
-            zotero::zotero_start_oauth,
-            zotero::zotero_complete_oauth,
-            zotero::zotero_cancel_oauth,
+            codex::check_codex_status,
+            codex::login_codex,
+            codex::execute_codex_code,
+            codex::resume_codex_code,
+            codex::cancel_codex_execution,
+            codex::run_shell_command,
+            codex::list_codex_models,
+            codex::respond_codex_request,
+            codex::list_codex_sessions,
+            codex::load_session_history,
+            projects::list_imported_projects,
+            drive::drive_configure,
+            drive::drive_status,
+            drive::drive_connect,
+            drive::drive_cancel,
+            drive::drive_disconnect,
+            drive::drive_backup_project,
+            projects::rename_project,
+            projects::project_details,
+            projects::project_titles,
+            projects::project_pdf_preview,
+            projects::project_storage_location,
+            projects::import_project_zip,
+            projects::export_project_zip,
             history::history_init,
             history::history_snapshot,
             history::history_list,
@@ -457,7 +518,7 @@ pub fn run() {
                         let _ = window.eval(
                             "document.body.style.display='none';\
                              document.body.offsetHeight;\
-                             document.body.style.display='';"
+                             document.body.style.display='';",
                         );
                     }
                     let _ = window.emit("window-focus-restored", ());
@@ -468,12 +529,12 @@ pub fn run() {
                 event: tauri::WindowEvent::Destroyed,
                 ..
             } => {
-                // Kill Claude process associated with this window
-                let claude_state = app_handle.state::<claude::ClaudeProcessState>();
+                // Kill Codex process associated with this window
+                let codex_state = app_handle.state::<codex::CodexProcessState>();
                 let label_clone = label.clone();
-                let state_clone = claude_state.inner().clone();
+                let state_clone = codex_state.inner().clone();
                 tauri::async_runtime::spawn(async move {
-                    claude::kill_process_for_window(&state_clone, &label_clone).await;
+                    codex::kill_process_for_window(&state_clone, &label_clone).await;
                 });
 
                 // Quit the app when the last window is closed

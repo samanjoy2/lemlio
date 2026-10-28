@@ -2,15 +2,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import topLevelAwait from "vite-plugin-top-level-await";
 import path from "node:path";
+import { createRequire } from "node:module";
 
 const host = process.env.TAURI_DEV_HOST;
-const mupdfWasmFile = path.resolve(
-  __dirname,
-  "..",
-  "..",
-  "node_modules",
-  "mupdf",
-  "dist",
+const mupdfWasmFile = path.join(
+  path.dirname(createRequire(import.meta.url).resolve("mupdf")),
   "mupdf-wasm.wasm",
 );
 

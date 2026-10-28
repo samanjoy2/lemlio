@@ -37,7 +37,7 @@ export function formatCompileError(error: unknown): string {
 export async function compileLatex(
   projectDir: string,
   mainFile: string = "main.tex",
-  useTexlive: boolean = false,
+  useTexlive: boolean = true,
 ): Promise<Uint8Array> {
   log.info(
     `Compiling ${mainFile} (backend: ${useTexlive ? "texlive" : "tectonic"})`,

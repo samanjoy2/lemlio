@@ -24,7 +24,7 @@ TARGET="aarch64-apple-darwin"
 VERSION=$(node -p "require('./package.json').version")
 TAG="v${VERSION}"
 
-echo "==> Building ClaudePrism $TAG for macOS ($TARGET)"
+echo "==> Building PrismPro $TAG for macOS ($TARGET)"
 
 # Build
 export TECTONIC_DEP_BACKEND=vcpkg
@@ -32,11 +32,11 @@ export VCPKG_ROOT="$HOME/vcpkg"
 export CXXFLAGS="-std=c++17"
 export CFLAGS=""
 
-pnpm --filter @claude-prism/desktop tauri build --target "$TARGET"
+pnpm --filter @prismpro/desktop tauri build --target "$TARGET"
 
 # Notarize DMG
 DMG_PATH=$(find "apps/desktop/src-tauri/target/$TARGET/release/bundle/dmg" -name '*.dmg' | head -1)
-APP_PATH="apps/desktop/src-tauri/target/$TARGET/release/bundle/macos/ClaudePrism.app"
+APP_PATH="apps/desktop/src-tauri/target/$TARGET/release/bundle/macos/PrismPro.app"
 
 if [ -z "$DMG_PATH" ]; then
   echo "Error: DMG not found"
@@ -84,7 +84,7 @@ else
     cat > "$LATEST_JSON" <<EOF
 {
   "version": "$VERSION",
-  "notes": "ClaudePrism $TAG",
+  "notes": "PrismPro $TAG",
   "pub_date": "$PUB_DATE",
   "platforms": {
     "darwin-aarch64": {
@@ -100,23 +100,23 @@ fi
 
 # Upload to GitHub Release
 echo "==> Uploading to GitHub Release $TAG"
-gh release view "$TAG" --repo delibae/claude-prism >/dev/null 2>&1 || \
-  gh release create "$TAG" --repo delibae/claude-prism --title "ClaudePrism $TAG" --generate-notes
+gh release view "$TAG" --repo delibae/prismpro >/dev/null 2>&1 || \
+  gh release create "$TAG" --repo delibae/prismpro --title "PrismPro $TAG" --generate-notes
 
 # Rename to version-free names
-RENAMED_DMG="apps/desktop/src-tauri/target/ClaudePrism-macOS.dmg"
+RENAMED_DMG="apps/desktop/src-tauri/target/PrismPro-macOS.dmg"
 cp "$DMG_PATH" "$RENAMED_DMG"
 UPLOAD_ASSETS=("$RENAMED_DMG")
 
 if [ -n "${UPDATE_TAR:-}" ]; then
-  RENAMED_TAR="apps/desktop/src-tauri/target/ClaudePrism-macOS.app.tar.gz"
+  RENAMED_TAR="apps/desktop/src-tauri/target/PrismPro-macOS.app.tar.gz"
   cp "$UPDATE_TAR" "$RENAMED_TAR"
   UPLOAD_ASSETS+=("$RENAMED_TAR")
 fi
 [ -f "${LATEST_JSON:-}" ] && UPLOAD_ASSETS+=("$LATEST_JSON")
 
 gh release upload "$TAG" \
-  --repo delibae/claude-prism \
+  --repo delibae/prismpro \
   --clobber \
   "${UPLOAD_ASSETS[@]}"
 

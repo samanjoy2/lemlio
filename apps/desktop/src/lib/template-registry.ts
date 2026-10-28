@@ -2683,7 +2683,7 @@ The Vigen\\\`{e}re cipher was considered \`\`unbreakable'' for nearly three cent
 
 \\section{Perfect Secrecy}
 
-In his groundbreaking 1949 paper, Claude Shannon established the information-theoretic foundations of cryptography. Shannon's framework allows us to reason precisely about what it means for a cipher to be \`\`secure'' and to prove fundamental limits on what is achievable.
+In his groundbreaking 1949 paper, Codex Shannon established the information-theoretic foundations of cryptography. Shannon's framework allows us to reason precisely about what it means for a cipher to be \`\`secure'' and to prove fundamental limits on what is achievable.
 
 \\begin{definition}[Perfect Secrecy]
 A cryptosystem has \\textbf{perfect secrecy} if for every plaintext distribution over $\\mathcal{M}$, every message $m \\in \\mathcal{M}$, and every ciphertext $c \\in \\mathcal{C}$ with $\\Pr[C = c] > 0$:
@@ -2947,7 +2947,7 @@ The winning teams received prizes including internship offers from sponsoring co
 % ──── Alumni Interview ────
 \\section{Alumni Interview: Dr.\\\\ Marcus Chen (Ph.D.\\\\ '18)}
 
-\\textit{Dr.\\\\ Marcus Chen graduated from our department in 2018 and is now VP of Engineering at Anthropic, where he leads the infrastructure team responsible for training large language models.}
+\\textit{Dr.\\\\ Marcus Chen graduated from our department in 2018 and is now VP of Engineering at a technology company, where he leads the infrastructure team responsible for training large language models.}
 
 \\textbf{Q: How did your time at Stanford prepare you for your current role?}
 

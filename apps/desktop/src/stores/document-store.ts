@@ -17,7 +17,7 @@ import {
   type ProjectFileType,
 } from "@/lib/tauri/fs";
 import { useHistoryStore } from "@/stores/history-store";
-import { useClaudeChatStore } from "@/stores/claude-chat-store";
+import { useCodexChatStore } from "@/stores/codex-chat-store";
 import { clearDocCache } from "@/lib/mupdf/pdf-doc-cache";
 import { clearScrollPositionCache } from "@/components/workspace/preview/pdf-viewer";
 import { clearZoomCache } from "@/components/workspace/preview/pdf-preview";
@@ -322,7 +322,16 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     const mainTex =
       projectFiles.find(
         (f) => f.name === "main.tex" || f.name === "document.tex",
-      ) || projectFiles.find((f) => f.type === "tex");
+      ) ||
+      projectFiles.find(
+        (f) =>
+          f.type === "tex" && /^(acl_latex|paper|poster)\.tex$/i.test(f.name),
+      ) ||
+      projectFiles.find(
+        (f) =>
+          f.type === "tex" && /\\documentclass(?:\[|\{)/.test(f.content ?? ""),
+      ) ||
+      projectFiles.find((f) => f.type === "tex");
 
     clearPdfBytesCache();
     set({
@@ -372,7 +381,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       initialized: false,
     });
     // Reset chat session so stale messages don't leak into the next project
-    useClaudeChatStore.getState().newSession();
+    useCodexChatStore.getState().newSession();
   },
 
   setActiveFile: (id) => {
@@ -702,6 +711,10 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     if (!file || !file.isDirty || file.content == null) return;
 
     await writeTexFileContent(file.absolutePath, file.content);
+    if (state.projectRoot)
+      window.dispatchEvent(
+        new CustomEvent("lemlio-project-saved", { detail: state.projectRoot }),
+      );
     set((s) => ({
       files: s.files.map((f) => (f.id === id ? { ...f, isDirty: false } : f)),
     }));
@@ -726,6 +739,12 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
           savedIds.has(f.id) ? { ...f, isDirty: false } : f,
         ),
       }));
+      if (state.projectRoot && !get().files.some((file) => file.isDirty))
+        window.dispatchEvent(
+          new CustomEvent("lemlio-project-saved", {
+            detail: state.projectRoot,
+          }),
+        );
     }
   },
 

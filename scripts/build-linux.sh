@@ -21,14 +21,14 @@ TARGET="x86_64-unknown-linux-gnu"
 VERSION=$(node -p "require('./package.json').version")
 TAG="v${VERSION}"
 
-echo "==> Building ClaudePrism $TAG for Linux ($TARGET)"
+echo "==> Building PrismPro $TAG for Linux ($TARGET)"
 
 # Build
 export TECTONIC_DEP_BACKEND=pkg-config
 export CXXFLAGS="-std=c++17"
 export CFLAGS=""
 
-pnpm --filter @claude-prism/desktop tauri build --target "$TARGET"
+pnpm --filter @prismpro/desktop tauri build --target "$TARGET"
 
 BUNDLE_DIR="apps/desktop/src-tauri/target/$TARGET/release/bundle"
 
@@ -74,7 +74,7 @@ if [ -n "$APPIMAGE_PATH" ] && [ -n "$APPIMAGE_SIG" ]; then
     cat > "$LATEST_JSON" <<EOF
 {
   "version": "$VERSION",
-  "notes": "ClaudePrism $TAG",
+  "notes": "PrismPro $TAG",
   "pub_date": "$PUB_DATE",
   "platforms": {
     "linux-x86_64": {
@@ -93,11 +93,11 @@ fi
 
 # Upload to GitHub Release
 echo "==> Uploading to GitHub Release $TAG"
-gh release view "$TAG" --repo delibae/claude-prism >/dev/null 2>&1 || \
-  gh release create "$TAG" --repo delibae/claude-prism --title "ClaudePrism $TAG" --generate-notes
+gh release view "$TAG" --repo delibae/prismpro >/dev/null 2>&1 || \
+  gh release create "$TAG" --repo delibae/prismpro --title "PrismPro $TAG" --generate-notes
 
 gh release upload "$TAG" \
-  --repo delibae/claude-prism \
+  --repo delibae/prismpro \
   --clobber \
   "${ASSETS[@]}"
 

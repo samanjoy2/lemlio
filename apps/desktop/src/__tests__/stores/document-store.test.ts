@@ -19,9 +19,9 @@ vi.mock("@/stores/history-store", () => ({
   },
 }));
 
-// Mock claude-chat-store
-vi.mock("@/stores/claude-chat-store", () => ({
-  useClaudeChatStore: {
+// Mock codex-chat-store
+vi.mock("@/stores/codex-chat-store", () => ({
+  useCodexChatStore: {
     getState: vi.fn(() => ({
       newSession: vi.fn(),
     })),

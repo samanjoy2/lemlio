@@ -21,7 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { useProjectStore } from "@/stores/project-store";
 import { useDocumentStore } from "@/stores/document-store";
-import { useClaudeChatStore } from "@/stores/claude-chat-store";
+import { useCodexChatStore } from "@/stores/codex-chat-store";
 import { exists, join } from "@/lib/tauri/fs";
 import {
   getTemplateById,
@@ -29,7 +29,7 @@ import {
   BIB_TEMPLATE,
 } from "@/lib/template-registry";
 import { TemplateGallery } from "@/components/template-gallery";
-import { DEFAULT_CLAUDE_MD } from "@/lib/default-claude-md";
+import { DEFAULT_AGENTS_MD } from "@/lib/default-agents-md";
 
 // ─── Helpers ───
 
@@ -133,7 +133,7 @@ function ScratchForm({ onBack }: { onBack: () => void }) {
       setProjectFolder(lastProjectFolder);
     } else {
       homeDir()
-        .then((home) => join(home, "Documents", "ClaudePrism"))
+        .then((home) => join(home, "Documents", "Lemlio"))
         .then(async (dir) => {
           await mkdir(dir, { recursive: true }).catch(() => {});
           setProjectFolder(dir);
@@ -239,11 +239,11 @@ function ScratchForm({ onBack }: { onBack: () => void }) {
       const projectPath = await join(projectFolder, projectName.trim());
       await mkdir(projectPath, { recursive: true });
 
-      // Create CLAUDE.md for Claude Code context
-      const claudeMdPath = await join(projectPath, "CLAUDE.md");
-      const claudeMdExists = await exists(claudeMdPath);
-      if (!claudeMdExists) {
-        await writeTextFile(claudeMdPath, DEFAULT_CLAUDE_MD);
+      // Create AGENTS.md for Codex context
+      const codexMdPath = await join(projectPath, "AGENTS.md");
+      const codexMdExists = await exists(codexMdPath);
+      if (!codexMdExists) {
+        await writeTextFile(codexMdPath, DEFAULT_AGENTS_MD);
       }
 
       const mainTexPath = await join(projectPath, template.mainFileName);
@@ -291,8 +291,8 @@ function ScratchForm({ onBack }: { onBack: () => void }) {
           `Please generate the full document content based on my description. Keep the existing preamble and fill in the document body (between \`\\begin{document}\` and \`\\end{document}\`) with appropriate title, author, sections, and content. Make it a complete, well-structured **${template.name.toLowerCase()}** ready for me to refine.`,
         ].join("\n");
 
-        useClaudeChatStore.getState().newSession();
-        useClaudeChatStore.getState().setPendingInitialPrompt(prompt);
+        useCodexChatStore.getState().newSession();
+        useCodexChatStore.getState().setPendingInitialPrompt(prompt);
       }
 
       setLastProjectFolder(projectFolder);
@@ -341,8 +341,7 @@ function ScratchForm({ onBack }: { onBack: () => void }) {
                 What are you writing?
               </span>
               <p className="mt-0.5 text-muted-foreground text-xs leading-relaxed">
-                Describe your document and Claude will generate tailored
-                content.
+                Describe your document and Codex will generate tailored content.
               </p>
             </div>
             <Textarea

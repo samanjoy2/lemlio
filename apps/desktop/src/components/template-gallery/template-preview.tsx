@@ -32,7 +32,8 @@ import { Input } from "@/components/ui/input";
 import { useTemplateStore } from "@/stores/template-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useDocumentStore } from "@/stores/document-store";
-import { useClaudeChatStore } from "@/stores/claude-chat-store";
+import { useCodexChatStore } from "@/stores/codex-chat-store";
+import { DEFAULT_AGENTS_MD } from "@/lib/default-agents-md";
 import {
   getTemplateById,
   getTemplateSkeleton,
@@ -161,7 +162,7 @@ export function TemplatePreview() {
       setProjectFolder(lastProjectFolder);
     } else {
       homeDir()
-        .then((home) => join(home, "Documents", "ClaudePrism"))
+        .then((home) => join(home, "Documents", "Lemlio"))
         .then(async (dir) => {
           await mkdir(dir, { recursive: true }).catch(() => {});
           setProjectFolder(dir);
@@ -408,6 +409,10 @@ export function TemplatePreview() {
     try {
       const projectPath = await join(projectFolder, projectName.trim());
       await mkdir(projectPath, { recursive: true });
+      const agentsPath = await join(projectPath, "AGENTS.md");
+      if (!(await exists(agentsPath))) {
+        await writeTextFile(agentsPath, DEFAULT_AGENTS_MD);
+      }
 
       const mainTexPath = await join(projectPath, template.mainFileName);
       const mainExists = await exists(mainTexPath);
@@ -454,8 +459,8 @@ export function TemplatePreview() {
           `Please generate the full document content based on my description. Keep the existing preamble and fill in the document body (between \`\\begin{document}\` and \`\\end{document}\`) with appropriate title, author, sections, and content. Make it a complete, well-structured **${template.name.toLowerCase()}** ready for me to refine.`,
         ].join("\n");
 
-        useClaudeChatStore.getState().newSession();
-        useClaudeChatStore.getState().setPendingInitialPrompt(prompt);
+        useCodexChatStore.getState().newSession();
+        useCodexChatStore.getState().setPendingInitialPrompt(prompt);
       }
 
       setLastProjectFolder(projectFolder);
@@ -610,7 +615,7 @@ export function TemplatePreview() {
                       What are you writing?
                     </span>
                     <p className="mt-0.5 text-muted-foreground text-xs leading-relaxed">
-                      Describe your document and Claude will generate tailored
+                      Describe your document and Codex will generate tailored
                       content.
                     </p>
                   </div>

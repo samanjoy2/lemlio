@@ -1,3 +1,4 @@
+import { AppSettings } from "@/components/app-settings";
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import {
@@ -43,7 +44,7 @@ import { useTheme } from "next-themes";
 import { useDocumentStore, type ProjectFile } from "@/stores/document-store";
 import { useHistoryStore } from "@/stores/history-store";
 import { cn } from "@/lib/utils";
-import { ZoteroPanel, ZoteroHeader } from "@/components/workspace/zotero-panel";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -71,6 +72,8 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useUvSetupStore } from "@/stores/uv-setup-store";
 import { UvSetupDialog } from "@/components/uv-setup";
+import { SkillsLibraryDialog } from "@/components/skills-library";
+import { ProjectZipExportButton } from "@/components/project-zip-transfer";
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("sidebar");
@@ -622,13 +625,17 @@ export function Sidebar() {
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Header — padded top for macOS overlay titlebar */}
       <div className="relative flex h-[calc(48px+var(--titlebar-height))] items-center justify-center border-sidebar-border border-b px-3 pt-[var(--titlebar-height)]">
-        <div className="flex flex-col items-center">
-          <span className="font-semibold text-sm">ClaudePrism</span>
-          <span className="text-muted-foreground text-xs">
+        <div className="flex w-full min-w-0 flex-col items-center px-12">
+          <span className="font-semibold text-sm">Lemlio</span>
+          <span
+            className="max-w-full truncate text-muted-foreground text-xs"
+            title={projectRoot ?? undefined}
+          >
             {projectRoot?.split(/[/\\]/).pop() || "Desktop"}
           </span>
         </div>
         <div className="absolute right-3 flex items-center gap-0.5">
+          <ProjectZipExportButton projectPath={projectRoot} />
           <Button
             variant="ghost"
             size="icon"
@@ -644,7 +651,7 @@ export function Sidebar() {
       {/* Resizable sections */}
       <PanelGroup direction="vertical" className="min-h-0 flex-1">
         {/* Files */}
-        <Panel defaultSize={50} minSize={15}>
+        <Panel defaultSize={65} minSize={15}>
           <div
             ref={sidebarFilesRef}
             className="flex h-full flex-col"
@@ -791,32 +798,19 @@ export function Sidebar() {
             </div>
           </div>
         </Panel>
-
-        <PanelResizeHandle className="h-px bg-sidebar-border transition-colors hover:bg-ring data-resize-handle-active:bg-ring" />
-
-        {/* Zotero */}
-        <Panel defaultSize={15} minSize={10}>
-          <div className="flex h-full flex-col">
-            <div className="flex h-8 shrink-0 items-center">
-              <ZoteroHeader />
-            </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <ZoteroPanel />
-            </div>
-          </div>
-        </Panel>
       </PanelGroup>
 
       {/* Environment section — Python + Skills */}
       <EnvironmentSection projectPath={projectRoot} />
+      <AppSettings />
 
       {/* Footer */}
       <div className="flex items-center justify-between border-sidebar-border border-t px-3 py-2 text-muted-foreground text-xs">
-        <span className="truncate">ClaudePrism v{appVersion}</span>
+        <span className="truncate">Lemlio v{appVersion}</span>
         <div className="flex shrink-0 items-center gap-1">
           <Button variant="ghost" size="icon" className="size-6" asChild>
             <a
-              href="https://github.com/delibae/claude-prism"
+              href="https://developers.openai.com/codex/cli"
               target="_blank"
               rel="noopener noreferrer"
               title="GitHub"
@@ -1226,22 +1220,6 @@ function EnvironmentSection({ projectPath }: { projectPath: string | null }) {
     checkSkillsStatus();
   }, [checkSkillsStatus]);
 
-  // Lazy import onboarding
-  const [OnboardingComponent, setOnboardingComponent] =
-    useState<React.ComponentType<{
-      onClose: () => void;
-    }> | null>(null);
-
-  useEffect(() => {
-    if (showOnboarding && !OnboardingComponent) {
-      import(
-        "@/components/scientific-skills/scientific-skills-onboarding"
-      ).then((mod) =>
-        setOnboardingComponent(() => mod.ScientificSkillsOnboarding),
-      );
-    }
-  }, [showOnboarding, OnboardingComponent]);
-
   const pythonLabel = venvReady
     ? "Active"
     : uvStatus === "not-installed"
@@ -1315,14 +1293,11 @@ function EnvironmentSection({ projectPath }: { projectPath: string | null }) {
         onClose={() => setShowUvDialog(false)}
       />
 
-      {showOnboarding && OnboardingComponent && (
-        <OnboardingComponent
-          onClose={() => {
-            setShowOnboarding(false);
-            checkSkillsStatus();
-          }}
-        />
-      )}
+      <SkillsLibraryDialog
+        open={showOnboarding}
+        onOpenChange={setShowOnboarding}
+        projectPath={projectPath}
+      />
     </>
   );
 }

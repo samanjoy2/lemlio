@@ -1,0 +1,4 @@
+@property --beam-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+.activity-border-beam { position:absolute; inset:0; z-index:30; pointer-events:none; border-radius:inherit; padding:1px; background:conic-gradient(from var(--beam-angle),transparent 65%,color-mix(in srgb,var(--foreground) 12%,transparent) 78%,var(--foreground) 88%,transparent 96%); mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); mask-composite:exclude; animation:activity-beam 5s linear infinite; }
+@keyframes activity-beam { to { --beam-angle:360deg; } }
+@media(prefers-reduced-motion:reduce){ .activity-border-beam {animation:none;} }

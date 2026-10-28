@@ -2,6 +2,10 @@
 
 # Dependencies
 node_modules
+.tools/
+.codex-schema/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/resources/tectonic/
 .pnp
 .pnp.js
 package-lock.json
@@ -27,6 +31,10 @@ coverage
 out/
 build
 dist
+dist-windows/
+Projects/
+.home-preview.*
+.home-fixtures.json
 tsconfig.tsbuildinfo
 *.tsbuildinfo
 
@@ -95,5 +103,15 @@ yarn-error.log*
 .mtc
 build/
 reference_pr
-reference_pr_claude
+reference_pr_codex
 external-libs/
+
+releases/
+
+google-drive-oauth.json
+client_secret*.json
+
+Keys/
+
+
+!apps/desktop/src-tauri/Cargo.lock

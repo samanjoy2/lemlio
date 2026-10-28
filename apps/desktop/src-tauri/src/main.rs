@@ -6,10 +6,48 @@ fn main() {
     // run tectonic in this subprocess and exit. This isolates tectonic's global C state
     // so that a failed compilation doesn't poison the font cache for subsequent runs.
     let args: Vec<String> = std::env::args().collect();
-    if args.len() >= 4 && args[1] == "--tectonic-compile" {
+    if args.len() >= 3 && args[1] == "--configure-drive" {
+        match prismpro_desktop_lib::configure_drive_client(std::path::Path::new(&args[2])) {
+            Ok(()) => {
+                eprintln!("Drive OAuth configuration saved locally");
+                std::process::exit(0);
+            }
+            Err(error) => {
+                eprintln!("{}", error);
+                std::process::exit(1);
+            }
+        }
+    }
+    if args.len() >= 4 && args[1] == "--compile-project" {
+        match prismpro_desktop_lib::compile_project_headless(
+            &args[2],
+            &args[3],
+            !args.iter().any(|arg| arg == "--tectonic"),
+        ) {
+            Ok(size) => {
+                eprintln!("Compiled PDF: {} bytes", size);
+                std::process::exit(0);
+            }
+            Err(error) => {
+                eprintln!("{}", error);
+                std::process::exit(1);
+            }
+        }
+    }
+    if args.len() >= 4
+        && matches!(
+            args[1].as_str(),
+            "--tectonic-compile" | "--system-tex-compile"
+        )
+    {
         let work_dir = std::path::Path::new(&args[2]);
         let main_file = &args[3];
-        match claude_prism_desktop_lib::tectonic_compile_subprocess(work_dir, main_file) {
+        let result = if args[1] == "--system-tex-compile" {
+            prismpro_desktop_lib::system_tex_compile_subprocess(work_dir, main_file)
+        } else {
+            prismpro_desktop_lib::tectonic_compile_subprocess(work_dir, main_file)
+        };
+        match result {
             Ok(()) => std::process::exit(0),
             Err(e) => {
                 eprintln!("{}", e);
@@ -18,5 +56,5 @@ fn main() {
         }
     }
 
-    claude_prism_desktop_lib::run()
+    prismpro_desktop_lib::run()
 }

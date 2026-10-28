@@ -1,500 +1,587 @@
-import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { AppSettings } from "@/components/app-settings";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useTheme } from "next-themes";
 import {
-  FolderOpenIcon,
-  FolderPlusIcon,
-  ClockIcon,
-  XIcon,
+  ArrowUpRightIcon,
+  BookOpenIcon,
+  CheckIcon,
+  Clock3Icon,
   FileTextIcon,
-  SparklesIcon,
-  CheckCircle2Icon,
-  CircleIcon,
-  DownloadIcon,
-  Loader2Icon,
-  RefreshCwIcon,
-  ArrowUpCircleIcon,
+  FolderOpenIcon,
+  GraduationCapIcon,
+  LayoutGridIcon,
+  ListIcon,
+  MoonIcon,
+  PlusIcon,
+  SearchIcon,
+  StarIcon,
+  SunIcon,
+  PanelsTopLeftIcon,
+  PresentationIcon,
+  FlaskConicalIcon,
+  XIcon,
+  UploadIcon,
 } from "lucide-react";
 import { useProjectStore } from "@/stores/project-store";
 import { useDocumentStore } from "@/stores/document-store";
-import { useClaudeSetupStore } from "@/stores/claude-setup-store";
-import { useUvSetupStore } from "@/stores/uv-setup-store";
-import { useUpdater } from "@/hooks/use-updater";
+import { useCodexSetupStore } from "@/stores/codex-setup-store";
+import { useSettingsStore } from "@/stores/settings-store";
+import { useProjectCatalog } from "@/hooks/use-project-catalog";
+import {
+  projectPathKey,
+  type CatalogProject,
+  type ProjectCategory,
+} from "@/lib/project-catalog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import { ProjectWizard, type CreationMode } from "./project-wizard";
-import { ClaudeSetup } from "./claude-setup";
-import { cn } from "@/lib/utils";
+import { CodexSetup } from "./codex-setup";
+import { ProjectCard } from "./project-library";
+import { SkillsLibraryDialog, useInstalledSkills } from "./skills-library";
+import {
+  ImportProjectDialog,
+  useProjectZipExport,
+} from "./project-zip-transfer";
+import "./project-home.css";
+
+type ProjectView = "all" | "recent" | "starred";
+const categories: { label: ProjectCategory; icon: typeof FileTextIcon }[] = [
+  { label: "Papers", icon: FileTextIcon },
+  { label: "CVs", icon: GraduationCapIcon },
+  { label: "Proposals", icon: FlaskConicalIcon },
+  { label: "Posters", icon: PresentationIcon },
+  { label: "Other", icon: FolderOpenIcon },
+];
 
 export function ProjectPicker() {
   const [showModeDialog, setShowModeDialog] = useState(false);
   const [wizardMode, setWizardMode] = useState<CreationMode | null>(null);
-  const [appVersion, setAppVersion] = useState("");
-  const { status: updateStatus, checkForUpdate, installUpdate } = useUpdater();
+  const [version, setVersion] = useState("");
+  const [view, setView] = useState<ProjectView>("all");
+  const [category, setCategory] = useState<ProjectCategory | null>(null);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState("recent");
+  const [layout, setLayout] = useState<"grid" | "list">("grid");
+  const [skillsOpen, setSkillsOpen] = useState(false);
 
-  const recentProjects = useProjectStore((s) => s.recentProjects);
-  const addRecentProject = useProjectStore((s) => s.addRecentProject);
-  const removeRecentProject = useProjectStore((s) => s.removeRecentProject);
-  const openProject = useDocumentStore((s) => s.openProject);
-
-  const claudeStatus = useClaudeSetupStore((s) => s.status);
-  const checkClaudeStatus = useClaudeSetupStore((s) => s.checkStatus);
-  const isClaudeReady = claudeStatus === "ready";
-
+  const [importOpen, setImportOpen] = useState(false);
+  const { exportingPath, exportZip } = useProjectZipExport();
+  const [opening, setOpening] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const { projects, loading, error, refresh } = useProjectCatalog();
+  const { skills } = useInstalledSkills(null);
+  const recent = useProjectStore((state) => state.recentProjects);
+  const starred = useProjectStore((state) => state.starredPaths);
+  const addRecent = useProjectStore((state) => state.addRecentProject);
+  const removeRecent = useProjectStore((state) => state.removeRecentProject);
+  const toggleStar = useProjectStore((state) => state.toggleStarred);
+  const codexStatus = useCodexSetupStore((state) => state.status);
+  const checkCodex = useCodexSetupStore((state) => state.checkStatus);
+  const account = useCodexSetupStore((state) => state.accountEmail);
+  const compiler = useSettingsStore((state) => state.compilerBackend);
+  const setCompiler = useSettingsStore((state) => state.setCompilerBackend);
+  const { resolvedTheme, setTheme } = useTheme();
   useEffect(() => {
-    checkClaudeStatus();
-    getVersion().then(setAppVersion);
-  }, [checkClaudeStatus]);
+    void checkCodex();
+    void getVersion()
+      .then(setVersion)
+      .catch(() => {});
+  }, [checkCodex]);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "k" &&
+        !skillsOpen &&
+        !importOpen &&
+        !showModeDialog &&
+        !wizardMode
+      ) {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [skillsOpen, importOpen, showModeDialog, wizardMode]);
 
-  const handleOpenFolder = async () => {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: "Open Project Folder",
-    });
-    if (selected) {
-      addRecentProject(selected);
-      await openProject(selected);
+  const recentKeys = useMemo(
+    () => new Set(recent.map((project) => projectPathKey(project.path))),
+    [recent],
+  );
+  const visible = useMemo(
+    () =>
+      projects
+        .filter((project) => {
+          const key = projectPathKey(project.path);
+          return (
+            (!category || project.category === category) &&
+            (view !== "recent" || recentKeys.has(key)) &&
+            (view !== "starred" || starred.includes(key)) &&
+            `${project.name} ${project.category} ${project.mainFile ?? ""}`
+              .toLowerCase()
+              .includes(query.trim().toLowerCase())
+          );
+        })
+        .sort((a, b) =>
+          sort === "name"
+            ? a.name.localeCompare(b.name)
+            : b.lastOpened - a.lastOpened || a.name.localeCompare(b.name),
+        ),
+    [projects, category, view, recentKeys, starred, query, sort],
+  );
+  const navigate = (
+    next: ProjectView,
+    nextCategory: ProjectCategory | null = null,
+  ) => {
+    setView(next);
+    setCategory(nextCategory);
+    setQuery("");
+  };
+  const openProject = async (
+    project: Pick<CatalogProject, "path" | "name" | "mainFile">,
+  ) => {
+    setOpening(project.path);
+    setOpenError(null);
+    try {
+      await useDocumentStore.getState().openProject(project.path);
+      addRecent(project.path);
+      if (
+        project.mainFile &&
+        useDocumentStore
+          .getState()
+          .files.some((file) => file.id === project.mainFile)
+      )
+        useDocumentStore.getState().setActiveFile(project.mainFile);
+    } catch (error) {
+      setOpenError(String(error));
+    } finally {
+      setOpening(null);
     }
   };
-
-  const handleOpenRecent = async (path: string) => {
-    addRecentProject(path);
-    await openProject(path);
+  const openFolder = async () => {
+    try {
+      const path = await open({
+        directory: true,
+        multiple: false,
+        title: "Open Project Folder",
+      });
+      if (typeof path === "string")
+        await openProject({ path, name: path.split(/[/\\]/).pop() || path });
+    } catch (error) {
+      setOpenError(String(error));
+    }
   };
-
-  const handleSelectMode = (mode: CreationMode) => {
+  const chooseMode = (mode: CreationMode) => {
     setShowModeDialog(false);
     setWizardMode(mode);
   };
-
-  if (wizardMode) {
+  if (wizardMode)
     return (
       <ProjectWizard mode={wizardMode} onBack={() => setWizardMode(null)} />
     );
-  }
+  const heading =
+    category ??
+    (view === "recent"
+      ? "Recent projects"
+      : view === "starred"
+        ? "Starred projects"
+        : "All projects");
 
   return (
-    <div className="flex h-full items-center justify-center bg-background">
-      <div className="flex w-full max-w-md flex-col items-center gap-8 px-8">
-        <div className="flex flex-col items-center gap-2">
-          <img src="/icon-192.png" alt="ClaudePrism" className="size-16" />
-          <h1 className="font-bold text-2xl">ClaudePrism</h1>
-          <VersionBadge
-            version={appVersion}
-            updateStatus={updateStatus}
-            onCheck={checkForUpdate}
-            onInstall={installUpdate}
-          />
-          <p className="text-center text-muted-foreground text-sm">
-            AI-powered academic writing workspace
-          </p>
-        </div>
-
-        {!isClaudeReady ? <ClaudeSetup /> : <EnvironmentStatus />}
-
-        <div
-          className={`flex w-full gap-3 ${!isClaudeReady ? "pointer-events-none opacity-50" : ""}`}
+    <div className="project-home">
+      <aside className="home-sidebar" aria-label="Workspace navigation">
+        <button
+          type="button"
+          className="home-brand"
+          onClick={() => navigate("all")}
         >
-          <Button
-            onClick={() => setShowModeDialog(true)}
-            size="lg"
-            variant="outline"
-            className="flex-1 gap-2"
-            disabled={!isClaudeReady}
+          <img src="/icon-192.png" alt="" />
+          <span>
+            Lemlio
+            <span className="home-brand-subtitle"></span>
+          </span>
+        </button>
+        <nav className="home-navigation">
+          <button
+            type="button"
+            className={!category && view === "all" ? "is-active" : ""}
+            onClick={() => navigate("all")}
           >
-            <FolderPlusIcon className="size-5" />
-            New Project
-          </Button>
-          <Button
-            onClick={handleOpenFolder}
-            size="lg"
-            className="flex-1 gap-2"
-            disabled={!isClaudeReady}
+            <LayoutGridIcon size={16} />
+            <span>All projects</span>
+            <small>{projects.length}</small>
+          </button>
+          <button
+            type="button"
+            className={!category && view === "recent" ? "is-active" : ""}
+            onClick={() => navigate("recent")}
           >
-            <FolderOpenIcon className="size-5" />
-            Open Folder
-          </Button>
-        </div>
-
-        {recentProjects.length > 0 && (
-          <div className="w-full">
-            <div className="mb-3 flex items-center gap-2 text-muted-foreground text-sm">
-              <ClockIcon className="size-4" />
-              <span>Recent Projects</span>
+            <Clock3Icon size={16} />
+            <span>Recent</span>
+            <small>{recent.length}</small>
+          </button>
+          <button
+            type="button"
+            className={!category && view === "starred" ? "is-active" : ""}
+            onClick={() => navigate("starred")}
+          >
+            <StarIcon size={16} />
+            <span>Starred</span>
+            <small>
+              {
+                projects.filter((project) =>
+                  starred.includes(projectPathKey(project.path)),
+                ).length
+              }
+            </small>
+          </button>
+          <p className="home-nav-label">COLLECTIONS</p>
+          {categories.map(({ label, icon: Icon }) => (
+            <button
+              type="button"
+              key={label}
+              className={category === label ? "is-active" : ""}
+              onClick={() => navigate("all", label)}
+            >
+              <Icon size={16} />
+              <span>{label}</span>
+              <small>
+                {
+                  projects.filter((project) => project.category === label)
+                    .length
+                }
+              </small>
+            </button>
+          ))}
+          <p className="home-nav-label">WORKSPACE</p>
+          <button type="button" onClick={() => setSkillsOpen(true)}>
+            <BookOpenIcon size={16} />
+            <span>Skills</span>
+            <small>{skills.length}</small>
+          </button>
+          <button type="button" onClick={() => chooseMode("template")}>
+            <PanelsTopLeftIcon size={16} />
+            <span>Templates</span>
+            <ArrowUpRightIcon size={13} />
+          </button>
+          <button type="button" onClick={openFolder}>
+            <FolderOpenIcon size={16} />
+            <span>Open a folder</span>
+          </button>
+          <button type="button" onClick={() => setImportOpen(true)}>
+            <UploadIcon size={16} />
+            <span>Import ZIP</span>
+          </button>
+        </nav>
+        <div className="home-sidebar-footer">
+          <AppSettings />
+          <div className="home-codex-status">
+            <span
+              className={
+                codexStatus === "ready"
+                  ? "home-status-dot is-ready"
+                  : "home-status-dot"
+              }
+            />
+            <div>
+              {codexStatus === "ready"
+                ? "Codex connected"
+                : codexStatus === "checking"
+                  ? "Connecting to Codex…"
+                  : "Connect your Codex"}
+              <small title={account ?? undefined}>
+                {codexStatus === "ready" ? "" : "Your local AI assistant"}
+              </small>
             </div>
-            <div className="max-h-64 space-y-1 overflow-y-auto">
-              {recentProjects.map((project) => (
-                <div
-                  key={project.path}
-                  className="group flex items-center gap-2 rounded-md px-3 py-2 transition-colors hover:bg-muted"
-                >
-                  <button
-                    className="flex flex-1 flex-col items-start overflow-hidden text-left"
-                    onClick={() => handleOpenRecent(project.path)}
-                  >
-                    <span className="truncate font-medium text-sm">
-                      {project.name}
-                    </span>
-                    <span className="truncate text-muted-foreground text-xs">
-                      {project.path}
-                    </span>
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeRecentProject(project.path);
-                    }}
-                  >
-                    <XIcon className="size-3.5" />
-                  </Button>
-                </div>
-              ))}
+            {codexStatus === "ready" && <CheckIcon size={13} />}
+          </div>
+          <label className="home-compiler">
+            <span>Compiler</span>
+            <select
+              aria-label="LaTeX compiler"
+              value={compiler}
+              onChange={(event) =>
+                setCompiler(event.target.value as "texlive" | "tectonic")
+              }
+            >
+              <option value="texlive">MiKTeX / TeX Live</option>
+              <option value="tectonic">Tectonic</option>
+            </select>
+          </label>
+          <div className="home-footer-bottom">
+            <span>Lemlio {version ? `v${version}` : ""}</span>
+            <button
+              type="button"
+              aria-label={
+                resolvedTheme === "dark"
+                  ? "Switch to light theme"
+                  : "Switch to dark theme"
+              }
+              onClick={() =>
+                setTheme(resolvedTheme === "dark" ? "light" : "dark")
+              }
+            >
+              {resolvedTheme === "dark" ? (
+                <SunIcon size={15} />
+              ) : (
+                <MoonIcon size={15} />
+              )}
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <main className="home-main">
+        <div className="home-content">
+          <div className="home-heading">
+            <div>
+              <h1>Projects</h1>
+              <p></p>
+            </div>
+            <div className="home-heading-actions">
+              <Button variant="outline" onClick={() => setImportOpen(true)}>
+                <UploadIcon size={15} />
+                Import ZIP
+              </Button>
+              <Button variant="outline" onClick={openFolder}>
+                <FolderOpenIcon size={15} />
+                Open folder
+              </Button>
+              <Button onClick={() => setShowModeDialog(true)}>
+                <PlusIcon size={16} />
+                New project
+              </Button>
             </div>
           </div>
-        )}
-      </div>
+          {codexStatus !== "ready" && (
+            <div className="home-connection-panel">
+              <CodexSetup />
+            </div>
+          )}
+          <div className="home-toolbar">
+            <div className="home-project-tabs">
+              <button
+                type="button"
+                className={view === "all" ? "is-active" : ""}
+                onClick={() => navigate("all", category)}
+              >
+                {category ?? "All projects"}
+                <span>
+                  {category
+                    ? projects.filter(
+                        (project) => project.category === category,
+                      ).length
+                    : projects.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                className={view === "recent" ? "is-active" : ""}
+                onClick={() => navigate("recent", category)}
+              >
+                Recent
+              </button>
+              <button
+                type="button"
+                className={view === "starred" ? "is-active" : ""}
+                onClick={() => navigate("starred", category)}
+              >
+                Starred
+              </button>
+            </div>
+            <label className="home-search">
+              <SearchIcon size={16} />
+              <input
+                ref={searchRef}
+                aria-label="Search projects"
+                placeholder="Search projects…"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              {query ? (
+                <button
+                  type="button"
+                  aria-label="Clear project search"
+                  onClick={() => setQuery("")}
+                >
+                  <XIcon size={13} />
+                </button>
+              ) : (
+                <kbd>Ctrl K</kbd>
+              )}
+            </label>
+          </div>
+          <div className="home-results-bar">
+            <p>
+              {loading
+                ? "Loading your workspace…"
+                : `${visible.length} ${visible.length === 1 ? "project" : "projects"}`}
+              {category && (
+                <button type="button" onClick={() => setCategory(null)}>
+                  in {category}
+                  <XIcon size={11} />
+                </button>
+              )}
+            </p>
+            <div>
+              <label className="home-sort">
+                <span>Sort by</span>
+                <select
+                  aria-label="Sort projects"
+                  value={sort}
+                  onChange={(event) => setSort(event.target.value)}
+                >
+                  <option value="recent">Recently opened</option>
+                  <option value="name">Name A–Z</option>
+                </select>
+              </label>
+              <div
+                className="home-view-toggle"
+                role="group"
+                aria-label="Project layout"
+              >
+                <button
+                  type="button"
+                  aria-label="Grid view"
+                  aria-pressed={layout === "grid"}
+                  className={layout === "grid" ? "is-active" : ""}
+                  onClick={() => setLayout("grid")}
+                >
+                  <LayoutGridIcon size={16} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="List view"
+                  aria-pressed={layout === "list"}
+                  className={layout === "list" ? "is-active" : ""}
+                  onClick={() => setLayout("list")}
+                >
+                  <ListIcon size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+          {(openError || error) && (
+            <p role="alert" className="home-error">
+              {openError || error}
+            </p>
+          )}
+          <section
+            aria-label={heading}
+            className={`home-project-grid ${layout === "list" ? "is-list" : ""}`}
+          >
+            {!loading && !query && view === "all" && !category && (
+              <button
+                type="button"
+                className="home-new-project-card"
+                onClick={() => setShowModeDialog(true)}
+              >
+                <span>
+                  <PlusIcon size={22} strokeWidth={1.5} />
+                </span>
+                <strong>Create a project</strong>
+                <p></p>
+              </button>
+            )}
+            {visible.map((project) => (
+              <ProjectCard
+                key={projectPathKey(project.path)}
+                project={project}
+                starred={starred.includes(projectPathKey(project.path))}
+                busy={opening !== null || exportingPath !== null}
+                opening={opening === project.path}
+                onOpen={() => openProject(project)}
+                onStar={() => toggleStar(project.path)}
+                onExport={() => exportZip(project.path, project.name)}
+                exporting={exportingPath === project.path}
+                onRemoveRecent={
+                  view === "recent"
+                    ? () => removeRecent(project.path)
+                    : undefined
+                }
+              />
+            ))}
+            {loading &&
+              [0, 1, 2, 3, 4, 5].map((id) => (
+                <div key={id} className="home-project-skeleton" />
+              ))}
+          </section>
+          {!loading && visible.length === 0 && (
+            <div className="home-empty">
+              <FolderOpenIcon size={30} strokeWidth={1.2} />
+              <h2>
+                {query
+                  ? "No projects found"
+                  : view === "starred"
+                    ? "No starred projects"
+                    : view === "recent"
+                      ? "No recent projects"
+                      : "No projects yet"}
+              </h2>
+              <p>
+                {query
+                  ? "Try a different name, or clear your search."
+                  : view === "starred"
+                    ? "Star any project to find it here."
+                    : view === "recent"
+                      ? "Projects you open will appear here."
+                      : "Create a project or open a folder to get started."}
+              </p>
+            </div>
+          )}
+        </div>
+      </main>
 
-      {/* New Project mode selection dialog */}
+      <SkillsLibraryDialog open={skillsOpen} onOpenChange={setSkillsOpen} />
+      <ImportProjectDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={() => {
+          navigate("all");
+          refresh();
+        }}
+        onOpenProject={openProject}
+      />
       <Dialog open={showModeDialog} onOpenChange={setShowModeDialog}>
-        <DialogContent showCloseButton={false} className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Create New Project</DialogTitle>
-            <DialogDescription>How would you like to start?</DialogDescription>
+            <DialogTitle>New project</DialogTitle>
+            <DialogDescription>
+              Choose how you’d like to begin your project.
+            </DialogDescription>
           </DialogHeader>
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={() => handleSelectMode("template")}
-              className="group flex flex-1 flex-col items-center gap-3 rounded-xl border border-foreground/10 p-5 text-center transition-all hover:border-foreground/20 hover:bg-muted/50"
-            >
-              <div className="flex size-12 items-center justify-center rounded-lg bg-muted/50 transition-colors group-hover:bg-muted">
-                <SparklesIcon className="size-6 text-muted-foreground transition-colors group-hover:text-foreground" />
-              </div>
-              <div>
-                <div className="font-semibold text-sm">Guided Setup</div>
-                <p className="mt-1 text-muted-foreground text-xs leading-relaxed">
-                  Pick a template and let AI help you get started
-                </p>
-              </div>
-              <span className="rounded-full bg-foreground/8 px-2 py-0.5 font-medium text-[10px] text-muted-foreground">
-                Recommended
+          <div className="home-create-options">
+            <button type="button" onClick={() => chooseMode("template")}>
+              <PanelsTopLeftIcon size={23} />
+              <strong>Start with a template</strong>
+              <span>
+                Papers, CVs, posters, and more. A little structure to get going.
               </span>
+              <small>
+                Browse templates <ArrowUpRightIcon size={13} />
+              </small>
             </button>
-
-            <button
-              onClick={() => handleSelectMode("scratch")}
-              className="group flex flex-1 flex-col items-center gap-3 rounded-xl border border-border p-5 text-center transition-all hover:border-foreground/20 hover:bg-muted/50"
-            >
-              <div className="flex size-12 items-center justify-center rounded-lg bg-muted/50 transition-colors group-hover:bg-muted">
-                <FileTextIcon className="size-6 text-muted-foreground transition-colors group-hover:text-foreground" />
-              </div>
-              <div>
-                <div className="font-semibold text-sm">Blank Document</div>
-                <p className="mt-1 text-muted-foreground text-xs leading-relaxed">
-                  Start with an empty LaTeX file
-                </p>
-              </div>
+            <button type="button" onClick={() => chooseMode("scratch")}>
+              <FileTextIcon size={23} />
+              <strong>Start from scratch</strong>
+              <span>A blank document, ready for whatever comes next.</span>
+              <small>
+                Create a document <ArrowUpRightIcon size={13} />
+              </small>
             </button>
           </div>
         </DialogContent>
       </Dialog>
     </div>
   );
-}
-
-// ─── Environment Status (shown when Claude is ready) ───
-
-interface SkillsStatus {
-  installed: boolean;
-  skill_count: number;
-  location: string;
-}
-
-function EnvironmentStatus() {
-  const claudeVersion = useClaudeSetupStore((s) => s.version);
-  const claudeEmail = useClaudeSetupStore((s) => s.accountEmail);
-
-  const uvStatus = useUvSetupStore((s) => s.status);
-  const uvVersion = useUvSetupStore((s) => s.version);
-  const uvInstalling = useUvSetupStore((s) => s.isInstalling);
-  const checkUv = useUvSetupStore((s) => s.checkStatus);
-  const installUv = useUvSetupStore((s) => s.install);
-  const _finishUvInstall = useUvSetupStore((s) => s._finishInstall);
-
-  const [skillsStatus, setSkillsStatus] = useState<SkillsStatus | null>(null);
-  const [skillsInstalling, _setSkillsInstalling] = useState(false);
-  const [showSkillsOnboarding, setShowSkillsOnboarding] = useState(false);
-
-  const checkSkills = useCallback(async () => {
-    try {
-      const gs = await invoke<SkillsStatus>("check_skills_installed", {
-        projectPath: null,
-      });
-      setSkillsStatus(gs);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    checkUv();
-    checkSkills();
-  }, [checkUv, checkSkills]);
-
-  // Listen for uv install completion
-  useEffect(() => {
-    const unlisten = listen<boolean>("uv-install-complete", (event) => {
-      _finishUvInstall(event.payload);
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [_finishUvInstall]);
-
-  // Lazy load skills onboarding
-  const [OnboardingComponent, setOnboardingComponent] =
-    useState<React.ComponentType<{
-      onClose: () => void;
-    }> | null>(null);
-
-  useEffect(() => {
-    if (showSkillsOnboarding && !OnboardingComponent) {
-      import(
-        "@/components/scientific-skills/scientific-skills-onboarding"
-      ).then((mod) =>
-        setOnboardingComponent(() => mod.ScientificSkillsOnboarding),
-      );
-    }
-  }, [showSkillsOnboarding, OnboardingComponent]);
-
-  return (
-    <>
-      <div className="flex w-full flex-col gap-2 rounded-xl border border-border bg-muted/30 px-4 py-3">
-        {/* Claude Code — always ready here */}
-        <StatusRow
-          ok={true}
-          label="Claude Code"
-          detail={[claudeVersion, claudeEmail].filter(Boolean).join(" · ")}
-        />
-
-        {/* Python (uv) */}
-        <StatusRow
-          ok={uvStatus === "ready"}
-          label="Python (uv)"
-          detail={
-            uvInstalling
-              ? "Installing..."
-              : uvStatus === "ready"
-                ? (uvVersion ?? "Installed")
-                : uvStatus === "checking"
-                  ? "Checking..."
-                  : "Not installed"
-          }
-          action={
-            uvStatus === "not-installed" && !uvInstalling
-              ? { label: "Install", onClick: installUv }
-              : uvInstalling
-                ? { label: "Installing...", loading: true }
-                : undefined
-          }
-        />
-
-        {/* Scientific Skills */}
-        <StatusRow
-          ok={!!skillsStatus?.installed}
-          label="Scientific Skills"
-          detail={
-            skillsInstalling
-              ? "Installing..."
-              : skillsStatus?.installed
-                ? `${skillsStatus.skill_count} skills`
-                : "Not installed"
-          }
-          action={
-            !skillsStatus?.installed && !skillsInstalling
-              ? {
-                  label: "Install",
-                  onClick: () => setShowSkillsOnboarding(true),
-                }
-              : undefined
-          }
-        />
-      </div>
-
-      {showSkillsOnboarding && OnboardingComponent && (
-        <OnboardingComponent
-          onClose={() => {
-            setShowSkillsOnboarding(false);
-            checkSkills();
-          }}
-        />
-      )}
-    </>
-  );
-}
-
-function StatusRow({
-  ok,
-  label,
-  detail,
-  action,
-}: {
-  ok: boolean;
-  label: string;
-  detail: string;
-  action?: { label: string; onClick?: () => void; loading?: boolean };
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-2.5">
-      {ok ? (
-        <CheckCircle2Icon className="size-3.5 shrink-0 text-foreground" />
-      ) : (
-        <CircleIcon className="size-3.5 shrink-0 text-muted-foreground/40" />
-      )}
-      <span
-        className={cn(
-          "shrink-0 text-sm",
-          ok ? "text-foreground" : "text-muted-foreground",
-        )}
-      >
-        {label}
-      </span>
-      <span className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
-        {detail}
-      </span>
-      {action && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 shrink-0 px-2 text-xs"
-          onClick={action.onClick}
-          disabled={action.loading}
-        >
-          {action.loading ? (
-            <Loader2Icon className="mr-1 size-3 animate-spin" />
-          ) : (
-            <DownloadIcon className="mr-1 size-3" />
-          )}
-          {action.label}
-        </Button>
-      )}
-    </div>
-  );
-}
-
-// ─── Version Badge with Update Status ───
-
-function VersionBadge({
-  version,
-  updateStatus,
-  onCheck,
-  onInstall,
-}: {
-  version: string;
-  updateStatus: import("@/hooks/use-updater").UpdateStatus;
-  onCheck: () => void;
-  onInstall: () => void;
-}) {
-  if (!version) return null;
-
-  switch (updateStatus.state) {
-    case "available":
-      return (
-        <button
-          onClick={onInstall}
-          className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-primary text-xs transition-colors hover:bg-primary/20"
-        >
-          <ArrowUpCircleIcon className="size-3.5" />v{updateStatus.version}{" "}
-          available — click to update
-        </button>
-      );
-
-    case "downloading":
-      return (
-        <div className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-muted-foreground text-xs">
-          <Loader2Icon className="size-3.5 animate-spin" />
-          Downloading... {updateStatus.percent}%
-        </div>
-      );
-
-    case "installing":
-      return (
-        <div className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-muted-foreground text-xs">
-          <Loader2Icon className="size-3.5 animate-spin" />
-          Installing...
-        </div>
-      );
-
-    case "ready":
-      return (
-        <div className="flex items-center gap-1.5 rounded-full bg-green-500/10 px-3 py-1 text-green-600 text-xs">
-          <CheckCircle2Icon className="size-3.5" />
-          Update complete — restarting...
-        </div>
-      );
-
-    case "checking":
-      return (
-        <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-          <Loader2Icon className="size-3 animate-spin" />v{version} — checking
-          for updates...
-        </div>
-      );
-
-    case "error":
-      return (
-        <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-          <span>v{version}</span>
-          <span className="mx-0.5">·</span>
-          <button
-            onClick={onCheck}
-            className="flex items-center gap-1 transition-colors hover:text-foreground"
-          >
-            <RefreshCwIcon className="size-3" />
-            Retry
-          </button>
-        </div>
-      );
-
-    case "up-to-date":
-      return (
-        <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-          <span>v{version}</span>
-          <span className="mx-0.5">·</span>
-          <button
-            onClick={onCheck}
-            className="flex items-center gap-1 transition-colors hover:text-foreground"
-          >
-            <CheckCircle2Icon className="size-3 text-green-500" />
-            Up to date
-          </button>
-        </div>
-      );
-
-    default:
-      return (
-        <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-          <span>v{version}</span>
-          <span className="mx-0.5">·</span>
-          <button
-            onClick={onCheck}
-            className="flex items-center gap-1 transition-colors hover:text-foreground"
-          >
-            <RefreshCwIcon className="size-3" />
-            Check for updates
-          </button>
-        </div>
-      );
-  }
 }

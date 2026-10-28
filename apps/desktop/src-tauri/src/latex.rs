@@ -15,6 +15,7 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 use std::os::windows::process::CommandExt;
 
 struct BuildInfo {
+    build_root: PathBuf,
     work_dir: PathBuf,
     main_file_name: String,
 }
@@ -156,7 +157,7 @@ fn detect_bib_tool(content: &str) -> BibTool {
     BibTool::None
 }
 
-/// Resolve a TeXLive engine binary to its full path.
+/// Resolve an installed MiKTeX or TeX Live engine to its full path.
 /// GUI apps on macOS lack the user's shell PATH, so we check standard
 /// TeXLive installation locations and fall back to a login-shell query.
 fn find_texlive_binary(name: &str) -> Result<PathBuf, String> {
@@ -187,7 +188,27 @@ fn find_texlive_binary(name: &str) -> Result<PathBuf, String> {
 
     #[cfg(target_os = "windows")]
     {
+        // Desktop shortcuts may inherit a stale PATH. Discover the standard
+        // per-user and all-users MiKTeX installations directly as well.
+        let mut miktex_roots = Vec::new();
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            miktex_roots.push(PathBuf::from(local).join("Programs/MiKTeX"));
+        }
+        for key in ["PROGRAMFILES", "PROGRAMFILES(X86)"] {
+            if let Some(programs) = std::env::var_os(key) {
+                miktex_roots.push(PathBuf::from(programs).join("MiKTeX"));
+            }
+        }
+        for root in miktex_roots {
+            for bin in ["miktex/bin/x64", "miktex/bin"] {
+                let binary = root.join(bin).join(format!("{}.exe", name));
+                if binary.is_file() {
+                    return Ok(binary);
+                }
+            }
+        }
         let standard_paths = [
+            format!("C:\\texlive\\2026\\bin\\windows\\{}.exe", name),
             format!("C:\\texlive\\2025\\bin\\windows\\{}.exe", name),
             format!("C:\\texlive\\2024\\bin\\windows\\{}.exe", name),
         ];
@@ -217,7 +238,7 @@ fn find_texlive_binary(name: &str) -> Result<PathBuf, String> {
     }
 
     Err(format!(
-        "{} not found. Install TeXLive or add it to your PATH.",
+        "{} not found. Install MiKTeX or TeX Live, or add its bin directory to your PATH.",
         name
     ))
 }
@@ -231,7 +252,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
         if src_path.is_dir() {
-            // Skip hidden directories (.git, .claudeprism, etc.)
+            // Skip hidden directories (.git, .prismpro, etc.)
             let name = entry.file_name();
             if name.to_string_lossy().starts_with('.') {
                 continue;
@@ -258,8 +279,7 @@ fn sync_source_files(src: &Path, dst: &Path) -> std::io::Result<()> {
         let dst_path = dst.join(&file_name);
         if src_path.is_dir() {
             let name = file_name.to_string_lossy();
-            if name.starts_with('.')
-                || matches!(name.as_ref(), "node_modules" | "target" | "dist")
+            if name.starts_with('.') || matches!(name.as_ref(), "node_modules" | "target" | "dist")
             {
                 continue;
             }
@@ -334,6 +354,50 @@ fn persistent_build_dir(project_dir: &str) -> PathBuf {
     PathBuf::from(project_dir).join(".prism").join("build")
 }
 
+/// TeX resolves figures, inputs, and bibliographies against its working directory.
+/// Keep the copied project tree intact, and run beside the selected main file.
+fn compilation_directory(build_root: &Path, main_file: &str) -> Result<(PathBuf, String), String> {
+    let main_path = Path::new(main_file);
+    if main_file.is_empty()
+        || main_path.components().any(|component| {
+            !matches!(
+                component,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
+    {
+        return Err("The main TeX file must be a relative path inside the project".to_string());
+    }
+    let filename = main_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("Invalid main TeX filename")?;
+    Ok((
+        build_root.join(main_path.parent().unwrap_or(Path::new(""))),
+        filename.to_string(),
+    ))
+}
+
+/// Convert engine-relative SyncTeX filenames back to editor project-relative IDs.
+fn synctex_project_file(build_root: &Path, work_dir: &Path, file: &str) -> String {
+    let file = file.replace('\\', "/");
+    let source = work_dir.join(&file);
+    let mut normalized = PathBuf::new();
+    for component in source.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+        .strip_prefix(build_root)
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or(file)
+}
+
 // --- Thread priority ---
 
 /// Lower the current thread's scheduling priority so CPU-heavy compilation
@@ -358,6 +422,7 @@ fn lower_thread_priority() {
 
 // --- Tectonic Compilation ---
 
+#[cfg(not(target_os = "windows"))]
 pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<(), String> {
     use tectonic::config::PersistentConfig;
     use tectonic::driver::{OutputFormat, PassSetting, ProcessingSessionBuilder};
@@ -401,6 +466,44 @@ pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<
     session.run(&mut status).map_err(|e| format!("{}", e))?;
 
     Ok(())
+}
+
+/// Use the packaged Tectonic CLI on Windows to avoid a system vcpkg requirement.
+#[cfg(target_os = "windows")]
+pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<(), String> {
+    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let parent = executable.parent().ok_or("Cannot locate Lemlio")?;
+    let bundled = parent.join("resources/tectonic/tectonic.exe");
+    let development = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/tectonic/tectonic.exe");
+    let binary = if bundled.is_file() {
+        bundled
+    } else if development.is_file() {
+        development
+    } else {
+        which::which("tectonic").map_err(|_| {
+            "Tectonic is missing. Run scripts/prepare-windows.ps1 or install Tectonic.".to_string()
+        })?
+    };
+    let output = std::process::Command::new(binary)
+        .args([
+            "--synctex",
+            "--keep-logs",
+            "--keep-intermediates",
+            main_file,
+        ])
+        .current_dir(work_dir)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("Could not launch Tectonic: {e}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
 }
 
 /// Run tectonic compilation in an isolated subprocess.
@@ -470,6 +573,10 @@ fn run_texlive_pass(
     work_dir: &Path,
 ) -> Result<(), String> {
     let mut cmd = std::process::Command::new(engine);
+    if is_miktex_binary(engine) {
+        // Use the installed MiKTeX package manager without hidden GUI prompts.
+        cmd.arg("--enable-installer");
+    }
     cmd.args(args)
         .arg(main_file)
         .current_dir(work_dir)
@@ -507,7 +614,11 @@ fn compile_with_texlive(
 
     let engine_path = find_texlive_binary(engine_name)?;
     let env_path = texlive_env_path(&engine_path);
-    eprintln!("[texlive] backend: {} ({})", engine_name, engine_path.display());
+    eprintln!(
+        "[texlive] backend: {} ({})",
+        engine_name,
+        engine_path.display()
+    );
     let bib_tool = detect_bib_tool(tex_content);
 
     // Use "." as output-directory since current_dir is already work_dir.
@@ -518,11 +629,7 @@ fn compile_with_texlive(
     // With -halt-on-error, recoverable warnings (e.g. missing font shapes) cause xetex to
     // exit non-zero, and the xelatex wrapper skips the xdvipdfmx step — producing .xdv but
     // no .pdf.  -interaction=nonstopmode alone is sufficient to avoid interactive prompts.
-    let common_args: Vec<&str> = vec![
-        "-synctex=1",
-        "-interaction=nonstopmode",
-        &output_dir_arg,
-    ];
+    let common_args: Vec<&str> = vec!["-synctex=1", "-interaction=nonstopmode", &output_dir_arg];
 
     let main_file_path = Path::new(main_file);
 
@@ -620,6 +727,32 @@ fn compile_with_texlive(
     // Success is determined by whether the PDF exists, not by exit codes.
     // The caller (compile_latex) checks pdf_path.exists() and reads the log for errors.
     Ok(())
+}
+
+fn is_miktex_binary(path: &Path) -> bool {
+    path.to_string_lossy()
+        .to_ascii_lowercase()
+        .contains("miktex")
+}
+
+/// Exercise the same system compiler path used by the desktop app, without a UI.
+pub(crate) fn compile_with_system_tex(work_dir: &Path, main_file: &str) -> Result<(), String> {
+    let content = std::fs::read_to_string(work_dir.join(main_file)).map_err(|e| e.to_string())?;
+    compile_with_texlive(work_dir, main_file, detect_tex_engine(&content), &content)?;
+    let stem = Path::new(main_file)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid main file")?;
+    if work_dir.join(format!("{}.pdf", stem)).is_file() {
+        Ok(())
+    } else {
+        let log =
+            std::fs::read_to_string(work_dir.join(format!("{}.log", stem))).unwrap_or_default();
+        Err(format!(
+            "System LaTeX produced no PDF.\n{}",
+            extract_error_lines(&log)
+        ))
+    }
 }
 
 // --- SyncTeX Native Parser ---
@@ -809,6 +942,17 @@ pub async fn compile_latex(
     main_file: String,
     use_texlive: Option<bool>,
 ) -> Result<tauri::ipc::Response, String> {
+    compile_project(&state, project_dir, main_file, use_texlive.unwrap_or(true))
+        .await
+        .map(tauri::ipc::Response::new)
+}
+
+pub(crate) async fn compile_project(
+    state: &LatexCompilerState,
+    project_dir: String,
+    main_file: String,
+    use_texlive: bool,
+) -> Result<Vec<u8>, String> {
     // Acquire semaphore permit (non-blocking)
     let _permit = state
         .semaphore
@@ -827,7 +971,8 @@ pub async fn compile_latex(
     let _project_guard = project_lock.lock().await;
 
     let t0 = std::time::Instant::now();
-    let use_texlive = use_texlive.unwrap_or(false);
+    let build_root = persistent_build_dir(&project_dir);
+    let (work_dir, main_file) = compilation_directory(&build_root, &main_file)?;
 
     let main_file_name = Path::new(&main_file)
         .file_stem()
@@ -836,20 +981,19 @@ pub async fn compile_latex(
         .to_string();
 
     // Set up build directory (offload blocking I/O to avoid starving the async runtime)
-    let work_dir = persistent_build_dir(&project_dir);
-    let is_reuse = work_dir.exists();
+    let is_reuse = build_root.exists();
 
     {
-        let work_dir = work_dir.clone();
+        let build_root = build_root.clone();
         let project_dir = project_dir.clone();
         tokio::task::spawn_blocking(move || {
             if is_reuse {
-                sync_source_files(Path::new(&project_dir), &work_dir)
+                sync_source_files(Path::new(&project_dir), &build_root)
                     .map_err(|e| format!("Failed to sync project: {}", e))
             } else {
-                std::fs::create_dir_all(&work_dir)
+                std::fs::create_dir_all(&build_root)
                     .map_err(|e| format!("Failed to create build dir: {}", e))?;
-                copy_dir_recursive(Path::new(&project_dir), &work_dir)
+                copy_dir_recursive(Path::new(&project_dir), &build_root)
                     .map_err(|e| format!("Failed to copy project: {}", e))
             }
         })
@@ -893,7 +1037,17 @@ pub async fn compile_latex(
         Some(TexEngine::LuaLaTeX) => "lualatex",
     };
     let backend_label = if use_texlive {
-        format!("TeXLive/{}", engine_name_for_label)
+        let distribution = find_texlive_binary(engine_name_for_label)
+            .ok()
+            .map(|path| {
+                if is_miktex_binary(&path) {
+                    "MiKTeX"
+                } else {
+                    "TeX Live"
+                }
+            })
+            .unwrap_or("System LaTeX");
+        format!("{}/{}", distribution, engine_name_for_label)
     } else {
         "Tectonic".to_string()
     };
@@ -995,6 +1149,7 @@ pub async fn compile_latex(
         builds.insert(
             project_dir.clone(),
             BuildInfo {
+                build_root,
                 work_dir: work_dir.clone(),
                 main_file_name: main_file_name.clone(),
             },
@@ -1014,7 +1169,7 @@ pub async fn compile_latex(
             backend_label,
             pdf_bytes.len() / 1024
         );
-        Ok(tauri::ipc::Response::new(pdf_bytes))
+        Ok(pdf_bytes)
     } else {
         let log_content = std::fs::read_to_string(&log_path).unwrap_or_default();
         let details = extract_error_lines(&log_content);
@@ -1051,10 +1206,11 @@ pub async fn synctex_edit(
         .join(format!("{}.synctex", build.main_file_name));
 
     let work_dir = build.work_dir.clone();
+    let build_root = build.build_root.clone();
     drop(builds); // Release lock before I/O
 
     // Read, decompress, and parse synctex data (blocking I/O + CPU work → offload)
-    let (mut file, line, column) = tokio::task::spawn_blocking(move || {
+    let (file, line, column) = tokio::task::spawn_blocking(move || {
         let synctex_data = if synctex_gz.exists() {
             let compressed = std::fs::read(&synctex_gz)
                 .map_err(|e| format!("Failed to read synctex.gz: {}", e))?;
@@ -1077,18 +1233,7 @@ pub async fn synctex_edit(
     .await
     .map_err(|e| format!("Synctex task panicked: {}", e))??;
 
-    // Normalize: strip work_dir prefix and "./" or ".\\" prefix
-    let work_dir_str = work_dir.to_string_lossy().to_string();
-    if let Some(rest) = file.strip_prefix(&format!("{}/", work_dir_str)) {
-        file = rest.to_string();
-    } else if let Some(rest) = file.strip_prefix(&format!("{}\\", work_dir_str)) {
-        file = rest.to_string();
-    }
-    if let Some(rest) = file.strip_prefix("./") {
-        file = rest.to_string();
-    } else if let Some(rest) = file.strip_prefix(".\\") {
-        file = rest.to_string();
-    }
+    let file = synctex_project_file(&build_root, &work_dir, &file);
 
     Ok(SynctexResult { file, line, column })
 }
@@ -1108,7 +1253,8 @@ mod tests {
 
     #[test]
     fn test_detect_bib_tool_biber() {
-        let content = "\\documentclass{article}\n\\usepackage{biblatex}\n\\begin{document}\n\\end{document}";
+        let content =
+            "\\documentclass{article}\n\\usepackage{biblatex}\n\\begin{document}\n\\end{document}";
         assert_eq!(detect_bib_tool(content), BibTool::Biber);
     }
 
@@ -1200,6 +1346,77 @@ mod tests {
     fn test_persistent_build_dir() {
         let dir = persistent_build_dir("/Users/dev/my-project");
         assert_eq!(dir, PathBuf::from("/Users/dev/my-project/.prism/build"));
+    }
+
+    #[test]
+    fn nested_main_resolves_figures_after_first_build_and_resync() {
+        let source = tempfile::tempdir().unwrap();
+        let build = tempfile::tempdir().unwrap();
+        let figure = Path::new("latex/figs/title.png");
+        std::fs::create_dir_all(source.path().join("latex/figs")).unwrap();
+        std::fs::write(
+            source.path().join("latex/paper.tex"),
+            "\\includegraphics{figs/title.png}",
+        )
+        .unwrap();
+        std::fs::write(source.path().join(figure), b"original figure").unwrap();
+        copy_dir_recursive(source.path(), build.path()).unwrap();
+        let (work_dir, filename) = compilation_directory(build.path(), "latex/paper.tex").unwrap();
+        assert_eq!(filename, "paper.tex");
+        assert!(work_dir.join(&filename).is_file());
+        assert_eq!(
+            std::fs::read(work_dir.join("figs/title.png")).unwrap(),
+            b"original figure"
+        );
+        std::fs::write(source.path().join(figure), b"replacement figure").unwrap();
+        sync_source_files(source.path(), build.path()).unwrap();
+        assert_eq!(
+            std::fs::read(work_dir.join("figs/title.png")).unwrap(),
+            b"replacement figure"
+        );
+    }
+
+    #[test]
+    fn compilation_directory_preserves_root_projects_and_separates_nested_outputs() {
+        let build = tempfile::tempdir().unwrap();
+        let (root_dir, filename) = compilation_directory(build.path(), "main.tex").unwrap();
+        assert_eq!(root_dir, build.path());
+        assert_eq!(filename, "main.tex");
+        let (first, _) = compilation_directory(build.path(), "first/main.tex").unwrap();
+        let (second, _) = compilation_directory(build.path(), "second/main.tex").unwrap();
+        assert_ne!(first.join("main.pdf"), second.join("main.pdf"));
+        assert!(compilation_directory(build.path(), "../outside.tex").is_err());
+        assert!(compilation_directory(build.path(), "").is_err());
+    }
+
+    #[test]
+    fn nested_synctex_locations_keep_project_relative_folder() {
+        let build = tempfile::tempdir().unwrap();
+        let work_dir = build.path().join("latex");
+        assert_eq!(
+            synctex_project_file(build.path(), &work_dir, "./paper.tex"),
+            "latex/paper.tex"
+        );
+        assert_eq!(
+            synctex_project_file(build.path(), &work_dir, ".\\chapters\\intro.tex"),
+            "latex/chapters/intro.tex"
+        );
+        assert_eq!(
+            synctex_project_file(build.path(), &work_dir, "../shared/data.tex"),
+            "shared/data.tex"
+        );
+        assert_eq!(
+            synctex_project_file(
+                build.path(),
+                &work_dir,
+                &work_dir.join("paper.tex").to_string_lossy()
+            ),
+            "latex/paper.tex"
+        );
+        assert_eq!(
+            synctex_project_file(build.path(), build.path(), "./main.tex"),
+            "main.tex"
+        );
     }
 
     // --- parse_synctex_node ---
@@ -1602,10 +1819,10 @@ Postamble:
         let dst = tempfile::tempdir().unwrap();
 
         std::fs::create_dir_all(src.path().join("chapters")).unwrap();
-        std::fs::create_dir_all(src.path().join(".claudeprism")).unwrap();
+        std::fs::create_dir_all(src.path().join(".prismpro")).unwrap();
         std::fs::write(src.path().join("chapters").join("ch1.tex"), "ch1").unwrap();
         std::fs::write(src.path().join("chapters").join("ch1.aux"), "aux").unwrap();
-        std::fs::write(src.path().join(".claudeprism").join("data"), "data").unwrap();
+        std::fs::write(src.path().join(".prismpro").join("data"), "data").unwrap();
 
         sync_source_files(src.path(), dst.path()).unwrap();
 
@@ -1614,7 +1831,7 @@ Postamble:
             "ch1"
         );
         assert!(!dst.path().join("chapters").join("ch1.aux").exists());
-        assert!(!dst.path().join(".claudeprism").exists());
+        assert!(!dst.path().join(".prismpro").exists());
     }
 
     // --- sync_source_files copies figure PDFs ---

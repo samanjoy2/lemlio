@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { ActivityOrb } from "@/components/activity-feedback";
 import {
   FileTextIcon,
   SpellCheckIcon,
@@ -23,7 +24,7 @@ import {
   hasPdfData,
 } from "@/stores/document-store";
 import { useHistoryStore } from "@/stores/history-store";
-import { useClaudeChatStore } from "@/stores/claude-chat-store";
+import { useCodexChatStore } from "@/stores/codex-chat-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,6 +88,8 @@ const ZOOM_OPTIONS = [
 ];
 
 export function PdfPreview() {
+  const autoCompile = useSettingsStore((s) => s.autoCompile);
+  const setAutoCompile = useSettingsStore((s) => s.setAutoCompile);
   const compilerBackend = useSettingsStore((s) => s.compilerBackend);
   const setCompilerBackend = useSettingsStore((s) => s.setCompilerBackend);
   const pdfRevision = useDocumentStore((s) => s.pdfRevision);
@@ -326,7 +329,7 @@ export function PdfPreview() {
       const sel = pdfSelection;
       setPdfSelection(null);
       window.getSelection()?.removeAllRanges();
-      useClaudeChatStore.getState().sendPrompt(prompt, {
+      useCodexChatStore.getState().sendPrompt(prompt, {
         label,
         filePath: resolvedSource?.file ?? "document.pdf",
         selectedText: buildPdfContext(sel.text),
@@ -360,7 +363,7 @@ export function PdfPreview() {
       setPdfSelection(null);
       window.getSelection()?.removeAllRanges();
       if (actionId === "proofread") {
-        useClaudeChatStore
+        useCodexChatStore
           .getState()
           .sendPrompt("Proofread and fix any errors in this text", {
             label,
@@ -400,7 +403,7 @@ export function PdfPreview() {
   })();
 
   useEffect(() => {
-    if (hasInitialCompile.current) return;
+    if (!autoCompile || hasInitialCompile.current) return;
     if (!initialized || !projectRoot) return;
     if (pdfData || isCompiling || compileError) return;
 
@@ -435,6 +438,7 @@ export function PdfPreview() {
     projectRoot,
     pdfData,
     isCompiling,
+    autoCompile,
     compileError,
     setIsCompiling,
     setPdfData,
@@ -443,6 +447,14 @@ export function PdfPreview() {
     files,
     activeFile,
   ]);
+
+  useEffect(() => {
+    if (!autoCompile || !initialized) return;
+    const timer = setTimeout(() => {
+      void handleCompile();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [autoCompile, files, initialized]);
 
   // Recompute scale when fit mode is active and container/page size changes
   useEffect(() => {
@@ -600,7 +612,7 @@ export function PdfPreview() {
 
       await useDocumentStore.getState().refreshFiles();
 
-      useClaudeChatStore.getState().addPendingAttachment({
+      useCodexChatStore.getState().addPendingAttachment({
         label: `@${relativePath}`,
         filePath: relativePath,
         selectedText: `[Captured region from PDF page ${result.pageNumber}]`,
@@ -622,6 +634,12 @@ export function PdfPreview() {
   }, [pdfData]);
 
   const renderContent = () => {
+    if (isCompiling && !pdfData)
+      return (
+        <div className="grid min-h-0 flex-1 place-items-center">
+          <ActivityOrb label="Compiling PDF…" />
+        </div>
+      );
     if (compileError) {
       const errors = [
         ...new Set(
@@ -634,7 +652,7 @@ export function PdfPreview() {
 
       const handleFixWithChat = () => {
         const errorList = errors.map((e) => `- ${e}`).join("\n");
-        useClaudeChatStore
+        useCodexChatStore
           .getState()
           .sendPrompt(
             `[Compilation errors]\n${errorList}\n\nFix these LaTeX compilation errors.`,
@@ -802,6 +820,14 @@ export function PdfPreview() {
     >
       <div className="flex h-[calc(40px+var(--titlebar-height))] shrink-0 items-center border-border border-b bg-background px-2 pt-[var(--titlebar-height)]">
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className="rounded border px-2 py-1 text-xs"
+            aria-pressed={autoCompile}
+            onClick={() => setAutoCompile(!autoCompile)}
+          >
+            {autoCompile ? "Auto" : "Manual"}
+          </button>
           <Select
             value={compilerBackend}
             onValueChange={(v) =>
@@ -813,7 +839,7 @@ export function PdfPreview() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="tectonic">Tectonic</SelectItem>
-              <SelectItem value="texlive">TeXLive</SelectItem>
+              <SelectItem value="texlive">MiKTeX / TeX Live</SelectItem>
             </SelectContent>
           </Select>
           {isSaving && (
@@ -1010,6 +1036,11 @@ export function PdfPreview() {
         </div>
       </div>
       {renderContent()}
+      {isCompiling && !!pdfData && (
+        <div className="pointer-events-none absolute inset-x-0 top-12 bottom-0 z-20 grid place-items-center bg-background/75 backdrop-blur-sm">
+          <ActivityOrb label="Compiling PDF…" />
+        </div>
+      )}
       {/* PDF selection toolbar */}
       {pdfToolbarPosition && pdfSelection && (
         <SelectionToolbar

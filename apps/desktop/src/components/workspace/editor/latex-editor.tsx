@@ -47,7 +47,7 @@ import {
   useProposedChangesStore,
   type ProposedChange,
 } from "@/stores/proposed-changes-store";
-import { useClaudeChatStore } from "@/stores/claude-chat-store";
+import { useCodexChatStore } from "@/stores/codex-chat-store";
 import { useHistoryStore, type FileDiff } from "@/stores/history-store";
 import {
   compileLatex,
@@ -73,8 +73,8 @@ import {
   CopyIcon,
   XIcon,
 } from "lucide-react";
-import { ClaudeChatDrawer } from "@/components/claude-chat/claude-chat-drawer";
-import { ProposedChangesPanel } from "@/components/claude-chat/proposed-changes-panel";
+import { CodexChatDrawer } from "@/components/codex-chat/codex-chat-drawer";
+import { ProposedChangesPanel } from "@/components/codex-chat/proposed-changes-panel";
 import { ImagePreview } from "./image-preview";
 import { SearchPanel } from "./search-panel";
 import { ProblemsPanel, type DiagnosticItem } from "./problems-panel";
@@ -651,7 +651,7 @@ export function LatexEditor() {
                         );
                         const fileName = file?.relativePath ?? "main.tex";
                         const ctx = `[Lint error in ${fileName}:${line.number}]\n[Error: ${d.message}]`;
-                        useClaudeChatStore
+                        useCodexChatStore
                           .getState()
                           .sendPrompt(`${ctx}\n\nFix this lint error.`);
                       },
@@ -969,7 +969,7 @@ export function LatexEditor() {
       toolbarStickyRef.current = false;
       setSelectionCoords(null);
       setSelectionRange(null);
-      useClaudeChatStore.getState().sendPrompt(prompt);
+      useCodexChatStore.getState().sendPrompt(prompt);
     },
     [setSelectionRange],
   );
@@ -991,7 +991,7 @@ export function LatexEditor() {
       setSelectionCoords(null);
       setSelectionRange(null);
       if (actionId === "proofread") {
-        useClaudeChatStore
+        useCodexChatStore
           .getState()
           .sendPrompt("Proofread and fix any errors in this text");
       }
@@ -1123,7 +1123,7 @@ export function LatexEditor() {
           </div>
         </div>
       )}
-      {/* Main content area — single wrapper keeps ClaudeChatDrawer stable */}
+      {/* Main content area — single wrapper keeps CodexChatDrawer stable */}
       <div
         ref={isPdf || isImage ? undefined : parentRef}
         className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -1294,7 +1294,7 @@ export function LatexEditor() {
           </>
         )}
         {/* Chat drawer — single stable instance across all file types */}
-        <ClaudeChatDrawer />
+        <CodexChatDrawer />
       </div>
       {/* Text-editor-only bottom panels */}
       {!isPdf &&
@@ -1316,7 +1316,7 @@ export function LatexEditor() {
             onFixWithChat={(message, line) => {
               const fileName = activeFile?.relativePath ?? "main.tex";
               const ctx = `[Lint error in ${fileName}:${line}]\n[Error: ${message}]`;
-              useClaudeChatStore
+              useCodexChatStore
                 .getState()
                 .sendPrompt(`${ctx}\n\nFix this lint error.`);
             }}
@@ -1325,7 +1325,7 @@ export function LatexEditor() {
               const errorList = diagnostics
                 .map((d) => `- ${fileName}:${d.line} — ${d.message}`)
                 .join("\n");
-              useClaudeChatStore
+              useCodexChatStore
                 .getState()
                 .sendPrompt(
                   `[Lint errors in ${fileName}]\n${errorList}\n\nFix all these lint errors.`,

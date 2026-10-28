@@ -1,5 +1,5 @@
 {
-  "name": "@claude-prism/root",
+  "name": "@prismpro/root",
   "description": "Open-Source AI LaTeX writing workspace",
   "version": "1.1.6",
   "repository": {
@@ -12,9 +12,9 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:web": "pnpm turbo dev --filter=@claude-prism/web --filter=@claude-prism/latex-api",
-    "dev:desktop": "pnpm --filter=@claude-prism/desktop-sidecar dev & pnpm --filter=@claude-prism/desktop tauri dev",
-    "build:desktop": "pnpm --filter=@claude-prism/desktop tauri build",
+    "dev:web": "pnpm turbo dev --filter=@prismpro/web --filter=@prismpro/latex-api",
+    "dev:desktop": "pnpm --filter=@prismpro/desktop tauri dev",
+    "build:desktop": "pnpm --filter=@prismpro/desktop tauri build",
     "lint": "pnpm exec biome check",
     "lint:fix": "pnpm exec biome check --fix",
     "release": "echo 'To release: git tag v<version> && git push origin v<version>'",

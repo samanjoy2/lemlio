@@ -166,10 +166,9 @@ export function UvSetupDialog({ open, onClose }: UvSetupDialogProps) {
           {/* Info text */}
           {status === "ready" && venvReady && (
             <p className="text-muted-foreground text-xs leading-relaxed">
-              Claude Code will automatically use this environment when running
-              Python code. Use{" "}
-              <code className="text-foreground">uv pip install</code> to add
-              packages.
+              Codex will automatically use this environment when running Python
+              code. Use <code className="text-foreground">uv pip install</code>{" "}
+              to add packages.
             </p>
           )}
         </div>

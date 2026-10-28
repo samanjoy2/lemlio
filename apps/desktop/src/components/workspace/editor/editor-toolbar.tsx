@@ -16,6 +16,7 @@ import {
   PlusIcon,
   BookMarkedIcon,
   ExternalLinkIcon,
+  FolderOpenIcon,
 } from "lucide-react";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
@@ -188,12 +189,29 @@ export function EditorToolbar({
               </Button>
             </>
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            title="Open project folder"
+            onClick={() => {
+              if (projectRoot)
+                void invoke("open_project_folder", {
+                  projectPath: projectRoot,
+                });
+            }}
+          >
+            <FolderOpenIcon size={16} />
+          </Button>
           {editors.length === 1 && (
             <TooltipIconButton
               tooltip={`Open in ${editors[0].name}`}
               onClick={() => openInEditor(editors[0].id)}
             >
-              <ExternalLinkIcon className="size-4" />
+              {editors[0]?.id === "vscode" ? (
+                <img src="/editor-icons/vscode.png" alt="" className="size-4" />
+              ) : (
+                <ExternalLinkIcon className="size-4" />
+              )}
             </TooltipIconButton>
           )}
           {editors.length > 1 && (
@@ -205,7 +223,15 @@ export function EditorToolbar({
                   className="size-6 p-1"
                   title="Open in Editor"
                 >
-                  <ExternalLinkIcon className="size-4" />
+                  {editors[0]?.id === "vscode" ? (
+                    <img
+                      src="/editor-icons/vscode.png"
+                      alt=""
+                      className="size-4"
+                    />
+                  ) : (
+                    <ExternalLinkIcon className="size-4" />
+                  )}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -214,6 +240,13 @@ export function EditorToolbar({
                     key={editor.id}
                     onClick={() => openInEditor(editor.id)}
                   >
+                    {editor.id === "vscode" && (
+                      <img
+                        src="/editor-icons/vscode.png"
+                        alt=""
+                        className="mr-2 size-4"
+                      />
+                    )}
                     {editor.name}
                   </DropdownMenuItem>
                 ))}
@@ -290,12 +323,27 @@ export function EditorToolbar({
         <BookMarkedIcon className="size-4" />
       </TooltipIconButton>
       <div data-tauri-drag-region className="flex-1 self-stretch" />
+      <Button
+        variant="ghost"
+        size="icon"
+        title="Open project folder"
+        onClick={() => {
+          if (projectRoot)
+            void invoke("open_project_folder", { projectPath: projectRoot });
+        }}
+      >
+        <FolderOpenIcon size={16} />
+      </Button>
       {editors.length === 1 && (
         <TooltipIconButton
           tooltip={`Open in ${editors[0].name}`}
           onClick={() => openInEditor(editors[0].id)}
         >
-          <ExternalLinkIcon className="size-4" />
+          {editors[0]?.id === "vscode" ? (
+            <img src="/editor-icons/vscode.png" alt="" className="size-4" />
+          ) : (
+            <ExternalLinkIcon className="size-4" />
+          )}
         </TooltipIconButton>
       )}
       {editors.length > 1 && (
@@ -307,7 +355,11 @@ export function EditorToolbar({
               className="size-6 p-1"
               title="Open in Editor"
             >
-              <ExternalLinkIcon className="size-4" />
+              {editors[0]?.id === "vscode" ? (
+                <img src="/editor-icons/vscode.png" alt="" className="size-4" />
+              ) : (
+                <ExternalLinkIcon className="size-4" />
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -316,6 +368,13 @@ export function EditorToolbar({
                 key={editor.id}
                 onClick={() => openInEditor(editor.id)}
               >
+                {editor.id === "vscode" && (
+                  <img
+                    src="/editor-icons/vscode.png"
+                    alt=""
+                    className="mr-2 size-4"
+                  />
+                )}
                 {editor.name}
               </DropdownMenuItem>
             ))}

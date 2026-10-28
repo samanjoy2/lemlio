@@ -6,6 +6,8 @@ describe("useProjectStore", () => {
     // Reset the store between tests
     useProjectStore.setState({
       recentProjects: [],
+      knownProjects: [],
+      starredPaths: [],
       lastProjectFolder: null,
     });
   });
@@ -39,6 +41,7 @@ describe("useProjectStore", () => {
       expect(recentProjects).toHaveLength(10);
       // Most recent should be first
       expect(recentProjects[0].path).toBe("/project-11");
+      expect(useProjectStore.getState().knownProjects).toHaveLength(12);
     });
 
     it("extracts name from path correctly", () => {
@@ -65,6 +68,36 @@ describe("useProjectStore", () => {
       const { recentProjects } = useProjectStore.getState();
       expect(recentProjects).toHaveLength(1);
       expect(recentProjects[0].path).toBe("/b");
+      expect(useProjectStore.getState().knownProjects).toHaveLength(2);
+    });
+  });
+
+  it("deduplicates Windows paths across recent projects and favorites", () => {
+    const store = useProjectStore.getState();
+    store.addRecentProject("C:\\Research\\Paper");
+    store.addRecentProject("c:/research/paper");
+    expect(useProjectStore.getState().knownProjects).toHaveLength(1);
+    expect(useProjectStore.getState().recentProjects).toHaveLength(1);
+    store.toggleStarred("C:\\Research\\Paper");
+    expect(useProjectStore.getState().starredPaths).toEqual([
+      "c:/research/paper",
+    ]);
+    store.toggleStarred("c:/research/paper/");
+    expect(useProjectStore.getState().starredPaths).toEqual([]);
+  });
+
+  it("preserves existing recent projects when upgrading saved settings", async () => {
+    const recent = [{ path: "/existing", name: "existing", lastOpened: 123 }];
+    const migrate = useProjectStore.persist.getOptions().migrate;
+    const migrated = await migrate?.(
+      { recentProjects: recent, lastProjectFolder: "/parent" },
+      0,
+    );
+    expect(migrated).toMatchObject({
+      recentProjects: recent,
+      knownProjects: recent,
+      starredPaths: [],
+      lastProjectFolder: "/parent",
     });
   });
 });

@@ -1,0 +1,51 @@
+name: Release Lemlio for Windows
+on:
+  workflow_dispatch:
+  push:
+    tags: ['lemlio-v*']
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - run: powershell -ExecutionPolicy Bypass -File scripts/prepare-windows.ps1
+      - run: pnpm --filter @prismpro/desktop build
+      - run: pnpm --filter @prismpro/desktop test
+      - run: cargo test --release --lib --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - run: pnpm --filter @prismpro/desktop tauri build --bundles nsis
+      - name: Package portable app
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force portable | Out-Null
+          Copy-Item apps/desktop/src-tauri/target/release/prismpro-desktop.exe portable/Lemlio.exe
+          Copy-Item LICENSE,README.md portable/
+          Copy-Item apps/desktop/src-tauri/target/release/resources portable/resources -Recurse
+          New-Item -ItemType Directory -Force portable/assets | Out-Null
+          Copy-Item assets/lemlio.svg portable/assets/
+          Copy-Item assets/screenshots portable/assets/screenshots -Recurse
+          Compress-Archive portable/* Lemlio-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lemlio-Windows
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            Lemlio-windows-x64.zip
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/lemlio-v')
+        with:
+          files: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            Lemlio-windows-x64.zip
+          generate_release_notes: true
