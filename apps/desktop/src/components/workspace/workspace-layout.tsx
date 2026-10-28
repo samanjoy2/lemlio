@@ -3,9 +3,11 @@ import { Sidebar } from "./sidebar";
 import { LatexEditor } from "./editor/latex-editor";
 import { PdfPreview } from "./preview/pdf-preview";
 import { useDocumentStore } from "@/stores/document-store";
+import { DriveStatus } from "@/components/drive-status";
 
 export function WorkspaceLayout() {
   const initialized = useDocumentStore((s) => s.initialized);
+  const projectRoot = useDocumentStore((s) => s.projectRoot);
 
   if (!initialized) {
     return (
@@ -24,7 +26,12 @@ export function WorkspaceLayout() {
       <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-ring" />
 
       <Panel defaultSize={42.5} minSize={25}>
-        <LatexEditor />
+        <div className="flex h-full flex-col">
+          <div className="min-h-0 flex-1">
+            <LatexEditor />
+          </div>
+          <DriveStatus projectPath={projectRoot} />
+        </div>
       </Panel>
 
       <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-ring" />

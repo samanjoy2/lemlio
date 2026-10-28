@@ -6,6 +6,15 @@ fn main() {
     // run tectonic in this subprocess and exit. This isolates tectonic's global C state
     // so that a failed compilation doesn't poison the font cache for subsequent runs.
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--clear-drive-setup") {
+        match prismpro_desktop_lib::clear_drive_setup() {
+            Ok(()) => std::process::exit(0),
+            Err(error) => {
+                eprintln!("{}", error);
+                std::process::exit(1);
+            }
+        }
+    }
     if args.len() >= 3 && args[1] == "--configure-drive" {
         match prismpro_desktop_lib::configure_drive_client(std::path::Path::new(&args[2])) {
             Ok(()) => {

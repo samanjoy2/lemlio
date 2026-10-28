@@ -4,6 +4,7 @@ import { open as chooseFile } from "@tauri-apps/plugin-dialog";
 import { open } from "@tauri-apps/plugin-shell";
 import { Button } from "./ui/button";
 import { ActivityOrb } from "./activity-feedback";
+import { updateDriveBackup, DRIVE_UPDATED } from "@/lib/drive-backup-status";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useDocumentStore } from "@/stores/document-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -48,6 +49,7 @@ export function DriveSettings() {
       });
       if (typeof path !== "string") return;
       await invoke("drive_configure", { clientPath: path });
+      window.dispatchEvent(new Event(DRIVE_UPDATED));
       setMessage("OAuth configuration saved locally.");
       setError("");
       await refresh();
@@ -96,7 +98,17 @@ export function DriveSettings() {
         throw new Error("No projects are available to back up.");
       for (let i = 0; i < paths.length; i++) {
         setMessage(`Backing up project ${i + 1} of ${paths.length}…`);
-        await invoke("drive_backup_project", { projectPath: paths[i] });
+        updateDriveBackup(paths[i], "uploading");
+        try {
+          const result = await invoke<{ lastBackup?: number }>(
+            "drive_backup_project",
+            { projectPath: paths[i] },
+          );
+          updateDriveBackup(paths[i], "saved", result);
+        } catch (error) {
+          updateDriveBackup(paths[i], "failed", { error: String(error) });
+          throw error;
+        }
       }
       setMessage(`${paths.length} project backups saved in Google Drive.`);
       await refresh();
@@ -184,6 +196,7 @@ export function DriveSettings() {
               onClick={async () => {
                 try {
                   await invoke("drive_disconnect");
+                  window.dispatchEvent(new Event(DRIVE_UPDATED));
                   await refresh();
                 } catch (e) {
                   setError(String(e));

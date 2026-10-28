@@ -111,30 +111,22 @@ const MAX_FILES: usize = 25_000;
 const MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 fn library_roots() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            roots.push(parent.join("Projects"));
-            if let Some(workspace) = parent.parent() {
-                roots.push(workspace.join("Projects"));
-            }
-        }
-    }
-    if let Some(workspace) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3) {
-        roots.push(workspace.join("Projects"));
-    }
-    roots
+    dirs::data_local_dir()
+        .map(|root| vec![root.join("Lemlio").join("Projects")])
+        .unwrap_or_default()
 }
 
 fn library_root() -> Result<PathBuf, String> {
     let roots = library_roots();
-    roots
+    let root = roots
         .iter()
         .find(|root| root.join("library.json").is_file())
         .or_else(|| roots.iter().find(|root| root.is_dir()))
         .or_else(|| roots.first())
         .cloned()
-        .ok_or_else(|| "Cannot locate the Projects folder".to_string())
+        .ok_or_else(|| "Cannot locate the Projects folder".to_string())?;
+    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    Ok(root)
 }
 
 #[tauri::command]

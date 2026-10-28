@@ -119,6 +119,20 @@ pub fn configure_client(path: &Path) -> Result<(), String> {
         .map_err(|_| "Cannot save client configuration")?;
     Ok(())
 }
+
+pub fn clear_local_setup() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    match credential()?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => {}
+        Err(_) => return Err("Cannot remove the local Drive connection".into()),
+    }
+    let path = config_path()?;
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err("Cannot remove local OAuth configuration".into()),
+    }
+}
 #[tauri::command]
 pub fn drive_configure(client_path: String) -> Result<(), String> {
     configure_client(Path::new(&client_path))

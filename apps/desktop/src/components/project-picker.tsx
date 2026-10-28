@@ -1,4 +1,5 @@
 import { AppSettings } from "@/components/app-settings";
+import { DriveStatus } from "@/components/drive-status";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -305,6 +306,7 @@ export function ProjectPicker() {
             </div>
             {codexStatus === "ready" && <CheckIcon size={13} />}
           </div>
+          <DriveStatus />
           <label className="home-compiler">
             <span>Compiler</span>
             <select

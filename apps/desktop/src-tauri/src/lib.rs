@@ -25,6 +25,9 @@ pub fn system_tex_compile_subprocess(work_dir: &Path, main_file: &str) -> Result
 pub fn configure_drive_client(path: &Path) -> Result<(), String> {
     drive::configure_client(path)
 }
+pub fn clear_drive_setup() -> Result<(), String> {
+    drive::clear_local_setup()
+}
 
 #[tauri::command]
 fn startup_settings_tab() -> Option<String> {

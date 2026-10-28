@@ -19,15 +19,13 @@ export const useSettingsStore = create<SettingsState>()(
       autoDriveBackup: true,
       setAutoDriveBackup: (autoDriveBackup) => set({ autoDriveBackup }),
       setAutoCompile: (autoCompile) => set({ autoCompile }),
-      compilerBackend: "texlive",
+      compilerBackend: "tectonic",
       setCompilerBackend: (backend) => set({ compilerBackend: backend }),
     }),
     {
-      name: "prismpro-settings",
+      name: "lemlio-settings",
       version: 1,
-      // Switch existing installations to the user's requested system compiler.
-      // Later explicit choices, including Tectonic, remain persisted at version 1.
-      migrate: () => ({ compilerBackend: "texlive" as const }),
+      migrate: () => ({ compilerBackend: "tectonic" as const }),
     },
   ),
 );

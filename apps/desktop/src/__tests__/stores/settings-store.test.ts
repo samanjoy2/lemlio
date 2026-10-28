@@ -1,25 +1,28 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useSettingsStore } from "@/stores/settings-store";
 
-describe("system LaTeX compiler preference", () => {
+describe("LaTeX compiler preference", () => {
   beforeEach(() => {
     localStorage.clear();
-    useSettingsStore.setState({ compilerBackend: "texlive" });
+    useSettingsStore.setState({ compilerBackend: "tectonic" });
   });
-  it("migrates the previous Tectonic default to the installed system compiler", async () => {
-    localStorage.setItem(
-      "prismpro-settings",
-      JSON.stringify({ state: { compilerBackend: "tectonic" }, version: 0 }),
-    );
-    await useSettingsStore.persist.rehydrate();
-    expect(useSettingsStore.getState().compilerBackend).toBe("texlive");
+  it("uses bundled Tectonic for a fresh installation", () => {
+    expect(useSettingsStore.getInitialState().compilerBackend).toBe("tectonic");
   });
-  it("keeps an explicit Tectonic choice after migration", async () => {
+  it("migrates old settings to bundled Tectonic", async () => {
     localStorage.setItem(
-      "prismpro-settings",
-      JSON.stringify({ state: { compilerBackend: "tectonic" }, version: 1 }),
+      "lemlio-settings",
+      JSON.stringify({ state: { compilerBackend: "texlive" }, version: 0 }),
     );
     await useSettingsStore.persist.rehydrate();
     expect(useSettingsStore.getState().compilerBackend).toBe("tectonic");
+  });
+  it("keeps an explicit optional system compiler choice", async () => {
+    localStorage.setItem(
+      "lemlio-settings",
+      JSON.stringify({ state: { compilerBackend: "texlive" }, version: 1 }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    expect(useSettingsStore.getState().compilerBackend).toBe("texlive");
   });
 });

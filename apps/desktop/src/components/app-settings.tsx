@@ -30,7 +30,7 @@ export function AppSettings() {
     void invoke<string | null>("startup_settings_tab")
       .then((tab) => {
         if (tab) {
-          setTab(tab);
+          setTab(tab === "Backup" ? "Google Drive" : tab);
           setVisible(true);
         }
       })
@@ -42,6 +42,14 @@ export function AppSettings() {
   const [tab, setTab] = useState(() =>
     localStorage.getItem("lemlio-setup-complete") ? "General" : "Codex",
   );
+  useEffect(() => {
+    const show = (event: Event) => {
+      setTab((event as CustomEvent<string>).detail || "General");
+      setVisible(true);
+    };
+    window.addEventListener("lemlio-open-settings", show);
+    return () => window.removeEventListener("lemlio-open-settings", show);
+  }, []);
   const selectedModel = useCodexChatStore((s) => s.selectedModel);
   const setSelectedModel = useCodexChatStore((s) => s.setSelectedModel);
   const [models, setModels] = useState<
@@ -78,18 +86,23 @@ export function AppSettings() {
             <DialogTitle>Settings &amp; setup</DialogTitle>
           </DialogHeader>
           <nav className="flex flex-wrap gap-2">
-            {["General", "Codex", "Compiler", "Skills", "Backup", "About"].map(
-              (name) => (
-                <Button
-                  key={name}
-                  size="sm"
-                  variant={tab === name ? "default" : "outline"}
-                  onClick={() => setTab(name)}
-                >
-                  {name}
-                </Button>
-              ),
-            )}
+            {[
+              "General",
+              "Codex",
+              "Compiler",
+              "Skills",
+              "Google Drive",
+              "About",
+            ].map((name) => (
+              <Button
+                key={name}
+                size="sm"
+                variant={tab === name ? "default" : "outline"}
+                onClick={() => setTab(name)}
+              >
+                {name}
+              </Button>
+            ))}
           </nav>
           <div className="space-y-4 py-4 text-sm">
             {tab === "General" && (
@@ -184,7 +197,7 @@ export function AppSettings() {
               </>
             )}
             {tab === "Skills" && <SkillsLibrary />}
-            {tab === "Backup" && <DriveSettings />}
+            {tab === "Google Drive" && <DriveSettings />}
             {tab === "About" && (
               <>
                 <h2 className="font-semibold text-xl">Lemlio {version}</h2>

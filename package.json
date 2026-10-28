@@ -1,7 +1,7 @@
 {
   "name": "@prismpro/root",
   "description": "Open-Source AI LaTeX writing workspace",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/samanjoy2/lemlio"

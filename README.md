@@ -30,13 +30,13 @@ Browse projects by PDF preview, search by title, star favorites, and switch betw
 
 Codex is optional for editing. Connect using your existing ChatGPT/Codex sign-in. AI requests use your account’s allowance; Lemlio does not include an additional AI subscription. Model availability and usage depend on your provider and plan. [Official Codex pricing](https://learn.chatgpt.com/docs/pricing).
 
-MiKTeX can be installed separately using the link in **Settings → Compiler**. Tectonic is packaged with the Windows release and may fetch TeX packages during compilation. Some documents require a system compiler or additional fonts/packages.
+MiKTeX can be installed separately using the link in **Settings → Compiler**. Tectonic is the default and is packaged with the Windows release and may fetch TeX packages during compilation. Some documents require a system compiler or additional fonts/packages.
 
 ![Compiler settings](assets/screenshots/compiler.png)
 
 ## Import and export
 
-**Import ZIP** accepts a LaTeX project or a Prism library export. Projects are stored under `Projects/Imports`, preserving nested source folders and binary figures. Reimporting creates a new folder instead of replacing an existing project.
+**Import ZIP** accepts a LaTeX project or a Prism library export. A fresh install opens with an empty library. Projects you import are stored under `%LOCALAPPDATA%/Lemlio/Projects/Imports`, preserving nested source folders and binary figures. Reimporting creates a new folder instead of replacing an existing project.
 
 - **Copy project** keeps the original ZIP where it is.
 - **Move ZIP** registers the project first, verifies a saved archive, then moves the original into `Projects/Archives`. A failed move keeps the original and displays a message.
@@ -46,7 +46,7 @@ PDF cards use a matching compiled PDF where available; missing previews are comp
 
 ## Google Drive backup
 
-Open **Settings → Backup** to connect your own Google account:
+Open **Settings → Google Drive** to connect your own Google account:
 
 1. Create a Google Cloud project, enable Google Drive API, and configure the OAuth consent screen. Add your account as a test user while the OAuth app is in Testing.
 2. Add the non-sensitive `https://www.googleapis.com/auth/drive.file` scope.
@@ -55,7 +55,7 @@ Open **Settings → Backup** to connect your own Google account:
 
 The JSON is copied into local app settings outside your projects. Access and refresh tokens are stored in Windows Credential Manager. Keep the original JSON in `Keys/` or outside your project folders. `Keys/`, standard OAuth-client JSON filenames, and the app’s saved configuration are excluded from source publication/project exports; no credentials are shipped in releases.
 
-**Back up automatically after saving** creates versioned project ZIPs in a `Lemlio Backups` folder in your Google Drive after an editing pause. Pending jobs stay locally queued when offline and retry while Lemlio is open, including after restarting the app. **Back up all projects** saves the initial library; **Back up open project** makes a manual snapshot. Existing backups remain until you remove them in Drive. Download a backup ZIP from Drive and import it to restore a project.
+**Back up automatically after saving** creates versioned project ZIPs in a `Lemlio Backups` folder in your Google Drive after an editing pause. Pending jobs stay locally queued when offline and retry while Lemlio is open, including after restarting the app. Newly imported projects are queued automatically. **Back up all projects** also saves the library manually; **Back up open project** makes a manual snapshot. Existing backups remain until you remove them in Drive. Download a backup ZIP from Drive and import it to restore a project.
 
 Standard Drive API use has [no additional API charge](https://developers.google.com/workspace/drive/api/guides/limits); uploads use your Google storage. OAuth apps in Testing may require reconnection. Drive for desktop folder sync is also an option, but is not required for the direct connection. Background backups require Lemlio to be running.
 

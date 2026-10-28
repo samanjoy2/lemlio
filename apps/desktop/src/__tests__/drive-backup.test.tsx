@@ -8,6 +8,34 @@ function BackupListener() {
   useDriveBackup();
   return null;
 }
+it("automatically backs up newly imported projects without a manual save", async () => {
+  (
+    globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.clear();
+  useSettingsStore.setState({ autoDriveBackup: true });
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "list_imported_projects")
+      return { projects: [{ path: "C:/Imported" }] };
+    if (command === "drive_status") return { connected: true };
+    return { lastBackup: 1234567890 };
+  });
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<BackupListener />));
+    expect(invoke).toHaveBeenCalledWith("drive_backup_project", {
+      projectPath: "C:/Imported",
+    });
+    expect(JSON.parse(localStorage.getItem("lemlio-drive-pending")!)).toEqual(
+      [],
+    );
+    expect(localStorage.getItem("lemlio-drive-project-status")).toContain(
+      "1234567890",
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
 it("retains offline backups across retries and clears them only after upload succeeds", async () => {
   (
     globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
