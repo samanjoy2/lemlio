@@ -1,10 +1,10 @@
 {
   "name": "@prismpro/root",
   "description": "Open-Source AI LaTeX writing workspace",
-  "version": "1.1.6",
+  "version": "1.2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/delibae/claude-prism"
+    "url": "https://github.com/samanjoy2/lemlio"
   },
   "private": true,
   "workspaces": [
@@ -17,7 +17,7 @@
     "build:desktop": "pnpm --filter=@prismpro/desktop tauri build",
     "lint": "pnpm exec biome check",
     "lint:fix": "pnpm exec biome check --fix",
-    "release": "echo 'To release: git tag v<version> && git push origin v<version>'",
+    "release": "echo 'To release: git tag lemlio-v<version> && git push origin lemlio-v<version>'",
     "prepare": "husky"
   },
   "devDependencies": {
@@ -25,7 +25,7 @@
     "husky": "^9.1.7",
     "turbo": "^2.7.6"
   },
-  "packageManager": "pnpm@10.28.2",
+  "packageManager": "pnpm@11.25.0",
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"

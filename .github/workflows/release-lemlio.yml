@@ -16,8 +16,6 @@ jobs:
         with:
           node-version: 22
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.4
       - uses: dtolnay/rust-toolchain@stable
       - run: pnpm install --frozen-lockfile
       - run: powershell -ExecutionPolicy Bypass -File scripts/prepare-windows.ps1
@@ -31,7 +29,7 @@ jobs:
           New-Item -ItemType Directory -Force portable | Out-Null
           Copy-Item apps/desktop/src-tauri/target/release/prismpro-desktop.exe portable/Lemlio.exe
           Copy-Item LICENSE,README.md portable/
-          Copy-Item apps/desktop/src-tauri/target/release/resources portable/resources -Recurse
+          Copy-Item apps/desktop/src-tauri/resources portable/resources -Recurse
           New-Item -ItemType Directory -Force portable/assets | Out-Null
           Copy-Item assets/lemlio.svg portable/assets/
           Copy-Item assets/screenshots portable/assets/screenshots -Recurse
