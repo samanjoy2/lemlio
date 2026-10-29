@@ -58,6 +58,12 @@ export function updateDriveBackup(
   };
   localStorage.setItem(KEY, JSON.stringify(statuses));
   window.dispatchEvent(new Event(DRIVE_UPDATED));
+  if (stage === "saved" && result?.sourceRevision)
+    window.dispatchEvent(
+      new CustomEvent("lemlio-drive-confirmed", {
+        detail: { path, ...result },
+      }),
+    );
 }
 
 export function pauseDriveProject(path: string, paused: boolean) {

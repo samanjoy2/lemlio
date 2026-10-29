@@ -151,7 +151,15 @@ export function WindowHeader() {
           type="button"
           aria-label="Close window"
           className="app-window-close"
-          onClick={() => void saveThen(() => getCurrentWindow().close())}
+          onClick={() =>
+            void getCurrentWindow()
+              .close()
+              .catch((error) =>
+                toast.error("Could not close Lemlio", {
+                  description: String(error),
+                }),
+              )
+          }
         >
           <XIcon size={15} />
         </button>

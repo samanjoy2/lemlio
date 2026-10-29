@@ -10,14 +10,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.2.4"><img alt="Release 1.2.4" src="https://img.shields.io/badge/release-1.2.4-5fb7a5?style=flat-square" /></a>
+  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.2.5"><img alt="Release 1.2.5" src="https://img.shields.io/badge/release-1.2.5-5fb7a5?style=flat-square" /></a>
   <a href="https://github.com/samanjoy2/lemlio/releases/latest"><img alt="Download Windows x64 installer" src="https://img.shields.io/badge/download-Windows_x64-5fb7a5?style=flat-square&amp;logo=windows" /></a>
   <img alt="Built with Tauri and React" src="https://img.shields.io/badge/Tauri-React-273e43?style=flat-square&amp;logo=tauri" />
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-273e43?style=flat-square" /></a>
 </p>
 
 <p align="center">
-  <a href="#download-and-install"><strong>Download for Windows</strong></a>
+  <a href="#download-and-install"><strong>Download Lemlio</strong></a>
   · <a href="#what-you-can-do">Features</a>
   · <a href="#a-look-inside">Screenshots</a>
   · <a href="#google-drive-backup">Google Drive</a>
@@ -35,7 +35,7 @@ Lemlio brings your LaTeX projects into a searchable library with PDF covers, an 
 | Feature | In Lemlio |
 | --- | --- |
 | **Browse your projects** | PDF thumbnails, search, favorites, recent projects, and grid or list views. Failed previews use a document fallback. |
-| **Keep projects organized** | Rename titles, see creation and modification dates, or delete a project to the Windows Recycle Bin with confirmation. Use the project menu or right-click for actions. |
+| **Keep projects organized** | Rename titles, see creation and modification dates, or delete a project to the system Trash or Recycle Bin with confirmation. Use the project menu or right-click for actions. |
 | **Write beside your PDF** | LaTeX editing, document outline, source navigation, a visible main-file selector, and a sharper PDF that stays open while you browse related files. |
 | **Work with Codex** | Use your Codex sign-in, stream replies, choose a named model, review approval requests, and return to saved chats. GPT-6 Luna is the default model. |
 | **See what is happening** | A centered compilation orb, a breathing **Agent thinking…** pill, colorful chat borders, and an explicit **Stop agent** button. |
@@ -47,24 +47,26 @@ Lemlio brings your LaTeX projects into a searchable library with PDF covers, an 
 
 ## Download and install
 
-Lemlio **1.2.4** is available as a **Windows x64 installer**.
+Lemlio **1.2.5** includes a **Windows x64 installer** and **macOS disk images for Apple Silicon and Intel**.
 
 1. Open the [latest GitHub release](https://github.com/samanjoy2/lemlio/releases/latest).
-2. Under **Assets**, download `Lemlio_1.2.4_x64-setup.exe`. GitHub's source-code ZIP is for development.
+2. Under **Assets**, download `Lemlio_1.2.5_x64-setup.exe`. GitHub's source-code ZIP is for development.
 3. Close an older running copy of Lemlio or PrismPro, then run the installer.
 4. Open Lemlio and create a project, open a folder, or select **Import ZIP**.
 
-The release also includes `Lemlio-1.2.4-SHA256SUMS.txt`. To compare your download with its published checksum:
+On macOS, choose the **AppleSilicon** image for an M-series Mac or **Intel** for an Intel Mac. Open the DMG and drag Lemlio into Applications. Tectonic and Latin Modern fonts are included; Homebrew is not required. The Mac app is ad hoc signed and is **not Apple notarized**. macOS may require approval in **System Settings → Privacy & Security** after an initial launch attempt.
+
+The release also includes `Lemlio-1.2.5-SHA256SUMS.txt`. To compare your download with its published checksum:
 
 ```powershell
-Get-FileHash .\Lemlio_1.2.4_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Lemlio_1.2.5_x64-setup.exe -Algorithm SHA256
 ```
 
 The installer is currently unsigned, so Windows may identify its publisher as unknown. This repository is private; viewing releases and downloading assets requires repository access.
 
 ### Updating
 
-Close Lemlio and run the newer Windows setup. The installer detects the existing installation; choose to continue without uninstalling to update in place. Projects, saved settings, and your Google Drive connection are retained. **Settings → About → Download latest update** opens the release page.
+Close Lemlio and run the newer Windows setup. The installer detects the existing installation; choose to continue without uninstalling to update in place. On macOS, replace the older copy in Applications. Projects, saved settings, and your Google Drive connection are retained. **Settings → About → Download latest update** opens the release page.
 
 ### First launch
 
@@ -82,6 +84,8 @@ Codex uses your account's allowance; Lemlio does not include an AI subscription.
 ## Voice prompts and main documents
 
 Click the microphone in Codex chat to dictate with Windows speech recognition. A colorful glow responds to the microphone; words go into the editable prompt and are sent only when you press Send. Stop with the square button or close the chat. Windows needs an installed speech recognizer and microphone permission. **Settings → Voice** explains how to install a speech language. No extra OpenAI API key is required; recognition is unavailable until that Windows component is installed.
+
+On macOS, use the system Dictation shortcut in the prompt. The microphone button opens Voice setup; the Windows speech recorder is Windows-only.
 
 The tree marks the compile target **MAIN**, colors LaTeX files teal and bibliography files amber, and offers **Use as main compile file**. The PDF panel also has a **Compile file** dropdown. Lemlio remembers your choice per project; opening another complete document switches the target, while a bibliography, figure, or included chapter keeps the current PDF.
 
@@ -108,7 +112,7 @@ One compact indicator shows agent activity. The microphone inserts editable prom
 
 </details>
 
-Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.2.4.md) for checks and practical limits.
+Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.2.5.md) for checks and practical limits.
 
 ## Import, export, and local files
 
@@ -129,7 +133,9 @@ Imported projects live under:
 %LOCALAPPDATA%\Lemlio\Projects\Imports
 ```
 
-Project dates come from local filesystem timestamps. PDF covers use an existing matching compiled PDF when available; otherwise Lemlio attempts to generate a preview. A compilation failure produces a default document cover.
+Project dates come from local filesystem timestamps. PDF covers are cached on disk: the first visit uses an existing matching PDF or attempts one preview compilation. Reopening the library reuses the saved cover. Compiling the project refreshes it; a failed compilation records a document fallback.
+
+Collections are predefined: Papers, CVs, Proposals, Posters, and Other. Classification uses the original folder/project name and sometimes the main filename. Renaming the displayed project title does not recategorize it. Custom collections and manual category editing are not available yet.
 
 ## Google Drive backup
 
@@ -142,7 +148,7 @@ The home page shows **Google Drive connected** or a connection prompt beside the
 3. Create an OAuth client with application type **Desktop app** and download its JSON.
 4. In **Settings → Google Drive**, select **Choose OAuth JSON**, then **Connect Google Drive** and approve Google's sign-in.
 
-Each installation uses the OAuth JSON you choose. Lemlio copies it into local app settings, outside your projects. Access and refresh tokens are stored in Windows Credential Manager. No personal Google credentials are shipped in the installer.
+Each installation uses the OAuth JSON you choose. Lemlio copies it into local app settings, outside your projects. Access and refresh tokens are stored in Windows Credential Manager or macOS Keychain. No personal Google credentials are shipped in the installer.
 
 ### What happens automatically
 
@@ -150,10 +156,18 @@ Each installation uses the OAuth JSON you choose. Lemlio copies it into local ap
 - **Drive backup:** with automatic backup enabled, saved changes queue for upload after about 15 seconds. Newly imported projects queue too.
 - **Retries:** pending jobs are checked every minute while Lemlio is open. The queue survives app restarts, so failed uploads can be retried later.
 - **ZIP snapshots:** each project has one ZIP inside **Lemlio Backups**. Saved PC files are the source of truth. Local changes replace the complete archive; unchanged archives are skipped. External local changes are checked every minute while the app is open.
-- **Conflicts:** if a Drive ZIP changes outside Lemlio, review it before replacement. Choose the PC version to replace that specific Drive version, or keep the Drive copy and pause that project's backups. Neither choice downloads Drive files into your working folder.
+- **Conflicts:** if a Drive ZIP changes on another device or outside Lemlio, review it before replacement. Idle projects are checked every minute while the app is open. Choose the PC version to replace that specific Drive version, or keep the Drive copy and pause that project's backups. Neither choice downloads Drive files into your working folder.
 - **Status:** the home page summarizes every project's backup, including pending, failed, and conflicting projects. The editor shows the open project's confirmed backup age.
 - **Reset:** Settings → Google Drive can move the old backup folder to Trash and start fresh. If Google blocks a reset because the folder contains items outside the app's access, move the folder to Trash through Drive's own page, then retry Reset.
-- **Manual recovery:** download a project ZIP and explicitly import it when you want to recover a copy. Lemlio never automatically restores Drive content over PC files.
+- **New device or recovery:** select **Restore from Google Drive** from the home-page Drive menu or Settings → Google Drive. Select backups and restore them into new local project folders. Restored projects keep their Drive identity, so their next backup updates the same archive. Existing local folders are never overwritten by restoration.
+
+### Moving to a new computer
+
+Install Lemlio, choose your Desktop OAuth JSON, and connect the **same Google account and Google Cloud OAuth project** used for the backups. Select **Restore from Google Drive**, choose your projects, and restore. Nothing is downloaded merely by connecting. After restoration, edit the local copies normally; they become the source for future backups. If another device changes a backup, Lemlio asks you to review the conflict before replacing it.
+
+### Closing safely
+
+When you close Lemlio, it saves open edits and checks every project against Drive. The dialog shows confirmed backups, pending uploads, or conflicts and offers **Back up and close**. **Do not ask again when everything is backed up** skips the dialog only after all projects are verified and no compilation or agent is active. You can change this preference in Settings → General. Pending, disconnected, conflicting, or unsaved work still requires attention.
 
 Automatic backup is enabled by default, but requires a connected Google account and Lemlio to be running. This is a desktop backup workflow; there is no live browser collaboration or background upload service after the app closes. Changes that have not reached Drive are not protected against loss of the PC.
 
@@ -161,7 +175,7 @@ Standard Drive API use has [no additional API charge](https://developers.google.
 
 ### Fonts and EPS figures
 
-The Windows installer includes Latin Modern 2.005 under the GUST Font License. Bundled Tectonic can find these fonts and installed Windows fonts without modifying the system font installation. If Ghostscript or MiKTeX's converter is already installed, Lemlio converts EPS figures to PDF in the staged build copy; originals remain unchanged. EPS projects on PCs without a converter require Ghostscript or PDF versions of those figures. Tectonic remains the compiler.
+The Windows and macOS releases include Latin Modern 2.005 under the GUST Font License. Bundled Tectonic can find these fonts and installed Windows fonts without modifying the system font installation. If Ghostscript or MiKTeX's converter is already installed, Lemlio converts EPS figures to PDF in the staged build copy; originals remain unchanged. EPS projects on PCs without a converter require Ghostscript or PDF versions of those figures. Tectonic remains the compiler.
 
 ## Privacy and storage
 
@@ -171,7 +185,7 @@ The Windows installer includes Latin Modern 2.005 under the GUST Font License. B
 | **Codex requests** | Prompts and files used by the agent are sent to the configured model provider. |
 | **Drive backups** | Project folders and files are uploaded to your connected Google account when you enable backup. |
 | **OAuth client JSON** | Copied into local app settings. Keep your original outside project folders or in `Keys/`. |
-| **Google sign-in tokens** | Stored in Windows Credential Manager. |
+| **Google sign-in tokens** | Stored in Windows Credential Manager or macOS Keychain. |
 | **Installer and source repository** | Exclude personal projects, local build tools, and saved credentials. |
 
 Project exports exclude `Keys/` and recognized OAuth-client configuration filenames. Keep other sensitive files outside projects you export or back up.
@@ -190,6 +204,16 @@ pnpm --filter @prismpro/desktop tauri build --bundles nsis
 
 The preparation script downloads and checks the official Windows Tectonic binary. The installer is written under `apps/desktop/src-tauri/target/release/bundle/nsis`.
 
+On a Mac with Xcode command-line tools, Node, pnpm, and Rust:
+
+```bash
+pnpm install --frozen-lockfile
+bash scripts/prepare-macos.sh
+pnpm --filter @prismpro/desktop tauri build --bundles app,dmg
+```
+
+This produces a native disk image for the Mac's architecture under `apps/desktop/src-tauri/target/release/bundle/dmg`.
+
 Useful checks:
 
 ```powershell
@@ -199,7 +223,7 @@ pnpm --filter @prismpro/desktop test
 cargo test --release --lib --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
-The internal workspace package remains `@prismpro/desktop`. Windows is the packaged release target; other platforms require their own native build dependencies. The release workflow builds and uploads a Windows installer and portable archive when a `lemlio-v*` tag is pushed.
+The internal workspace package remains `@prismpro/desktop`. Windows and macOS releases are built natively. Separate GitHub workflows build Windows and both Mac architectures; macOS packaging verifies signing, bundled dependencies, and a real Tectonic font compilation.
 
 ### Project layout
 
@@ -207,7 +231,7 @@ The internal workspace package remains `@prismpro/desktop`. Windows is the packa
 apps/desktop/src/             React editor, project library, settings, and chat
 apps/desktop/src-tauri/src/   Rust backend, compilation, ZIP transfers, Drive OAuth
 assets/                      Lemlio icon and demonstration screenshots
-scripts/                     Windows build preparation and development checks
+scripts/                     Windows/macOS build preparation and development checks
 examples/                    Starter LaTeX project
 releases/                    Local release output; ignored by Git
 ```

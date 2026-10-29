@@ -26,6 +26,7 @@ export type CloseBackupSummary = {
 function activeWork() {
   return (
     useDocumentStore.getState().isCompiling ||
+    useCodexChatStore.getState().isStreaming ||
     useCodexChatStore.getState().tabs.some((t) => t.isStreaming)
   );
 }
@@ -40,7 +41,10 @@ export function CloseConfirmation() {
   const skip = useSettingsStore((s) => s.skipCloseWhenBackedUp);
   const setSkip = useSettingsStore((s) => s.setSkipCloseWhenBackedUp);
   const compiling = useDocumentStore((s) => s.isCompiling);
-  const streaming = useCodexChatStore((s) => s.tabs.some((t) => t.isStreaming));
+  const streaming = useCodexChatStore(
+    (s) => s.isStreaming || s.tabs.some((t) => t.isStreaming),
+  );
+  const dirty = useDocumentStore((s) => s.files.some((f) => f.isDirty));
   const close = async () => {
     allowed.current = true;
     try {
@@ -108,7 +112,7 @@ export function CloseConfirmation() {
       void listening.then((stop) => stop());
     };
   }, []);
-  const complete = summary?.allBackedUp && !error;
+  const complete = summary?.allBackedUp && !error && !dirty;
   const count =
     summary?.projects.filter((p) => p.status === "saved").length || 0;
   return (
@@ -247,12 +251,36 @@ export function CloseConfirmation() {
               Back up and close
             </Button>
           )}
-          <Button disabled={checking} onClick={() => void close()}>
+          <Button
+            disabled={checking}
+            variant={dirty ? "destructive" : "default"}
+            onClick={() =>
+              void (async () => {
+                if (!complete) {
+                  await close();
+                  return;
+                }
+                setChecking(true);
+                setMessage("Confirming the latest saved versions…");
+                try {
+                  const result = await check();
+                  if (result.allBackedUp) await close();
+                } catch (e) {
+                  setError(String(e));
+                } finally {
+                  setChecking(false);
+                  setMessage("");
+                }
+              })()
+            }
+          >
             {complete
               ? "Close Lemlio"
-              : error
-                ? "Close anyway"
-                : "Close with pending backups"}
+              : dirty
+                ? "Close without saving"
+                : error
+                  ? "Close anyway"
+                  : "Close with pending backups"}
           </Button>
         </div>
       </DialogContent>

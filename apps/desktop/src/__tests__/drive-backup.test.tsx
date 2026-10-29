@@ -7,11 +7,59 @@ import { useSettingsStore } from "@/stores/settings-store";
 import {
   updateDriveBackup,
   pauseDriveProject,
+  projectDriveStatus,
 } from "@/lib/drive-backup-status";
 function BackupListener() {
   useDriveBackup();
   return null;
 }
+it("detects another device's Drive changes without editing or uploading the PC copy", async () => {
+  (
+    globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.clear();
+  useSettingsStore.setState({ autoDriveBackup: true });
+  localStorage.setItem("lemlio-drive-layout", "zip-v3");
+  updateDriveBackup("C:/Idle", "saved", {
+    lastBackup: 100,
+    sourceRevision: "pc-original",
+  });
+  vi.mocked(invoke).mockClear();
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "list_imported_projects")
+      return { projects: [{ path: "C:/Idle" }] };
+    if (command === "drive_project_revision") return "pc-original";
+    if (command === "drive_backup_summary")
+      return {
+        connected: true,
+        projects: [
+          {
+            path: "C:/Idle",
+            status: "conflict",
+            conflict: { name: "Paper.zip", remoteHash: "other-device" },
+          },
+        ],
+      };
+    return { connected: true };
+  });
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<BackupListener />));
+    expect(projectDriveStatus("C:/Idle").conflict?.remoteHash).toBe(
+      "other-device",
+    );
+    expect(invoke).not.toHaveBeenCalledWith(
+      "drive_backup_project",
+      expect.anything(),
+    );
+    expect(invoke).not.toHaveBeenCalledWith(
+      "drive_restore_project",
+      expect.anything(),
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
 it("detects externally changed PC files and migrates older folder backups to ZIP", async () => {
   (
     globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }

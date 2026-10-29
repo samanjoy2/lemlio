@@ -428,6 +428,10 @@ fn import_into(root: &Path, source: &Path, mode: ImportMode) -> Result<ImportRes
 pub(crate) fn restore_snapshot(source: &Path) -> Result<ImportResult, String> {
     import_with_options(&library_root()?, source, ImportMode::Copy, true)
 }
+pub(crate) fn restore_snapshot_in(root: &Path, source: &Path) -> Result<ImportResult, String> {
+    ensure_library_layout(root)?;
+    import_with_options(root, source, ImportMode::Copy, true)
+}
 fn import_with_options(
     root: &Path,
     source: &Path,
@@ -735,6 +739,35 @@ pub async fn export_project_zip(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn restore_keeps_one_snapshot_and_never_overwrites_an_existing_folder() {
+        use std::io::Write;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("Library");
+        ensure_library_layout(&root).unwrap();
+        let existing = root.join("Imports/Paper");
+        fs::create_dir_all(&existing).unwrap();
+        fs::write(existing.join("main.tex"), "PC original").unwrap();
+        let archive = temp.path().join("Paper.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&archive).unwrap());
+        let options = zip::write::FileOptions::default();
+        zip.start_file("main.tex", options).unwrap();
+        zip.write_all(b"restored source").unwrap();
+        zip.start_file("export-errors.json", options).unwrap();
+        zip.write_all(b"{}").unwrap();
+        zip.finish().unwrap();
+        let result = import_with_options(&root, &archive, ImportMode::Copy, true).unwrap();
+        assert_eq!(result.projects.len(), 1);
+        assert_ne!(Path::new(&result.storage_path), existing);
+        assert_eq!(
+            fs::read_to_string(existing.join("main.tex")).unwrap(),
+            "PC original"
+        );
+        assert_eq!(
+            fs::read_to_string(Path::new(&result.storage_path).join("main.tex")).unwrap(),
+            "restored source"
+        );
+    }
     #[test]
     fn fresh_library_creates_import_and_archive_folders() {
         let temp = tempfile::tempdir().unwrap();

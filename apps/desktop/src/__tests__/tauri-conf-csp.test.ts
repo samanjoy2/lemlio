@@ -38,3 +38,13 @@ describe("tauri.conf.json CSP configuration", () => {
     expect(fontSrc).toContain("data:");
   });
 });
+it("allows the approved destruction used by Tauri's close-request listener", () => {
+  const capabilities = JSON.parse(
+    readFileSync(
+      resolve(__dirname, "../../src-tauri/capabilities/default.json"),
+      "utf-8",
+    ),
+  );
+  expect(capabilities.permissions).toContain("core:window:allow-close");
+  expect(capabilities.permissions).toContain("core:window:allow-destroy");
+});

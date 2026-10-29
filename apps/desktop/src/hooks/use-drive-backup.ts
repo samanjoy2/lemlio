@@ -27,6 +27,7 @@ export function useDriveBackup() {
     for (const item of queue.values()) updateDriveBackup(item.path, "pending");
     let timer: ReturnType<typeof setTimeout> | undefined;
     let uploading = false;
+    let discovering = false;
     let sequence = 0;
     let warned = false;
     let disposed = false;
@@ -98,7 +99,8 @@ export function useDriveBackup() {
       timer = setTimeout(() => void pump(), 15000);
     };
     const discover = async () => {
-      if (!useSettingsStore.getState().autoDriveBackup) return;
+      if (!useSettingsStore.getState().autoDriveBackup || discovering) return;
+      discovering = true;
       try {
         const library = await invoke<ProjectCatalogData>(
           "list_imported_projects",
@@ -135,10 +137,58 @@ export function useDriveBackup() {
           }
         }
         persist();
+        const versions = new Map(
+          [...queue].map(([key, item]) => [key, item.version]),
+        );
+        const verification = await invoke<{
+          connected: boolean;
+          projects: {
+            path: string;
+            status: string;
+            lastBackup?: number;
+            sourceRevision?: string;
+            conflict?: unknown;
+          }[];
+        }>("drive_backup_summary", { projectPaths: paths }).catch(
+          () => undefined,
+        );
+        if (disposed) return;
+        if (verification?.connected)
+          for (const row of verification.projects || []) {
+            const current = projectDriveStatus(row.path);
+            const key = projectPathKey(row.path);
+            if (current.paused) continue;
+            if (row.status === "conflict" && row.conflict)
+              updateDriveBackup(row.path, "failed", {
+                error: `DRIVE_CONFLICT:${JSON.stringify(row.conflict)}`,
+              });
+            else if (
+              row.status === "saved" &&
+              row.sourceRevision &&
+              !current.uploading &&
+              (!queue.has(key) || queue.get(key)?.version === versions.get(key))
+            ) {
+              queue.delete(key);
+              updateDriveBackup(row.path, "saved", row);
+            } else if (
+              row.status === "pending" &&
+              !current.conflict &&
+              !queue.has(key)
+            ) {
+              queue.set(key, {
+                path: row.path,
+                version: `${Date.now()}-${++sequence}`,
+              });
+              updateDriveBackup(row.path, "pending");
+            }
+          }
+        persist();
         localStorage.setItem("lemlio-drive-layout", "zip-v3");
         void pump();
       } catch {
         /* Existing queued backups still retry independently. */
+      } finally {
+        discovering = false;
       }
     };
     const connected = () => {
@@ -149,6 +199,28 @@ export function useDriveBackup() {
       queue.delete(projectPathKey((event as CustomEvent<string>).detail));
       persist();
     };
+    const confirmed = (event: Event) => {
+      const result = (
+        event as CustomEvent<{ path: string; sourceRevision: string }>
+      ).detail;
+      const key = projectPathKey(result.path);
+      const item = queue.get(key);
+      if (!item) return;
+      void invoke<string>("drive_project_revision", {
+        projectPath: result.path,
+      })
+        .then((revision) => {
+          if (
+            !disposed &&
+            revision === result.sourceRevision &&
+            queue.get(key)?.version === item.version
+          ) {
+            queue.delete(key);
+            persist();
+          }
+        })
+        .catch(() => {});
+    };
     const retry = setInterval(() => {
       void discover();
       void pump();
@@ -158,6 +230,7 @@ export function useDriveBackup() {
     window.addEventListener("lemlio-drive-connected", connected);
     window.addEventListener("project-library-changed", connected);
     window.addEventListener("lemlio-project-deleted", deleted);
+    window.addEventListener("lemlio-drive-confirmed", confirmed);
     void discover();
     return () => {
       disposed = true;
@@ -167,6 +240,7 @@ export function useDriveBackup() {
       window.removeEventListener("lemlio-drive-connected", connected);
       window.removeEventListener("project-library-changed", connected);
       window.removeEventListener("lemlio-project-deleted", deleted);
+      window.removeEventListener("lemlio-drive-confirmed", confirmed);
     };
   }, []);
 }
