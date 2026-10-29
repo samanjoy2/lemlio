@@ -1,6 +1,6 @@
 {
   "bundle": {
-    "resources": ["resources/tectonic/*"]
+    "resources": ["resources/tectonic/**/*"]
   },
   "app": {
     "windows": [

@@ -644,6 +644,12 @@ export function PdfPreview() {
       window.removeEventListener("toggle-capture-mode", handleToggleCapture);
   }, [pdfData]);
 
+  useEffect(() => {
+    const compile = () => void handleCompile(true);
+    window.addEventListener("lemlio-compile-preview", compile);
+    return () => window.removeEventListener("lemlio-compile-preview", compile);
+  }, [handleCompile]);
+
   const renderContent = () => {
     if (isCompiling && !pdfData)
       return (

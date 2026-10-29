@@ -1,5 +1,6 @@
 import { AppSettings } from "@/components/app-settings";
 import { DriveStatus } from "@/components/drive-status";
+import { DriveBackupOverview } from "@/components/drive-backup-overview";
 import { VoiceStatus } from "@/components/voice-status";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
@@ -194,6 +195,26 @@ export function ProjectPicker() {
     setShowModeDialog(false);
     setWizardMode(mode);
   };
+  useEffect(() => {
+    const action = (event: Event) => {
+      switch ((event as CustomEvent<string>).detail) {
+        case "new":
+          setShowModeDialog(true);
+          break;
+        case "import":
+          setImportOpen(true);
+          break;
+        case "open":
+          void openFolder();
+          break;
+        case "refresh":
+          refresh();
+          break;
+      }
+    };
+    window.addEventListener("lemlio-library-action", action);
+    return () => window.removeEventListener("lemlio-library-action", action);
+  }, [openFolder, refresh]);
   if (wizardMode)
     return (
       <ProjectWizard mode={wizardMode} onBack={() => setWizardMode(null)} />
@@ -401,6 +422,7 @@ export function ProjectPicker() {
               <CodexSetup />
             </div>
           )}
+          <DriveBackupOverview projects={projects} />
           <div className="home-toolbar">
             <div className="home-project-tabs">
               <button

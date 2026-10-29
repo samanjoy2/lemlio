@@ -14,3 +14,25 @@ if (!(Test-Path (Join-Path $resourceDir 'tectonic.exe'))) {
     Remove-Item -LiteralPath $archive
 }
 Write-Host 'Tectonic is ready.'
+
+$fontDir = Join-Path $resourceDir 'fonts'
+if (!(Test-Path (Join-Path $fontDir 'lmsans10-regular.otf'))) {
+    Write-Host 'Preparing Latin Modern 2.005 fonts for bundled Tectonic...'
+    $fontArchive = Join-Path $resourceDir 'latin-modern.zip'
+    Invoke-WebRequest 'https://mirrors.ctan.org/fonts/lm.zip' -OutFile $fontArchive
+    if ((Get-FileHash $fontArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '71c48809cb50fbfe09c8eddaa251398957c7b243acdf69f7f807268f0d42c939') {
+        throw 'Latin Modern checksum did not match the pinned CTAN package.'
+    }
+    New-Item -ItemType Directory -Force $fontDir | Out-Null
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $fonts = [IO.Compression.ZipFile]::OpenRead($fontArchive)
+    try {
+        foreach ($entry in $fonts.Entries) {
+            if ($entry.FullName -match '\.otf$|GUST-FONT-LICENSE.TXT$|README-Latin-Modern.TXT$|MANIFEST-Latin-Modern.TXT$') {
+                [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $fontDir $entry.Name), $true)
+            }
+        }
+    } finally { $fonts.Dispose() }
+    Remove-Item -LiteralPath $fontArchive
+}
+Write-Host 'Bundled fonts are ready.'

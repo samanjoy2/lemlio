@@ -484,7 +484,9 @@ pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<
             "Tectonic is missing. Run scripts/prepare-windows.ps1 or install Tectonic.".to_string()
         })?
     };
-    let output = std::process::Command::new(binary)
+    let mut command = std::process::Command::new(&binary);
+    let _font_config = crate::fonts::configure(&mut command, &binary)?;
+    let output = command
         .args([
             "--synctex",
             "--keep-logs",
@@ -1030,6 +1032,9 @@ pub(crate) async fn compile_project(
     let main_tex_content = std::fs::read_to_string(&main_tex_path).unwrap_or_default();
     crate::latex_compat::prepare_xcolor(&build_root, &main_tex_path)
         .map_err(|error| format!("Cannot prepare package options: {error}"))?;
+    if !use_texlive {
+        crate::eps::prepare(&std::fs::canonicalize(&build_root).map_err(|e| e.to_string())?)?;
+    }
     let engine = detect_tex_engine(&main_tex_content);
 
     // Save engine name before `engine` is moved into the spawn_blocking closure
@@ -1175,9 +1180,25 @@ pub(crate) async fn compile_project(
     } else {
         let log_content = std::fs::read_to_string(&log_path).unwrap_or_default();
         let details = extract_error_lines(&log_content);
-        let msg = if details.is_empty() {
+        let msg = if details.is_empty() || !has_real_errors(&log_content) {
             match compile_result {
-                Err(e) => e,
+                Err(e) => {
+                    let important = e
+                        .lines()
+                        .filter(|line| {
+                            line.starts_with("error:")
+                                || line.starts_with("caused by:")
+                                || line.contains("PostScript images are not supported")
+                        })
+                        .take(12)
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if important.is_empty() {
+                        e
+                    } else {
+                        important
+                    }
+                }
                 Ok(_) => "Compilation failed: no PDF generated".to_string(),
             }
         } else {

@@ -12,6 +12,7 @@ interface ProjectState {
   lastProjectFolder: string | null;
   addRecentProject: (path: string) => void;
   removeRecentProject: (path: string) => void;
+  forgetProject: (path: string) => void;
   setLastProjectFolder: (path: string) => void;
 }
 
@@ -63,6 +64,24 @@ export const useProjectStore = create<ProjectState>()(
           ),
         }));
       },
+      forgetProject: (path) =>
+        set((state) => {
+          const key = projectPathKey(path);
+          return {
+            knownProjects: state.knownProjects.filter(
+              (p) => projectPathKey(p.path) !== key,
+            ),
+            recentProjects: state.recentProjects.filter(
+              (p) => projectPathKey(p.path) !== key,
+            ),
+            starredPaths: state.starredPaths.filter((p) => p !== key),
+            lastProjectFolder:
+              state.lastProjectFolder &&
+              projectPathKey(state.lastProjectFolder) === key
+                ? null
+                : state.lastProjectFolder,
+          };
+        }),
     }),
     {
       name: "prismpro-projects",

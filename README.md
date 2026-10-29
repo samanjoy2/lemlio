@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.2.3"><img alt="Release 1.2.3" src="https://img.shields.io/badge/release-1.2.3-5fb7a5?style=flat-square" /></a>
+  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.2.4"><img alt="Release 1.2.4" src="https://img.shields.io/badge/release-1.2.4-5fb7a5?style=flat-square" /></a>
   <a href="https://github.com/samanjoy2/lemlio/releases/latest"><img alt="Download Windows x64 installer" src="https://img.shields.io/badge/download-Windows_x64-5fb7a5?style=flat-square&amp;logo=windows" /></a>
   <img alt="Built with Tauri and React" src="https://img.shields.io/badge/Tauri-React-273e43?style=flat-square&amp;logo=tauri" />
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-273e43?style=flat-square" /></a>
@@ -26,16 +26,16 @@
 
 ![Lemlio dark project library with PDF covers, connections, and project dates](assets/screenshots/projects-dark.png)
 
-Lemlio brings your LaTeX projects into a searchable library with PDF covers, an editor beside the compiled document, and Codex chat when you need help. Open an existing folder or import a project ZIP, keep working with ordinary local files, and optionally save automatic folder backups to your own Google Drive.
+Lemlio brings your LaTeX projects into a searchable library with PDF covers, an editor beside the compiled document, and Codex chat when you need help. Open an existing folder or import a project ZIP, keep working with ordinary local files, and optionally save automatic ZIP backups to your own Google Drive.
 
-**A fresh installation starts empty.** Your documents, account connections, and Google OAuth JSON are not bundled with the app. Tectonic is included and selected by default; Codex, Google Drive, and MiKTeX can be configured later.
+**A fresh installation starts empty.** Your documents, account connections, and Google OAuth JSON are not bundled with the app. Tectonic and Latin Modern fonts are included, with Tectonic selected by default; Codex, Google Drive, and MiKTeX can be configured later.
 
 ## What you can do
 
 | Feature | In Lemlio |
 | --- | --- |
 | **Browse your projects** | PDF thumbnails, search, favorites, recent projects, and grid or list views. Failed previews use a document fallback. |
-| **Keep projects organized** | Rename titles from the library or inside a project, and see creation and last-modified dates without changing folder paths. |
+| **Keep projects organized** | Rename titles, see creation and modification dates, or delete a project to the Windows Recycle Bin with confirmation. Use the project menu or right-click for actions. |
 | **Write beside your PDF** | LaTeX editing, document outline, source navigation, a visible main-file selector, and a sharper PDF that stays open while you browse related files. |
 | **Work with Codex** | Use your Codex sign-in, stream replies, choose a named model, review approval requests, and return to saved chats. GPT-6 Luna is the default model. |
 | **See what is happening** | A centered compilation orb, a breathing **Agent thinking…** pill, colorful chat borders, and an explicit **Stop agent** button. |
@@ -47,17 +47,17 @@ Lemlio brings your LaTeX projects into a searchable library with PDF covers, an 
 
 ## Download and install
 
-Lemlio **1.2.3** is available as a **Windows x64 installer**.
+Lemlio **1.2.4** is available as a **Windows x64 installer**.
 
 1. Open the [latest GitHub release](https://github.com/samanjoy2/lemlio/releases/latest).
-2. Under **Assets**, download `Lemlio_1.2.3_x64-setup.exe`. GitHub's source-code ZIP is for development.
+2. Under **Assets**, download `Lemlio_1.2.4_x64-setup.exe`. GitHub's source-code ZIP is for development.
 3. Close an older running copy of Lemlio or PrismPro, then run the installer.
 4. Open Lemlio and create a project, open a folder, or select **Import ZIP**.
 
-The release also includes `Lemlio-1.2.3-SHA256SUMS.txt`. To compare your download with its published checksum:
+The release also includes `Lemlio-1.2.4-SHA256SUMS.txt`. To compare your download with its published checksum:
 
 ```powershell
-Get-FileHash .\Lemlio_1.2.3_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Lemlio_1.2.4_x64-setup.exe -Algorithm SHA256
 ```
 
 The installer is currently unsigned, so Windows may identify its publisher as unknown. This repository is private; viewing releases and downloading assets requires repository access.
@@ -108,7 +108,7 @@ One compact indicator shows agent activity. The microphone inserts editable prom
 
 </details>
 
-Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.2.3.md) for checks and practical limits.
+Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.2.4.md) for checks and practical limits.
 
 ## Import, export, and local files
 
@@ -149,12 +149,19 @@ Each installation uses the OAuth JSON you choose. Lemlio copies it into local ap
 - **Local saving:** edited files save after a two-second pause in typing.
 - **Drive backup:** with automatic backup enabled, saved changes queue for upload after about 15 seconds. Newly imported projects queue too.
 - **Retries:** pending jobs are checked every minute while Lemlio is open. The queue survives app restarts, so failed uploads can be retried later.
-- **Normal folders:** each project has its own folder inside **Lemlio Backups**, preserving source and asset subfolders. Changed files update in place; unchanged files are skipped. Files removed locally and old ZIP backups are retained in Drive.
-- **Restoring:** download a project folder from Drive (Google may package the download as a ZIP), then open or import it into Lemlio. Drive edits are not pulled back into your local folder automatically. Manual backups are also available.
+- **ZIP snapshots:** each project has one ZIP inside **Lemlio Backups**. Saved PC files are the source of truth. Local changes replace the complete archive; unchanged archives are skipped. External local changes are checked every minute while the app is open.
+- **Conflicts:** if a Drive ZIP changes outside Lemlio, review it before replacement. Choose the PC version to replace that specific Drive version, or keep the Drive copy and pause that project's backups. Neither choice downloads Drive files into your working folder.
+- **Status:** the home page summarizes every project's backup, including pending, failed, and conflicting projects. The editor shows the open project's confirmed backup age.
+- **Reset:** Settings → Google Drive can move the old backup folder to Trash and start fresh. If Google blocks a reset because the folder contains items outside the app's access, move the folder to Trash through Drive's own page, then retry Reset.
+- **Manual recovery:** download a project ZIP and explicitly import it when you want to recover a copy. Lemlio never automatically restores Drive content over PC files.
 
 Automatic backup is enabled by default, but requires a connected Google account and Lemlio to be running. This is a desktop backup workflow; there is no live browser collaboration or background upload service after the app closes. Changes that have not reached Drive are not protected against loss of the PC.
 
 Standard Drive API use has [no additional API charge](https://developers.google.com/workspace/drive/api/guides/limits); backup files use your Google storage. OAuth apps in Testing may require reconnection. Google Drive for desktop folder syncing is an alternative to the direct account connection.
+
+### Fonts and EPS figures
+
+The Windows installer includes Latin Modern 2.005 under the GUST Font License. Bundled Tectonic can find these fonts and installed Windows fonts without modifying the system font installation. If Ghostscript or MiKTeX's converter is already installed, Lemlio converts EPS figures to PDF in the staged build copy; originals remain unchanged. EPS projects on PCs without a converter require Ghostscript or PDF versions of those figures. Tectonic remains the compiler.
 
 ## Privacy and storage
 

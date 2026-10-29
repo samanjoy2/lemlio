@@ -51,6 +51,10 @@ export function useKeyboardShortcuts() {
       if (
         (e.metaKey || e.ctrlKey) &&
         e.key.toLowerCase() === "x" &&
+        !(
+          e.target instanceof Element &&
+          e.target.closest("input,textarea,[contenteditable=true],.cm-editor")
+        ) &&
         !e.shiftKey &&
         !e.altKey
       ) {

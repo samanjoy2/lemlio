@@ -1,8 +1,11 @@
 mod codex;
 mod drive;
+mod eps;
+mod fonts;
 mod history;
 mod latex;
 mod latex_compat;
+mod project_delete;
 mod projects;
 mod skills;
 mod slash_commands;
@@ -29,6 +32,11 @@ pub fn configure_drive_client(path: &Path) -> Result<(), String> {
 }
 pub fn clear_drive_setup() -> Result<(), String> {
     drive::clear_local_setup()
+}
+pub fn reset_drive_backups_headless() -> Result<serde_json::Value, String> {
+    tokio::runtime::Runtime::new()
+        .map_err(|error| error.to_string())?
+        .block_on(drive::reset_backups(&drive::DriveState::default()))
 }
 pub fn backup_project_headless(path: &str) -> Result<serde_json::Value, String> {
     tokio::runtime::Runtime::new()
@@ -457,7 +465,10 @@ pub fn run() {
             drive::drive_cancel,
             drive::drive_disconnect,
             drive::drive_backup_project,
+            drive::drive_reset_backups,
+            drive::drive_project_revision,
             projects::rename_project,
+            project_delete::delete_project,
             projects::project_details,
             projects::project_titles,
             projects::project_pdf_preview,

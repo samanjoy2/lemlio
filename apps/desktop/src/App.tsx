@@ -1,5 +1,7 @@
 import { ThemeProvider } from "next-themes";
 import { WindowHeader } from "@/components/window-header";
+import { AppContextMenu } from "@/components/app-context-menu";
+import { DeleteProjectDialog } from "@/components/delete-project-dialog";
 import { ErrorBoundary } from "react-error-boundary";
 import { Toaster } from "@/components/ui/sonner";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -97,12 +99,15 @@ export function App({ onReady }: { onReady?: () => void }) {
             data-tauri-drag-region
             className="fixed inset-x-0 top-0 z-[9999] h-[var(--titlebar-height)]"
           />
-          <div className="flex h-full min-h-0 flex-col">
-            <WindowHeader />
-            <div className="min-h-0 flex-1">
-              {projectRoot ? <WorkspaceWithCodex /> : <ProjectPicker />}
+          <AppContextMenu>
+            <div className="flex h-full min-h-0 flex-col">
+              <WindowHeader />
+              <div className="min-h-0 flex-1">
+                {projectRoot ? <WorkspaceWithCodex /> : <ProjectPicker />}
+              </div>
             </div>
-          </div>
+          </AppContextMenu>
+          <DeleteProjectDialog />
           {showDebug && (
             <div className="fixed inset-0 z-[9998] flex items-end justify-center">
               <div

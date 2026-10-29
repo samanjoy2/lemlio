@@ -4,7 +4,19 @@ import { open as chooseFile } from "@tauri-apps/plugin-dialog";
 import { open } from "@tauri-apps/plugin-shell";
 import { Button } from "./ui/button";
 import { ActivityOrb } from "./activity-feedback";
-import { updateDriveBackup, DRIVE_UPDATED } from "@/lib/drive-backup-status";
+import { DriveBackupOverview } from "./drive-backup-overview";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import {
+  updateDriveBackup,
+  resetDriveBackupStatus,
+  DRIVE_UPDATED,
+} from "@/lib/drive-backup-status";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useDocumentStore } from "@/stores/document-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -24,6 +36,7 @@ export function DriveSettings() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [resetOpen, setResetOpen] = useState(false);
   const auto = useSettingsStore((s) => s.autoDriveBackup);
   const setAuto = useSettingsStore((s) => s.setAutoDriveBackup);
   const refresh = () =>
@@ -100,10 +113,10 @@ export function DriveSettings() {
         setMessage(`Backing up project ${i + 1} of ${paths.length}…`);
         updateDriveBackup(paths[i], "uploading");
         try {
-          const result = await invoke<{ lastBackup?: number }>(
-            "drive_backup_project",
-            { projectPath: paths[i] },
-          );
+          const result = await invoke<{
+            lastBackup?: number;
+            sourceRevision?: string;
+          }>("drive_backup_project", { projectPath: paths[i] });
           updateDriveBackup(paths[i], "saved", result);
         } catch (error) {
           updateDriveBackup(paths[i], "failed", { error: String(error) });
@@ -122,7 +135,7 @@ export function DriveSettings() {
     <div className="space-y-4">
       <h3 className="font-medium">Google Drive account</h3>
       <p>
-        Connect your account to save project folders and their files in a{" "}
+        Connect your account to save one ZIP per project in a{" "}
         <strong>Lemlio Backups</strong> folder in your Drive.
       </p>
       <div className="space-y-3 rounded-lg border p-4">
@@ -224,11 +237,11 @@ export function DriveSettings() {
           Automatic backups run after a short pause in saving while Lemlio is
           open and connected. Existing projects can be backed up together below.
           Failed uploads keep your local files and can be retried. Each backup
-          updates ordinary files inside a project folder in Drive. Unchanged
-          files are skipped. Files removed locally and older ZIP backups are
-          kept in Drive; Lemlio does not delete your remote files. This is a
-          one-way backup from this PC; changes made in Drive are not
-          automatically downloaded into your working project.
+          replaces that project's ZIP with a complete snapshot of the saved PC
+          files. Unchanged archives are skipped. PC files are the source of
+          truth; Drive files are never copied into your local project. If a
+          Drive ZIP was edited elsewhere, choose which backup to keep before it
+          is replaced.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -255,6 +268,70 @@ export function DriveSettings() {
           </Button>
         )}
       </div>
+      <DriveBackupOverview />
+      {status?.connected && (
+        <Button
+          variant="outline"
+          disabled={busy}
+          onClick={() => setResetOpen(true)}
+        >
+          Reset Drive backup folder
+        </Button>
+      )}
+      <Dialog
+        open={resetOpen}
+        onOpenChange={(value) => {
+          if (!busy) setResetOpen(value);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Drive backups?</DialogTitle>
+            <DialogDescription>
+              Move the current Lemlio Backups folder and its contents to Drive's
+              Trash, then create a fresh folder for project ZIPs. Your local
+              projects and Google connection stay as they are.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => setResetOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  await invoke("drive_reset_backups");
+                  resetDriveBackupStatus();
+                  window.dispatchEvent(new Event("lemlio-drive-connected"));
+                  setMessage(
+                    "Fresh ZIP backup folder created. Automatic backup will rebuild it from your PC projects.",
+                  );
+                  setResetOpen(false);
+                  await refresh();
+                } catch (e) {
+                  setError(String(e));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "Resetting…" : "Move old folder to Trash & reset"}
+            </Button>
+          </div>
+          {error && (
+            <p role="alert" className="text-destructive text-sm">
+              {error}
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
       {busy && <ActivityOrb compact label={message || "Preparing backup…"} />}
       {!busy && message && (
         <p role="status" className="text-xs">

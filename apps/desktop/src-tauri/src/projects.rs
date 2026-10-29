@@ -116,7 +116,7 @@ fn library_roots() -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
-fn library_root() -> Result<PathBuf, String> {
+pub(crate) fn library_root() -> Result<PathBuf, String> {
     let roots = library_roots();
     let root = roots
         .iter()

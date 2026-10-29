@@ -58,6 +58,8 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
   else if (connection?.connected) {
     if (!projectPath) label = "Google Drive connected";
     else if (project?.uploading) label = "Saving to Drive…";
+    else if (project?.paused) label = "Drive backup paused · PC files kept";
+    else if (project?.conflict) label = "Drive conflict · Choose a version";
     else if (project?.error) label = "Drive backup failed · Will retry";
     else if (!auto) label = "Drive auto-backup paused";
     else if (dirty || project?.pending) label = "Drive backup pending";

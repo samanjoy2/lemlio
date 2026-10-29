@@ -33,10 +33,13 @@ export function useDriveBackup() {
     const persist = () =>
       localStorage.setItem(KEY, JSON.stringify([...queue.values()]));
     const failed = (error: unknown) => {
-      localStorage.setItem("lemlio-drive-backup-error", String(error));
+      const message = String(error).startsWith("DRIVE_CONFLICT:")
+        ? "A Drive ZIP changed outside Lemlio. Review the conflict in Google Drive settings."
+        : String(error);
+      localStorage.setItem("lemlio-drive-backup-error", message);
       if (!warned) {
         toast.error("Google Drive backup will retry", {
-          description: String(error),
+          description: message,
         });
         warned = true;
       }
@@ -55,12 +58,14 @@ export function useDriveBackup() {
         if (!status.connected) return;
         for (const [key, item] of [...queue]) {
           if (disposed || !useSettingsStore.getState().autoDriveBackup) break;
+          const previous = projectDriveStatus(item.path);
+          if (previous.paused || previous.conflict) continue;
           try {
             updateDriveBackup(item.path, "uploading");
-            const result = await invoke<{ lastBackup?: number }>(
-              "drive_backup_project",
-              { projectPath: item.path },
-            );
+            const result = await invoke<{
+              lastBackup?: number;
+              sourceRevision?: string;
+            }>("drive_backup_project", { projectPath: item.path });
             updateDriveBackup(item.path, "saved", result);
             if (queue.get(key)?.version === item.version) queue.delete(key);
             else updateDriveBackup(item.path, "pending");
@@ -103,20 +108,34 @@ export function useDriveBackup() {
           ...(library?.projects || []).map((p) => p.path),
           ...useProjectStore.getState().knownProjects.map((p) => p.path),
         ];
-        const migrateFolders =
-          localStorage.getItem("lemlio-drive-layout") !== "folders-v1";
-        for (const path of paths) {
+        const migrateArchives =
+          localStorage.getItem("lemlio-drive-layout") !== "zip-v2";
+        for (const path of new Set(paths)) {
           const key = projectPathKey(path);
+          const previous = projectDriveStatus(path);
+          if (previous.paused || previous.conflict) continue;
+          let changed = false;
+          try {
+            const revision = await invoke<string>("drive_project_revision", {
+              projectPath: path,
+            });
+            if (disposed) return;
+            changed =
+              typeof revision === "string" &&
+              revision !== previous.sourceRevision;
+          } catch {
+            /* Missing folders are reported by their pending upload. */
+          }
           if (
             !queue.has(key) &&
-            (migrateFolders || !projectDriveStatus(path).lastBackup)
+            (migrateArchives || changed || !previous.lastBackup)
           ) {
             queue.set(key, { path, version: `${Date.now()}-${++sequence}` });
             updateDriveBackup(path, "pending");
           }
         }
         persist();
-        localStorage.setItem("lemlio-drive-layout", "folders-v1");
+        localStorage.setItem("lemlio-drive-layout", "zip-v2");
         void pump();
       } catch {
         /* Existing queued backups still retry independently. */
@@ -126,6 +145,10 @@ export function useDriveBackup() {
       void discover();
       void pump();
     };
+    const deleted = (event: Event) => {
+      queue.delete(projectPathKey((event as CustomEvent<string>).detail));
+      persist();
+    };
     const retry = setInterval(() => {
       void discover();
       void pump();
@@ -134,6 +157,7 @@ export function useDriveBackup() {
     window.addEventListener("lemlio-project-saved", saved);
     window.addEventListener("lemlio-drive-connected", connected);
     window.addEventListener("project-library-changed", connected);
+    window.addEventListener("lemlio-project-deleted", deleted);
     void discover();
     return () => {
       disposed = true;
@@ -142,6 +166,7 @@ export function useDriveBackup() {
       window.removeEventListener("lemlio-project-saved", saved);
       window.removeEventListener("lemlio-drive-connected", connected);
       window.removeEventListener("project-library-changed", connected);
+      window.removeEventListener("lemlio-project-deleted", deleted);
     };
   }, []);
 }
