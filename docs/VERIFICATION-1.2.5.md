@@ -7,7 +7,7 @@ Windows installer plus native macOS Apple Silicon and Intel disk images. Persist
 ## Automated checks
 
 - Frontend: **182 tests across 29 files passed**; TypeScript production check passed.
-- Rust: **138 passed**, one connected-Drive integration test intentionally excluded from the default run.
+- Rust: **138 passed on Windows**, **136 passed on each Mac architecture**; one connected-Drive integration test is intentionally excluded from each default run.
 - Connected-Drive integration: explicitly run and passed with disposable generated LaTeX and binary data. The test uploads one project, emulates its absence on a new device, restores it to a separate local folder, checks source and binary bytes, confirms an unchanged backup is skipped, and verifies a later local edit replaces the same remote ZIP. The original generated source stays unchanged. Only the exact test-created remote archive is moved to Trash afterward.
 - Thumbnail tests cover disk-cache reuse without PDF rendering, first-generation deduplication, persisted fallback after failure, and non-detached viewer bytes.
 - Save tests cover serialized disk writes and edits arriving during a save. Closing tests cover verified backups, the skip preference, pending/disconnected backups, active compilation, and failed local saves. The Tauri close/destroy capability has a regression check.
@@ -17,6 +17,8 @@ Windows installer plus native macOS Apple Silicon and Intel disk images. Persist
 ## macOS packaging
 
 Both architectures build on native GitHub macOS runners. The workflow tests frontend and Rust code, produces a DMG, verifies the app's ad hoc signature, rejects Homebrew-linked dependencies, and compiles a real fontspec document with Latin Modern Sans regular, bold, and italic using the compiler inside the packaged app.
+
+Both final Mac jobs passed. Their packaged-app compiler checks produced real PDFs: 5,463 bytes on Apple Silicon and 5,462 bytes on Intel.
 
 Final packaging run: https://github.com/samanjoy2/lemlio/actions/runs/40938243985
 

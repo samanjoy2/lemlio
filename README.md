@@ -12,6 +12,7 @@
 <p align="center">
   <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.2.5"><img alt="Release 1.2.5" src="https://img.shields.io/badge/release-1.2.5-5fb7a5?style=flat-square" /></a>
   <a href="https://github.com/samanjoy2/lemlio/releases/latest"><img alt="Download Windows x64 installer" src="https://img.shields.io/badge/download-Windows_x64-5fb7a5?style=flat-square&amp;logo=windows" /></a>
+  <a href="https://github.com/samanjoy2/lemlio/releases/latest"><img alt="Download macOS Apple Silicon and Intel" src="https://img.shields.io/badge/download-macOS-5fb7a5?style=flat-square&amp;logo=apple" /></a>
   <img alt="Built with Tauri and React" src="https://img.shields.io/badge/Tauri-React-273e43?style=flat-square&amp;logo=tauri" />
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-273e43?style=flat-square" /></a>
 </p>
