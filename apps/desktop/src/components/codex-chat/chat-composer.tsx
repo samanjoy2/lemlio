@@ -1,4 +1,7 @@
 import { AgentStopButton } from "./agent-stop-button";
+import { BorderBeam } from "border-beam";
+import { VoiceBeam } from "voice-glow";
+import { useDictation } from "@/hooks/use-dictation";
 import {
   type FC,
   useCallback,
@@ -24,6 +27,8 @@ import {
   CheckIcon,
   ChevronDownIcon,
   SparklesIcon,
+  MicIcon,
+  SquareIcon,
 } from "lucide-react";
 
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -147,6 +152,14 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
   const activeTabId = useCodexChatStore((s) => s.activeTabId);
 
   const [input, setInput] = useState("");
+  const dictation = useDictation(
+    (text) =>
+      setInput(
+        (previous) =>
+          `${previous}${previous && !previous.endsWith(" ") ? " " : ""}${text}`,
+      ),
+    isOpen !== false,
+  );
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1151,120 +1164,186 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
           </div>
         )}
 
-      <div
-        className={cn(
-          "flex w-full flex-col rounded-2xl border border-input bg-muted/30 transition-colors focus-within:border-ring focus-within:bg-background",
-
-          isDragOver && "border-ring bg-accent/20",
-        )}
+      <BorderBeam
+        size="pulse-inner"
+        colorVariant="colorful"
+        active={isStreaming || dictation.recording}
+        className="block w-full rounded-2xl"
       >
-        {/* Pinned context chips */}
-        {pinnedContexts.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 px-4 pt-3 pb-0">
-            {pinnedContexts.map((ctx, i) =>
-              ctx.imageDataUrl ? (
-                <div
-                  key={`${ctx.label}-${i}`}
-                  className="group relative overflow-hidden rounded-lg border border-border bg-muted"
+        <VoiceBeam
+          stream={dictation.stream}
+          colorVariant="colorful"
+          active={!!dictation.stream}
+          className="w-full rounded-2xl"
+        >
+          <div
+            className={cn(
+              "flex w-full flex-col rounded-2xl border border-input bg-muted/30 transition-colors focus-within:border-ring focus-within:bg-background",
+
+              isDragOver && "border-ring bg-accent/20",
+            )}
+          >
+            {/* Pinned context chips */}
+            {pinnedContexts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 px-4 pt-3 pb-0">
+                {pinnedContexts.map((ctx, i) =>
+                  ctx.imageDataUrl ? (
+                    <div
+                      key={`${ctx.label}-${i}`}
+                      className="group relative overflow-hidden rounded-lg border border-border bg-muted"
+                    >
+                      <img
+                        src={ctx.imageDataUrl}
+                        alt={ctx.label}
+                        className="block h-16 w-auto object-contain"
+                      />
+                      <button
+                        aria-label="Remove attachment"
+                        onClick={() =>
+                          setPinnedContexts((prev) =>
+                            prev.filter((_, idx) => idx !== i),
+                          )
+                        }
+                        className="absolute top-0.5 right-0.5 rounded-full bg-background/80 p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                      >
+                        <XIcon className="size-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <span
+                      key={`${ctx.label}-${i}`}
+                      className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-mono text-muted-foreground text-xs"
+                    >
+                      {ctx.label}
+                      <button
+                        aria-label="Remove context"
+                        onClick={() =>
+                          setPinnedContexts((prev) =>
+                            prev.filter((_, idx) => idx !== i),
+                          )
+                        }
+                        className="ml-0.5 rounded-sm p-0.5 transition-colors hover:bg-muted-foreground/20"
+                      >
+                        <XIcon className="size-3" />
+                      </button>
+                    </span>
+                  ),
+                )}
+              </div>
+            )}
+
+            {isDragOver ? (
+              <div className="flex min-h-10 items-center justify-center px-4 py-3 text-muted-foreground text-sm">
+                <PaperclipIcon className="mr-2 size-4" />
+                Drop files to attach
+              </div>
+            ) : (
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={handleInput}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                placeholder="Ask me anything (/ for commands, @ to mention)"
+                className="max-h-40 min-h-10 w-full resize-none bg-transparent px-4 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                rows={1}
+              />
+            )}
+
+            <div className="flex items-center justify-between px-2 pb-2">
+              {/* Model & settings selector */}
+              <div>
+                <button
+                  ref={modelButtonRef}
+                  type="button"
+                  onClick={() => setModelPickerOpen((v) => !v)}
+                  className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
                 >
-                  <img
-                    src={ctx.imageDataUrl}
-                    alt={ctx.label}
-                    className="block h-16 w-auto object-contain"
-                  />
-                  <button
-                    aria-label="Remove attachment"
-                    onClick={() =>
-                      setPinnedContexts((prev) =>
-                        prev.filter((_, idx) => idx !== i),
-                      )
-                    }
-                    className="absolute top-0.5 right-0.5 rounded-full bg-background/80 p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                  >
-                    <XIcon className="size-3" />
-                  </button>
-                </div>
-              ) : (
-                <span
-                  key={`${ctx.label}-${i}`}
-                  className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-mono text-muted-foreground text-xs"
+                  <span>
+                    {models.find((model) => model.model === selectedModel)
+                      ?.displayName ||
+                      (selectedModel === "gpt-6-luna"
+                        ? "GPT-6 Luna"
+                        : selectedModel || "Configured default")}
+                  </span>
+                  <span className="text-muted-foreground/60">
+                    {effortLevel || "Auto"}
+                  </span>
+                  <ChevronDownIcon className="size-3" />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <TooltipIconButton
+                  tooltip={
+                    dictation.recording || dictation.starting
+                      ? "Stop microphone"
+                      : "Dictate a prompt"
+                  }
+                  aria-label={
+                    dictation.recording || dictation.starting
+                      ? "Stop microphone"
+                      : "Dictate a prompt"
+                  }
+                  className={
+                    dictation.recording
+                      ? "text-red-500"
+                      : "text-muted-foreground"
+                  }
+                  onClick={() =>
+                    void (dictation.recording || dictation.starting
+                      ? dictation.stop()
+                      : dictation.start())
+                  }
                 >
-                  {ctx.label}
-                  <button
-                    aria-label="Remove context"
-                    onClick={() =>
-                      setPinnedContexts((prev) =>
-                        prev.filter((_, idx) => idx !== i),
-                      )
-                    }
-                    className="ml-0.5 rounded-sm p-0.5 transition-colors hover:bg-muted-foreground/20"
+                  {dictation.recording || dictation.starting ? (
+                    <SquareIcon size={14} />
+                  ) : (
+                    <MicIcon size={16} />
+                  )}
+                </TooltipIconButton>
+                {isStreaming ? (
+                  <AgentStopButton />
+                ) : (
+                  <TooltipIconButton
+                    tooltip="Send"
+                    side="top"
+                    variant="default"
+                    size="icon"
+                    className="size-8 rounded-full"
+                    onClick={handleSend}
+                    disabled={!input.trim()}
                   >
-                    <XIcon className="size-3" />
-                  </button>
-                </span>
-              ),
+                    <ArrowUpIcon className="size-4" />
+                  </TooltipIconButton>
+                )}
+              </div>
+            </div>
+            {(dictation.recording || dictation.starting) && (
+              <p
+                role="status"
+                className="px-4 pb-2 text-muted-foreground text-xs"
+              >
+                {dictation.starting
+                  ? "Starting Windows dictation…"
+                  : "Listening · Review the text before sending"}
+              </p>
+            )}
+            {dictation.error && (
+              <div role="alert" className="px-4 pb-3 text-xs">
+                <p className="text-destructive">{dictation.error}</p>
+                <button
+                  type="button"
+                  className="mt-1 underline"
+                  onClick={() => void invoke("open_speech_settings")}
+                >
+                  Open Windows speech language settings
+                </button>
+              </div>
             )}
           </div>
-        )}
-
-        {isDragOver ? (
-          <div className="flex min-h-10 items-center justify-center px-4 py-3 text-muted-foreground text-sm">
-            <PaperclipIcon className="mr-2 size-4" />
-            Drop files to attach
-          </div>
-        ) : (
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleInput}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder="Ask me anything (/ for commands, @ to mention)"
-            className="max-h-40 min-h-10 w-full resize-none bg-transparent px-4 py-2 text-sm outline-none placeholder:text-muted-foreground"
-            rows={1}
-          />
-        )}
-
-        <div className="flex items-center justify-between px-2 pb-2">
-          {/* Model & settings selector */}
-          <div>
-            <button
-              ref={modelButtonRef}
-              type="button"
-              onClick={() => setModelPickerOpen((v) => !v)}
-              className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <span>
-                {models.find((model) => model.model === selectedModel)
-                  ?.displayName ||
-                  (selectedModel === "gpt-6-luna"
-                    ? "GPT-6 Luna"
-                    : selectedModel || "Configured default")}
-              </span>
-              <span className="text-muted-foreground/60">
-                {effortLevel || "Auto"}
-              </span>
-              <ChevronDownIcon className="size-3" />
-            </button>
-          </div>
-
-          {isStreaming ? (
-            <AgentStopButton />
-          ) : (
-            <TooltipIconButton
-              tooltip="Send"
-              side="top"
-              variant="default"
-              size="icon"
-              className="size-8 rounded-full"
-              onClick={handleSend}
-              disabled={!input.trim()}
-            >
-              <ArrowUpIcon className="size-4" />
-            </TooltipIconButton>
-          )}
-        </div>
-      </div>
+        </VoiceBeam>
+      </BorderBeam>
     </div>
   );
 };

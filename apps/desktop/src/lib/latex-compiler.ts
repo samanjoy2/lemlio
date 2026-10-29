@@ -11,8 +11,11 @@ const log = createLogger("latex");
 export function resolveCompileTarget(
   activeFileId: string,
   files: ProjectFile[],
+  mainFileId?: string,
 ): { rootId: string; targetPath: string } | null {
-  const rootId = resolveTexRoot(activeFileId, files);
+  const rootId = files.some((f) => f.id === mainFileId && f.type === "tex")
+    ? mainFileId!
+    : resolveTexRoot(activeFileId, files);
   const rootEntry = files.find((f) => f.id === rootId);
   if (rootEntry?.type === "tex") {
     return { rootId, targetPath: rootEntry.relativePath };

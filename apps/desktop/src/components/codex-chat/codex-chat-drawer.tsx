@@ -13,7 +13,7 @@ import { ChatMessages } from "./chat-messages";
 import { ChatComposer } from "./chat-composer";
 import { ChatTabBar } from "./chat-tab-bar";
 import { CodexRequests } from "./codex-requests";
-import { ActivityOrb, BorderBeam } from "@/components/activity-feedback";
+import { ActivityOrb } from "@/components/activity-feedback";
 
 const MIN_HEIGHT = 150;
 const DEFAULT_HEIGHT = 360;
@@ -152,7 +152,6 @@ export function CodexChatDrawer() {
         )}
         style={panelStyle()}
       >
-        <BorderBeam active={anyStreaming} colorVariant="mono" />
         {/* Header with drag handle, tab bar, and session selector */}
         {isExpanded ? (
           <>
@@ -208,7 +207,12 @@ export function CodexChatDrawer() {
         {/* Messages area */}
         {anyStreaming && (
           <div className="px-4 py-2">
-            <ActivityOrb compact label="Codex is working…" />
+            <ActivityOrb
+              compact
+              pill
+              state="breathing"
+              label="Agent thinking…"
+            />
           </div>
         )}
         <div className="relative min-h-0 flex-1 overflow-hidden">

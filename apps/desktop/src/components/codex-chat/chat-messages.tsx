@@ -1,4 +1,4 @@
-import { type FC, memo, useEffect, useMemo, useRef, useState } from "react";
+import { type FC, memo, useEffect, useMemo, useRef } from "react";
 import { AlertCircleIcon } from "lucide-react";
 import {
   useCodexChatStore,
@@ -7,51 +7,6 @@ import {
 } from "@/stores/codex-chat-store";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { ThinkingWidget, ToolWidget } from "./tool-widgets";
-
-// ─── Streaming Indicator (isolated to prevent re-render storms) ───
-
-const StreamingIndicator: FC = memo(() => {
-  const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef(Date.now());
-
-  useEffect(() => {
-    startRef.current = Date.now();
-    setElapsed(0);
-    const timer = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  return (
-    <div className="flex items-center gap-1.5 px-1 py-1.5 text-muted-foreground">
-      <div className="flex gap-0.5">
-        <span
-          className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50"
-          style={{ animationDelay: "0ms" }}
-        />
-        <span
-          className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50"
-          style={{ animationDelay: "150ms" }}
-        />
-        <span
-          className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50"
-          style={{ animationDelay: "300ms" }}
-        />
-      </div>
-      <span className="text-sm">
-        Thinking...
-        {elapsed >= 3 && (
-          <span className="ml-1 text-muted-foreground/60 text-xs">
-            {elapsed}s
-          </span>
-        )}
-      </span>
-    </div>
-  );
-});
-
-// ─── Chat Messages (main component) ───
 
 export const ChatMessages: FC = () => {
   const messages = useCodexChatStore((s) => s.messages) ?? [];
@@ -159,8 +114,6 @@ export const ChatMessages: FC = () => {
       {displayMessages.map((msg, idx) => (
         <MessageBubble key={idx} message={msg} toolResultMap={toolResultMap} />
       ))}
-
-      {isStreaming && <StreamingIndicator />}
     </div>
   );
 };

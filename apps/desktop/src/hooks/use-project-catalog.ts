@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useProjectStore } from "@/stores/project-store";
 import {
@@ -15,25 +15,46 @@ export function useProjectCatalog() {
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
   const known = useProjectStore((state) => state.knownProjects);
   const recent = useProjectStore((state) => state.recentProjects);
+  const signature = useRef("");
   useEffect(() => {
     let disposed = false;
-    setLoading(true);
-    setError(null);
-    void invoke<Record<string, string>>("project_titles")
-      .then(setTitles)
-      .catch(() => {});
-    invoke<ProjectCatalogData>("list_imported_projects")
-      .then((data) => {
-        if (!disposed) setLibrary(data);
-      })
-      .catch((error) => {
-        if (!disposed) setError(String(error));
-      })
-      .finally(() => {
-        if (!disposed) setLoading(false);
-      });
+    let busy = false;
+    const load = () => {
+      if (busy) return;
+      busy = true;
+      void invoke<Record<string, string>>("project_titles")
+        .then((titles) => {
+          if (!disposed) setTitles(titles);
+        })
+        .catch(() => {});
+      void invoke<ProjectCatalogData>("list_imported_projects")
+        .then((data) => {
+          if (disposed) return;
+          const next = JSON.stringify(data);
+          const changed = signature.current && signature.current !== next;
+          if (signature.current !== next) {
+            signature.current = next;
+            setLibrary(data);
+          }
+          setError(null);
+          if (changed)
+            window.dispatchEvent(new Event("project-library-changed"));
+        })
+        .catch((error) => {
+          if (!disposed) setError(String(error));
+        })
+        .finally(() => {
+          busy = false;
+          if (!disposed) setLoading(false);
+        });
+    };
+    load();
+    const timer = setInterval(load, 10000);
+    window.addEventListener("focus", load);
     return () => {
       disposed = true;
+      clearInterval(timer);
+      window.removeEventListener("focus", load);
     };
   }, [revision]);
   useEffect(() => {

@@ -92,6 +92,7 @@ export function AppSettings() {
               "Compiler",
               "Skills",
               "Google Drive",
+              "Voice",
               "About",
             ].map((name) => (
               <Button
@@ -198,10 +199,44 @@ export function AppSettings() {
             )}
             {tab === "Skills" && <SkillsLibrary />}
             {tab === "Google Drive" && <DriveSettings />}
+            {tab === "Voice" && (
+              <div className="space-y-3">
+                <h3 className="font-medium">Windows speech dictation</h3>
+                <p>
+                  Use the microphone in Codex chat to dictate an editable
+                  prompt. Review it, then press Send. No extra OpenAI API key is
+                  needed.
+                </p>
+                <p className="text-muted-foreground">
+                  Install a Windows speech language under Time &amp; language →
+                  Language &amp; region → your language → Language options →
+                  Speech. Restart Lemlio after installation.
+                </p>
+                <Button onClick={() => void invoke("open_speech_settings")}>
+                  Open Windows language settings
+                </Button>
+                <p className="text-muted-foreground text-xs">
+                  Microphone access must be allowed in Windows. Recording stops
+                  when you stop dictation or close the chat.
+                </p>
+              </div>
+            )}
             {tab === "About" && (
               <>
                 <h2 className="font-semibold text-xl">Lemlio {version}</h2>
                 <p>LaTeX projects, PDF previews, and Codex on your desktop.</p>
+                <Button
+                  onClick={() =>
+                    open("https://github.com/samanjoy2/lemlio/releases/latest")
+                  }
+                >
+                  Download latest update
+                </Button>
+                <p className="text-muted-foreground text-xs">
+                  Close Lemlio and run the newer Windows installer to update
+                  this installation. Your projects, settings, and Drive
+                  connection are kept. Private releases require GitHub sign-in.
+                </p>
                 <p>
                   Based on the MIT-licensed Claude Prism project by delibae,
                   with a new Codex integration, project library, ZIP transfers,

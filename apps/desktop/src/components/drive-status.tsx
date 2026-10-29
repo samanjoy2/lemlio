@@ -79,7 +79,7 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
       className={
         projectPath
           ? "flex w-full shrink-0 items-center gap-2 border-t px-3 py-1.5 text-left text-muted-foreground text-xs hover:bg-muted"
-          : "home-codex-status w-full cursor-pointer text-left"
+          : "home-connection-row"
       }
       title={`${detail}${project?.error || "Open Google Drive settings"}`}
       onClick={() =>
@@ -88,11 +88,36 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
         )
       }
     >
-      <Icon
-        size={15}
-        className={project?.uploading ? "animate-spin" : undefined}
-      />
-      <span aria-live="polite">{label}</span>
+      {projectPath ? (
+        <>
+          <Icon
+            size={15}
+            className={project?.uploading ? "animate-spin" : undefined}
+          />
+          <span aria-live="polite">{label}</span>
+        </>
+      ) : (
+        <>
+          <span className="home-connection-icon">
+            <Icon size={15} />
+          </span>
+          <span className="home-connection-name">Google Drive</span>
+          <span
+            aria-live="polite"
+            className={
+              connection?.connected
+                ? "home-connection-badge is-connected"
+                : "home-connection-badge"
+            }
+          >
+            {connection?.connected
+              ? "Connected"
+              : connection?.pending
+                ? "Signing in"
+                : "Connect"}
+          </span>
+        </>
+      )}
     </button>
   );
 }

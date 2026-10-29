@@ -5,9 +5,13 @@ import "./activity-feedback.css";
 export function ActivityOrb({
   label,
   compact = false,
+  state = "composing",
+  pill = false,
 }: {
   label: string;
   compact?: boolean;
+  state?: "composing" | "breathing";
+  pill?: boolean;
 }) {
   const [reduced, setReduced] = useState(
     () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -22,14 +26,16 @@ export function ActivityOrb({
     <div
       role="status"
       className={
-        compact
-          ? "flex items-center gap-2 text-muted-foreground text-xs"
-          : "flex flex-col items-center gap-4 text-muted-foreground text-sm"
+        pill
+          ? "agent-thinking-pill"
+          : compact
+            ? "flex items-center gap-2 text-muted-foreground text-xs"
+            : "flex flex-col items-center gap-4 text-muted-foreground text-sm"
       }
     >
       <ThinkingOrb
-        state="composing"
-        size={compact ? 20 : 64}
+        state={state}
+        size={compact || pill ? 20 : 64}
         paused={reduced}
         aria-hidden="true"
       />

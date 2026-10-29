@@ -41,8 +41,8 @@ listen("window-focus-restored", () => {
 
 // Platform-specific titlebar height adjustments
 if (navigator.userAgent.includes("Windows")) {
-  // Windows overlay titlebar is ~12px (title + window controls)
-  document.documentElement.style.setProperty("--titlebar-height", "12px");
+  // Windows already reserves a native titlebar above the webview.
+  document.documentElement.style.setProperty("--titlebar-height", "0px");
   document.documentElement.style.setProperty("--traffic-light-width", "0px");
 } else if (!navigator.userAgent.includes("Macintosh")) {
   // Linux and others: no overlay titlebar

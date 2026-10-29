@@ -489,7 +489,7 @@ export const ThinkingWidget: FC<{ thinking: string; signature?: string }> = ({
             <SparklesIcon className="absolute -top-1 -right-1 size-2.5 animate-pulse text-muted-foreground/70" />
           </div>
           <span className="font-medium text-muted-foreground text-sm italic">
-            Thinking...
+            Reasoning summary
           </span>
         </div>
         <ChevronRightIcon

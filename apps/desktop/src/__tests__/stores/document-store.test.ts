@@ -50,6 +50,7 @@ describe("useDocumentStore", () => {
       files: [makeFile()],
       folders: [],
       activeFileId: "main.tex",
+      mainFileId: "main.tex",
       cursorPosition: 5, // after "Hello"
       selectionRange: null,
       jumpToPosition: null,
@@ -61,6 +62,45 @@ describe("useDocumentStore", () => {
       isSaving: false,
       initialized: true,
     });
+  });
+
+  it("keeps the selected main PDF while browsing related files and ignores a late result from another root", () => {
+    const main = makeFile({ content: "\\documentclass{article}" });
+    const other = makeFile({
+      id: "other.tex",
+      name: "other.tex",
+      relativePath: "other.tex",
+      content: "\\documentclass{report}",
+    });
+    const bib = makeFile({
+      id: "refs.bib",
+      name: "refs.bib",
+      type: "bib",
+      content: "@article{example}",
+    });
+    const chapter = makeFile({
+      id: "chapter.tex",
+      name: "chapter.tex",
+      content: "\\section{Introduction}",
+    });
+    useDocumentStore.setState({
+      files: [main, other, bib, chapter],
+      mainFileId: main.id,
+    });
+    useDocumentStore.getState().setPdfData(new Uint8Array([1]), main.id);
+    useDocumentStore.getState().setActiveFile(bib.id);
+    expect(getCurrentPdfBytes()).toEqual(new Uint8Array([1]));
+    useDocumentStore.getState().setActiveFile(chapter.id);
+    expect(useDocumentStore.getState().mainFileId).toBe(main.id);
+    expect(getCurrentPdfBytes()).toEqual(new Uint8Array([1]));
+    useDocumentStore.getState().setActiveFile(other.id);
+    expect(useDocumentStore.getState().mainFileId).toBe(other.id);
+    useDocumentStore.getState().setPdfData(new Uint8Array([2]), other.id);
+    useDocumentStore.getState().setActiveFile(bib.id);
+    useDocumentStore.getState().setPdfData(new Uint8Array([3]), main.id);
+    expect(getCurrentPdfBytes()).toEqual(new Uint8Array([2]));
+    useDocumentStore.getState().setCompileError("Old root failed", main.id);
+    expect(useDocumentStore.getState().compileError).toBeNull();
   });
 
   describe("getActiveFile logic", () => {

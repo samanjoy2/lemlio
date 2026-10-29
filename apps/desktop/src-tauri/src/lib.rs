@@ -5,6 +5,7 @@ mod latex;
 mod projects;
 mod skills;
 mod slash_commands;
+mod speech;
 mod uv;
 
 use std::path::Path;
@@ -27,6 +28,14 @@ pub fn configure_drive_client(path: &Path) -> Result<(), String> {
 }
 pub fn clear_drive_setup() -> Result<(), String> {
     drive::clear_local_setup()
+}
+pub fn backup_project_headless(path: &str) -> Result<serde_json::Value, String> {
+    tokio::runtime::Runtime::new()
+        .map_err(|error| error.to_string())?
+        .block_on(drive::backup_project(
+            &drive::DriveState::default(),
+            path.to_string(),
+        ))
 }
 
 #[tauri::command]
@@ -397,7 +406,9 @@ pub fn run() {
         .manage(codex::CodexProcessState::default())
         .manage(latex::LatexCompilerState::default())
         .manage(drive::DriveState::default())
+        .manage(speech::SpeechState::default())
         .setup(|app| {
+            projects::initialize_project_storage().map_err(std::io::Error::other)?;
             // Safety net: force-show the main window after a timeout if the
             // frontend JS never calls `getCurrentWindow().show()`.
             // This prevents the window from staying permanently hidden when
@@ -472,6 +483,9 @@ pub fn run() {
             skills::get_skill_categories,
             skills::get_skill_content,
             uv::check_uv_status,
+            speech::speech_start,
+            speech::speech_stop,
+            speech::open_speech_settings,
             uv::install_uv,
             uv::setup_project_venv,
             uv::uv_add_packages,
@@ -536,7 +550,9 @@ pub fn run() {
                 let codex_state = app_handle.state::<codex::CodexProcessState>();
                 let label_clone = label.clone();
                 let state_clone = codex_state.inner().clone();
+                let speech_state = app_handle.state::<speech::SpeechState>().inner().clone();
                 tauri::async_runtime::spawn(async move {
+                    speech::stop_for_window(&speech_state, &label_clone).await;
                     codex::kill_process_for_window(&state_clone, &label_clone).await;
                 });
 

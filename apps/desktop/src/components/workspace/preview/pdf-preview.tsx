@@ -102,13 +102,17 @@ export function PdfPreview() {
   const content = useDocumentStore((s) => s.content);
   const projectRoot = useDocumentStore((s) => s.projectRoot);
   const files = useDocumentStore((s) => s.files);
+  const mainFileId = useDocumentStore((s) => s.mainFileId);
+  const setMainFile = useDocumentStore((s) => s.setMainFile);
   const saveAllFiles = useDocumentStore((s) => s.saveAllFiles);
   const setActiveFile = useDocumentStore((s) => s.setActiveFile);
   const activeFile = useDocumentStore((s) => {
     return s.files.find((f) => f.id === s.activeFileId) ?? null;
   });
   const activeFileType = activeFile?.type ?? "tex";
-  const isTexActive = activeFileType === "tex";
+  const isTexActive =
+    files.some((f) => f.id === mainFileId && f.type === "tex") ||
+    activeFileType === "tex";
   const requestJumpToPosition = useDocumentStore(
     (s) => s.requestJumpToPosition,
   );
@@ -137,7 +141,8 @@ export function PdfPreview() {
   const pdfData = useMemo(() => getCurrentPdfBytes(), [pdfRevision]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep-alive: track which root files have PdfViewer instances alive (LRU order)
-  const currentRootFileId = resolveTexRoot(activeFile?.id ?? "", files);
+  const currentRootFileId =
+    mainFileId || resolveTexRoot(activeFile?.id ?? "", files);
   const [aliveOrder, setAliveOrder] = useState<string[]>([]);
   const prevRootRef = useRef(currentRootFileId);
 
@@ -414,7 +419,11 @@ export function PdfPreview() {
       try {
         await saveAllFiles();
         const { files: allFiles, activeFileId } = useDocumentStore.getState();
-        const resolved = resolveCompileTarget(activeFileId, allFiles);
+        const resolved = resolveCompileTarget(
+          activeFileId,
+          allFiles,
+          useDocumentStore.getState().mainFileId,
+        );
         if (!resolved) {
           setCompileError(
             "No .tex file found in this project. Create a main.tex file to compile.",
@@ -454,7 +463,7 @@ export function PdfPreview() {
       void handleCompile();
     }, 1500);
     return () => clearTimeout(timer);
-  }, [autoCompile, files, initialized]);
+  }, [autoCompile, files, initialized, mainFileId]);
 
   // Recompute scale when fit mode is active and container/page size changes
   useEffect(() => {
@@ -481,9 +490,7 @@ export function PdfPreview() {
   const handleExport = async () => {
     const currentPdf = getCurrentPdfBytes();
     if (!currentPdf) return;
-    const mainFile = files.find(
-      (f) => f.name === "main.tex" || f.name === "document.tex",
-    );
+    const mainFile = files.find((f) => f.id === mainFileId);
     const defaultName = mainFile
       ? mainFile.name.replace(/\.tex$/, ".pdf")
       : "document.pdf";
@@ -544,7 +551,11 @@ export function PdfPreview() {
     const activeFileId = state.activeFileId;
     const activeEntry = allFiles.find((f) => f.id === activeFileId);
     if (!activeEntry || activeEntry.type !== "tex") return;
-    const resolved = resolveCompileTarget(activeFileId, allFiles);
+    const resolved = resolveCompileTarget(
+      activeFileId,
+      allFiles,
+      state.mainFileId,
+    );
     if (!resolved) {
       setCompileError(
         "No .tex file found in this project. Create a main.tex file to compile.",
@@ -818,6 +829,28 @@ export function PdfPreview() {
       ref={previewContainerRef}
       className="@container/pv relative flex h-full flex-col bg-muted/50"
     >
+      <div className="flex shrink-0 items-center gap-2 border-b bg-background px-3 py-1.5 text-xs">
+        <label
+          htmlFor="compile-main-file"
+          className="shrink-0 text-muted-foreground"
+        >
+          Compile file
+        </label>
+        <select
+          id="compile-main-file"
+          className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-foreground"
+          value={mainFileId}
+          onChange={(event) => setMainFile(event.target.value)}
+        >
+          {files
+            .filter((f) => f.type === "tex")
+            .map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.relativePath}
+              </option>
+            ))}
+        </select>
+      </div>
       <div className="flex h-[calc(40px+var(--titlebar-height))] shrink-0 items-center border-border border-b bg-background px-2 pt-[var(--titlebar-height)]">
         <div className="flex items-center gap-1">
           <button
@@ -1001,7 +1034,7 @@ export function PdfPreview() {
                 title={`Capture & Ask (${navigator.userAgent.includes("Mac") ? "⌘X" : "Ctrl+X"})`}
               >
                 <CrosshairIcon className="size-3.5 shrink-0" />
-                <span className="@[36rem]/pv:inline hidden">Capture & Ask</span>
+                <span className="@[48rem]/pv:inline hidden">Capture & Ask</span>
                 <kbd className="pointer-events-none ml-0.5 @[36rem]/pv:inline hidden rounded border border-background/30 bg-background/20 px-1 py-0.5 font-medium text-[10px] text-background leading-none">
                   {navigator.userAgent.includes("Mac") ? "⌘X" : "Ctrl+X"}
                 </kbd>

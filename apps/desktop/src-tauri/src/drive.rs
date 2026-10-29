@@ -354,127 +354,370 @@ async fn google_json(response: reqwest::Response) -> Result<Value, String> {
     .map_err(|_| "Invalid Drive response".into())
 }
 
-pub async fn backup_project(state: &DriveState, project_path: String) -> Result<Value, String> {
-    let _upload = state.upload.lock().await;
-    let mut token = authorized_tokens().await?;
-    let client = http_client()?;
-    let temporary = tokio::task::spawn_blocking(move || {
-        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
-        let zip = directory.path().join("project.zip");
-        crate::projects::export_to(Path::new(&project_path), &zip)?;
-        let name = Path::new(&project_path)
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        Ok::<_, String>((directory, zip, name))
-    })
-    .await
-    .map_err(|_| "Cannot prepare the project backup")??;
-    if token.folder_id.is_none() {
-        let response=client.get("https://www.googleapis.com/drive/v3/files").bearer_auth(&token.access_token).query(&[("q","trashed=false and mimeType='application/vnd.google-apps.folder' and name='Lemlio Backups'"),("fields","files(id)")]).send().await.map_err(|_|"Cannot reach Google Drive")?;
-        let folders = google_json(response).await?;
-        let id = if let Some(id) = folders["files"][0]["id"].as_str() {
-            id.to_string()
-        } else {
-            let response=client.post("https://www.googleapis.com/drive/v3/files").bearer_auth(&token.access_token).header("Content-Type","application/json").body(json!({"name":"Lemlio Backups","mimeType":"application/vnd.google-apps.folder"}).to_string()).send().await.map_err(|_|"Cannot create the Drive backup folder")?;
-            google_json(response).await?["id"]
-                .as_str()
-                .ok_or("Missing backup folder ID")?
-                .to_string()
-        };
-        token.folder_id = Some(id);
-        save_tokens(&token)?;
+async fn drive_children(
+    client: &reqwest::Client,
+    token: &str,
+    parent: &str,
+) -> Result<Vec<Value>, String> {
+    let mut result = Vec::new();
+    let mut page = String::new();
+    loop {
+        let response = client
+            .get("https://www.googleapis.com/drive/v3/files")
+            .bearer_auth(token)
+            .query(&[
+                (
+                    "q",
+                    format!(
+                        "trashed=false and '{}' in parents",
+                        parent.replace('\\', "\\\\").replace('\'', "\\'")
+                    ),
+                ),
+                (
+                    "fields",
+                    "nextPageToken,files(id,name,mimeType,sha256Checksum,appProperties)".into(),
+                ),
+                ("pageSize", "1000".into()),
+                ("pageToken", page.clone()),
+            ])
+            .send()
+            .await
+            .map_err(|_| "Cannot list the Drive backup folder")?;
+        let data = google_json(response).await?;
+        result.extend(data["files"].as_array().cloned().unwrap_or_default());
+        match data["nextPageToken"].as_str() {
+            Some(next) if !next.is_empty() => page = next.to_string(),
+            _ => break,
+        }
     }
-    let filename = format!(
-        "{}-{}.zip",
-        temporary.2,
-        chrono::Utc::now().format("%Y%m%d-%H%M%S")
-    );
-    let size = std::fs::metadata(&temporary.1)
-        .map_err(|_| "Cannot read backup ZIP")?
-        .len();
+    Ok(result)
+}
+async fn create_drive_folder(
+    client: &reqwest::Client,
+    token: &str,
+    parent: Option<&str>,
+    name: &str,
+    project_key: Option<&str>,
+) -> Result<String, String> {
+    let mut metadata = json!({"name":name,"mimeType":"application/vnd.google-apps.folder"});
+    if let Some(parent) = parent {
+        metadata["parents"] = json!([parent]);
+    }
+    if let Some(key) = project_key {
+        metadata["appProperties"] = json!({"lemlioProject":key});
+    }
     let response = client
-        .post("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable")
-        .bearer_auth(&token.access_token)
-        .header("Content-Type", "application/json")
-        .header("X-Upload-Content-Type", "application/zip")
-        .header("X-Upload-Content-Length", size.to_string())
-        .body(
-            json!({"name":filename,"parents":[token.folder_id.clone().ok_or("No backup folder")?]})
-                .to_string(),
-        )
+        .post("https://www.googleapis.com/drive/v3/files")
+        .bearer_auth(token)
+        .json(&metadata)
         .send()
         .await
-        .map_err(|_| "Cannot start the Drive upload")?;
+        .map_err(|_| "Cannot create the Drive folder")?;
+    google_json(response).await?["id"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or("Missing Drive folder ID".into())
+}
+async fn upload_drive_file(
+    client: &reqwest::Client,
+    token: &str,
+    parent: &str,
+    name: &str,
+    source: &Path,
+    existing: Option<&str>,
+) -> Result<Value, String> {
+    let mime = match source
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "svg" => "image/svg+xml",
+        "webp" => "image/webp",
+        "pdf" => "application/pdf",
+        "tex" | "ltx" | "bib" | "sty" | "cls" | "txt" | "md" | "csv" => "text/plain",
+        "json" => "application/json",
+        _ => "application/octet-stream",
+    };
+    let size = tokio::fs::metadata(source)
+        .await
+        .map_err(|_| "Cannot read backup file")?
+        .len();
+    let url = existing
+        .map(|id| format!("https://www.googleapis.com/upload/drive/v3/files/{id}"))
+        .unwrap_or_else(|| "https://www.googleapis.com/upload/drive/v3/files".into());
+    let request = if existing.is_some() {
+        client.patch(url)
+    } else {
+        client.post(url)
+    };
+    let mut metadata = json!({"name": name,"mimeType":mime});
+    if existing.is_none() {
+        metadata["parents"] = json!([parent]);
+    }
+    let response = request
+        .query(&[
+            ("uploadType", "resumable"),
+            ("fields", "id,size,sha256Checksum"),
+        ])
+        .bearer_auth(token)
+        .header("Content-Type", "application/json")
+        .header("X-Upload-Content-Type", mime)
+        .header("X-Upload-Content-Length", size.to_string())
+        .json(&metadata)
+        .send()
+        .await
+        .map_err(|_| "Cannot start the Drive file upload")?;
     if !response.status().is_success() {
         return Err(format!(
-            "Google Drive could not start the backup (HTTP {})",
+            "Cannot start Drive upload (HTTP {})",
             response.status().as_u16()
         ));
     }
     let location = response
         .headers()
         .get("location")
-        .and_then(|header| header.to_str().ok())
-        .ok_or("Google did not provide an upload session")?
-        .to_string();
-    let upload_url = reqwest::Url::parse(&location).map_err(|_| "Invalid Google upload URL")?;
+        .and_then(|h| h.to_str().ok())
+        .ok_or("Missing Drive upload session")?;
+    let upload_url = reqwest::Url::parse(location).map_err(|_| "Invalid Drive upload URL")?;
     if upload_url.scheme() != "https" || upload_url.host_str() != Some("www.googleapis.com") {
-        return Err("Unexpected Google upload endpoint".into());
+        return Err("Unexpected Drive upload endpoint".into());
     }
-    let mut file = tokio::fs::File::open(&temporary.1)
+    let mut file = tokio::fs::File::open(source)
         .await
-        .map_err(|_| "Cannot open the backup ZIP")?;
+        .map_err(|_| "Cannot open backup file")?;
     let mut offset = 0u64;
-    let mut uploaded = Value::Null;
-    while offset < size {
+    loop {
         let length = (size - offset).min(8 * 1024 * 1024) as usize;
         let mut chunk = vec![0; length];
         file.read_exact(&mut chunk)
             .await
             .map_err(|_| "Cannot read backup data")?;
+        let range = if size == 0 {
+            "bytes */0".to_string()
+        } else {
+            format!("bytes {}-{}/{}", offset, offset + length as u64 - 1, size)
+        };
         let mut response = None;
         for attempt in 0..3 {
             match client
                 .put(upload_url.clone())
-                .bearer_auth(&token.access_token)
-                .header("Content-Type", "application/zip")
-                .header(
-                    "Content-Range",
-                    format!("bytes {}-{}/{}", offset, offset + length as u64 - 1, size),
-                )
+                .bearer_auth(token)
+                .header("Content-Type", "application/octet-stream")
+                .header("Content-Range", &range)
                 .body(chunk.clone())
                 .send()
                 .await
             {
-                Ok(result)
-                    if result.status().as_u16() != 429 && !result.status().is_server_error() =>
+                Ok(reply)
+                    if reply.status().as_u16() != 429 && !reply.status().is_server_error() =>
                 {
-                    response = Some(result);
+                    response = Some(reply);
                     break;
                 }
                 _ if attempt < 2 => tokio::time::sleep(Duration::from_secs(1 << attempt)).await,
-                _ => {
-                    return Err(
-                        "Drive upload was interrupted. Retry the backup when connected.".into(),
-                    )
-                }
+                _ => return Err("Drive upload interrupted; automatic backup will retry".into()),
             }
         }
-        let response = response.ok_or("Drive upload failed")?;
-        if response.status().as_u16() != 308 {
-            uploaded = google_json(response).await?;
-        }
+        let reply = response.ok_or("Drive upload failed")?;
         offset += length as u64;
+        if reply.status().as_u16() != 308 {
+            let uploaded = google_json(reply).await?;
+            if offset != size || uploaded["id"].as_str().is_none() {
+                return Err("Google did not confirm the complete file".into());
+            }
+            return Ok(uploaded);
+        }
+        if offset >= size {
+            return Err("Google has not confirmed the complete file".into());
+        }
     }
-    if uploaded["id"].as_str().is_none() {
-        return Err("Google did not confirm the completed backup".into());
+}
+fn sha256_file(path: &Path) -> Result<String, String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 65536];
+    loop {
+        let count = file.read(&mut buffer).map_err(|e| e.to_string())?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&buffer[..count]);
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+pub async fn backup_project(state: &DriveState, project_path: String) -> Result<Value, String> {
+    let _upload = state.upload.lock().await;
+    let mut token = authorized_tokens().await?;
+    let client = http_client()?;
+    let snapshot = tokio::task::spawn_blocking(move || {
+        let source = std::fs::canonicalize(&project_path).map_err(|e| e.to_string())?;
+        if !source.is_dir() {
+            return Err("Project folder is unavailable".to_string());
+        }
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let entries = crate::projects::project_entries(&source)?;
+        for (relative, folder) in &entries {
+            let destination = directory.path().join(relative);
+            if *folder {
+                std::fs::create_dir_all(&destination).map_err(|e| e.to_string())?;
+            } else {
+                if let Some(parent) = destination.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                std::fs::copy(source.join(relative), destination).map_err(|e| e.to_string())?;
+            }
+        }
+        let normalized = source.to_string_lossy().replace('\\', "/").to_lowercase();
+        let key = format!("{:x}", Sha256::digest(normalized.as_bytes()));
+        let name = crate::projects::project_details(project_path)
+            .ok()
+            .and_then(|d| d["name"].as_str().map(str::to_string))
+            .unwrap_or_else(|| {
+                source
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
+            });
+        Ok::<_, String>((directory, entries, key, name))
+    })
+    .await
+    .map_err(|_| "Cannot prepare backup files")??;
+    // A deleted backup root is recreated without touching any old backup files.
+    if let Some(id) = token.folder_id.clone() {
+        let response = client
+            .get(format!("https://www.googleapis.com/drive/v3/files/{id}"))
+            .bearer_auth(&token.access_token)
+            .query(&[("fields", "id,trashed")])
+            .send()
+            .await
+            .map_err(|_| "Cannot reach Google Drive")?;
+        if response.status().as_u16() == 404 {
+            token.folder_id = None;
+        } else {
+            let data = google_json(response).await?;
+            if data["trashed"].as_bool() == Some(true) {
+                token.folder_id = None;
+            }
+        }
+    }
+    if token.folder_id.is_none() {
+        let root_files = drive_children(&client, &token.access_token, "root").await?;
+        token.folder_id = root_files
+            .iter()
+            .find(|f| {
+                f["name"] == "Lemlio Backups"
+                    && f["mimeType"] == "application/vnd.google-apps.folder"
+            })
+            .and_then(|f| f["id"].as_str())
+            .map(str::to_string);
+        if token.folder_id.is_none() {
+            token.folder_id = Some(
+                create_drive_folder(&client, &token.access_token, None, "Lemlio Backups", None)
+                    .await?,
+            );
+        }
+        save_tokens(&token)?;
+    }
+    let root = token.folder_id.as_deref().ok_or("Missing backup root")?;
+    let children = drive_children(&client, &token.access_token, root).await?;
+    let project = children.iter().find(|f| {
+        f["appProperties"]["lemlioProject"] == snapshot.2
+            && f["mimeType"] == "application/vnd.google-apps.folder"
+    });
+    let project_folder = if let Some(folder) = project {
+        let id = folder["id"]
+            .as_str()
+            .ok_or("Missing project folder ID")?
+            .to_string();
+        if folder["name"] != snapshot.3 {
+            google_json(
+                client
+                    .patch(format!("https://www.googleapis.com/drive/v3/files/{id}"))
+                    .bearer_auth(&token.access_token)
+                    .json(&json!({"name":snapshot.3}))
+                    .send()
+                    .await
+                    .map_err(|_| "Cannot update backup folder name")?,
+            )
+            .await?;
+        }
+        id
+    } else {
+        create_drive_folder(
+            &client,
+            &token.access_token,
+            Some(root),
+            &snapshot.3,
+            Some(&snapshot.2),
+        )
+        .await?
+    };
+    let mut folders = std::collections::HashMap::from([(PathBuf::new(), project_folder.clone())]);
+    let mut listings = std::collections::HashMap::<String, Vec<Value>>::new();
+    let mut uploaded = 0usize;
+    let mut unchanged = 0usize;
+    for (relative, is_folder) in &snapshot.1 {
+        let parent = relative.parent().unwrap_or(Path::new(""));
+        let parent_id = folders.get(parent).ok_or("Missing parent folder")?.clone();
+        if !listings.contains_key(&parent_id) {
+            listings.insert(
+                parent_id.clone(),
+                drive_children(&client, &token.access_token, &parent_id).await?,
+            );
+        }
+        let name = relative
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let existing = listings.get(&parent_id).and_then(|items| {
+            items.iter().find(|f| {
+                f["name"] == name
+                    && (f["mimeType"] == "application/vnd.google-apps.folder") == *is_folder
+            })
+        });
+        if *is_folder {
+            let id = if let Some(file) = existing {
+                file["id"].as_str().ok_or("Missing folder ID")?.to_string()
+            } else {
+                create_drive_folder(&client, &token.access_token, Some(&parent_id), &name, None)
+                    .await?
+            };
+            folders.insert(relative.clone(), id);
+            continue;
+        }
+        let path = snapshot.0.path().join(relative);
+        let hash = sha256_file(&path)?;
+        if existing.is_some_and(|f| f["sha256Checksum"].as_str() == Some(hash.as_str())) {
+            unchanged += 1;
+            continue;
+        }
+        let result = upload_drive_file(
+            &client,
+            &token.access_token,
+            &parent_id,
+            &name,
+            &path,
+            existing.and_then(|f| f["id"].as_str()),
+        )
+        .await?;
+        if let Some(remote) = result["sha256Checksum"].as_str() {
+            if remote != hash {
+                return Err("Drive file verification failed; backup will retry".into());
+            }
+        }
+        uploaded += 1;
     }
     token.last_backup = Some(now());
     save_tokens(&token)?;
     Ok(
-        json!({"name":filename,"bytes":size,"lastBackup":token.last_backup,"folderUrl":format!("https://drive.google.com/drive/folders/{}",token.folder_id.unwrap_or_default())}),
+        json!({"name":snapshot.3,"uploadedFiles":uploaded,"unchangedFiles":unchanged,"lastBackup":token.last_backup,"folderUrl":format!("https://drive.google.com/drive/folders/{project_folder}")}),
     )
 }
 #[tauri::command]

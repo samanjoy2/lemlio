@@ -134,6 +134,17 @@ pub fn project_storage_location() -> Result<String, String> {
     Ok(library_root()?.to_string_lossy().to_string())
 }
 
+fn ensure_library_layout(root: &Path) -> Result<(), String> {
+    for folder in ["Imports", "Archives"] {
+        fs::create_dir_all(root.join(folder)).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+pub fn initialize_project_storage() -> Result<(), String> {
+    ensure_library_layout(&library_root()?)
+}
+
 fn read_catalog(root: &Path) -> Result<Value, String> {
     let path = root.join("library.json");
     if !path.exists() {
@@ -144,36 +155,76 @@ fn read_catalog(root: &Path) -> Result<Value, String> {
         .map_err(|error| format!("Cannot read project library: {error}"))
 }
 
-#[tauri::command]
-pub fn list_imported_projects() -> Result<Value, String> {
-    for root in library_roots() {
-        let manifest = root.join("library.json");
-        if !manifest.is_file() {
+fn catalog_from_root(root: &Path) -> Result<Value, String> {
+    ensure_library_layout(root)?;
+    let mut data = read_catalog(&root)?;
+    if let Some(projects) = data["projects"].as_array_mut() {
+        projects.retain_mut(|project| {
+            let relative = PathBuf::from(project["relativePath"].as_str().unwrap_or(""));
+            if relative.as_os_str().is_empty()
+                || relative
+                    .components()
+                    .any(|part| !matches!(part, Component::Normal(_)))
+            {
+                return false;
+            }
+            let path = root.join(relative);
+            if !path.is_dir() {
+                return false;
+            }
+            project["path"] = json!(path);
+            true
+        });
+    }
+    let projects = data["projects"]
+        .as_array_mut()
+        .ok_or("Invalid project library")?;
+    let mut seen: std::collections::HashSet<String> = projects
+        .iter()
+        .filter_map(|project| project["relativePath"].as_str())
+        .map(|path| path.replace('\\', "/").to_lowercase())
+        .collect();
+    let mut folders: Vec<_> = fs::read_dir(root.join("Imports"))
+        .map_err(|error| error.to_string())?
+        .filter_map(Result::ok)
+        .collect();
+    folders.sort_by_key(|entry| entry.file_name());
+    for folder in folders {
+        let name = folder.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || ignored_component(&name) {
             continue;
         }
-        let mut data = read_catalog(&root)?;
-        if let Some(projects) = data["projects"].as_array_mut() {
-            projects.retain_mut(|project| {
-                let relative = PathBuf::from(project["relativePath"].as_str().unwrap_or(""));
-                if relative.as_os_str().is_empty()
-                    || relative
-                        .components()
-                        .any(|part| !matches!(part, Component::Normal(_)))
-                {
-                    return false;
-                }
-                let path = root.join(relative);
-                if !path.is_dir() {
-                    return false;
-                }
-                project["path"] = json!(path);
-                true
-            });
+        let metadata = match fs::symlink_metadata(folder.path()) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            continue;
         }
-        data["root"] = json!(root);
-        return Ok(data);
+        let relative = PathBuf::from("Imports").join(&name);
+        if !seen.insert(display_path(&relative).to_lowercase()) {
+            continue;
+        }
+        if let Ok(mut project) = project_metadata(root, &relative, &name) {
+            if project["texFileCount"].as_u64().unwrap_or(0) == 0 {
+                continue;
+            }
+            project["path"] = json!(folder.path());
+            projects.push(project);
+        }
     }
-    Ok(json!({"projects":[],"failedExportCount":0}))
+    data["root"] = json!(root);
+    Ok(data)
+}
+
+#[tauri::command]
+pub async fn list_imported_projects() -> Result<Value, String> {
+    tokio::task::spawn_blocking(|| {
+        let _guard = IMPORT_LOCK.lock().map_err(|error| error.to_string())?;
+        catalog_from_root(&library_root()?)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -275,7 +326,7 @@ fn available_path(parent: &Path, name: &str, extension: Option<&str>) -> PathBuf
     unreachable!()
 }
 
-fn project_entries(root: &Path) -> Result<Vec<(PathBuf, bool)>, String> {
+pub(crate) fn project_entries(root: &Path) -> Result<Vec<(PathBuf, bool)>, String> {
     fn walk(base: &Path, relative: &Path, paths: &mut Vec<(PathBuf, bool)>) -> Result<(), String> {
         for item in fs::read_dir(base.join(relative)).map_err(|error| error.to_string())? {
             let item = item.map_err(|error| error.to_string())?;
@@ -672,6 +723,55 @@ pub async fn export_project_zip(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fresh_library_creates_import_and_archive_folders() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("Projects");
+        assert!(catalog_from_root(&root).unwrap()["projects"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(root.join("Imports").is_dir());
+        assert!(root.join("Archives").is_dir());
+    }
+
+    #[test]
+    fn copied_folders_are_discovered_without_reimport_or_catalog_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        ensure_library_layout(root).unwrap();
+        let paper = root.join("Imports/Paper/latex");
+        fs::create_dir_all(&paper).unwrap();
+        fs::write(paper.join("main.tex"), "\\documentclass{article}").unwrap();
+        fs::create_dir_all(root.join("Imports/Images only")).unwrap();
+        fs::write(root.join("Imports/Images only/figure.png"), b"figure").unwrap();
+        let first = catalog_from_root(root).unwrap();
+        assert_eq!(first["projects"].as_array().unwrap().len(), 1);
+        assert_eq!(first["projects"][0]["mainFile"], "latex/main.tex");
+        assert!(!root.join("library.json").exists());
+        fs::create_dir_all(root.join("Imports/New CV")).unwrap();
+        fs::write(
+            root.join("Imports/New CV/cv.tex"),
+            "\\documentclass{article}",
+        )
+        .unwrap();
+        assert_eq!(
+            catalog_from_root(root).unwrap()["projects"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        let manifest = json!({"projects":[{"name":"Paper title", "relativePath":"Imports/Paper"}]});
+        fs::write(root.join("library.json"), manifest.to_string()).unwrap();
+        let merged = catalog_from_root(root).unwrap();
+        assert_eq!(merged["projects"].as_array().unwrap().len(), 2);
+        assert_eq!(merged["projects"][0]["name"], "Paper title");
+        assert_eq!(
+            fs::read_to_string(root.join("library.json")).unwrap(),
+            manifest.to_string()
+        );
+    }
     use std::io::Write;
 
     fn write_zip(path: &Path, files: &[(&str, &[u8])]) {

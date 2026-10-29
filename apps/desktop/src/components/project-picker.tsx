@@ -2,12 +2,13 @@ import { AppSettings } from "@/components/app-settings";
 import { DriveStatus } from "@/components/drive-status";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useTheme } from "next-themes";
 import {
   ArrowUpRightIcon,
   BookOpenIcon,
-  CheckIcon,
+  TerminalSquareIcon,
   Clock3Icon,
   FileTextIcon,
   FolderOpenIcon,
@@ -97,6 +98,12 @@ export function ProjectPicker() {
       .then(setVersion)
       .catch(() => {});
   }, [checkCodex]);
+  useEffect(() => {
+    const focusSearch = () => searchRef.current?.focus();
+    window.addEventListener("lemlio-focus-project-search", focusSearch);
+    return () =>
+      window.removeEventListener("lemlio-focus-project-search", focusSearch);
+  }, []);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (
@@ -207,10 +214,7 @@ export function ProjectPicker() {
           onClick={() => navigate("all")}
         >
           <img src="/icon-192.png" alt="" />
-          <span>
-            Lemlio
-            <span className="home-brand-subtitle"></span>
-          </span>
+          <span>Lemlio</span>
         </button>
         <nav className="home-navigation">
           <button
@@ -283,30 +287,53 @@ export function ProjectPicker() {
             <UploadIcon size={16} />
             <span>Import ZIP</span>
           </button>
+          <button
+            type="button"
+            title="Projects placed here appear automatically"
+            onClick={async () => {
+              const root = await invoke<string>("project_storage_location");
+              await invoke("open_project_folder", {
+                projectPath: `${root}/Imports`,
+              });
+            }}
+          >
+            <FolderOpenIcon size={16} />
+            <span>Imports folder</span>
+          </button>
         </nav>
         <div className="home-sidebar-footer">
-          <AppSettings />
-          <div className="home-codex-status">
-            <span
-              className={
-                codexStatus === "ready"
-                  ? "home-status-dot is-ready"
-                  : "home-status-dot"
+          <section className="home-connections" aria-label="Connections">
+            <div className="home-connection-heading">Connections</div>
+            <button
+              type="button"
+              className="home-connection-row"
+              title={account || "Codex settings"}
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("lemlio-open-settings", { detail: "Codex" }),
+                )
               }
-            />
-            <div>
-              {codexStatus === "ready"
-                ? "Codex connected"
-                : codexStatus === "checking"
-                  ? "Connecting to Codex…"
-                  : "Connect your Codex"}
-              <small title={account ?? undefined}>
-                {codexStatus === "ready" ? "" : "Your local AI assistant"}
-              </small>
-            </div>
-            {codexStatus === "ready" && <CheckIcon size={13} />}
-          </div>
-          <DriveStatus />
+            >
+              <span className="home-connection-icon">
+                <TerminalSquareIcon size={15} />
+              </span>
+              <span className="home-connection-name">Codex</span>
+              <span
+                className={
+                  codexStatus === "ready"
+                    ? "home-connection-badge is-connected"
+                    : "home-connection-badge"
+                }
+              >
+                {codexStatus === "ready"
+                  ? "Connected"
+                  : codexStatus === "checking"
+                    ? "Checking"
+                    : "Connect"}
+              </span>
+            </button>
+            <DriveStatus />
+          </section>
           <label className="home-compiler">
             <span>Compiler</span>
             <select
@@ -320,8 +347,8 @@ export function ProjectPicker() {
               <option value="tectonic">Tectonic</option>
             </select>
           </label>
-          <div className="home-footer-bottom">
-            <span>Lemlio {version ? `v${version}` : ""}</span>
+          <div className="home-footer-controls">
+            <AppSettings />
             <button
               type="button"
               aria-label={
@@ -340,6 +367,9 @@ export function ProjectPicker() {
               )}
             </button>
           </div>
+          <div className="home-footer-version">
+            Lemlio <span>{version ? `v${version}` : ""}</span>
+          </div>
         </div>
       </aside>
 
@@ -348,7 +378,6 @@ export function ProjectPicker() {
           <div className="home-heading">
             <div>
               <h1>Projects</h1>
-              <p></p>
             </div>
             <div className="home-heading-actions">
               <Button variant="outline" onClick={() => setImportOpen(true)}>
@@ -492,7 +521,6 @@ export function ProjectPicker() {
                   <PlusIcon size={22} strokeWidth={1.5} />
                 </span>
                 <strong>Create a project</strong>
-                <p></p>
               </button>
             )}
             {visible.map((project) => (

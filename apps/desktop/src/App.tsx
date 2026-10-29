@@ -1,4 +1,5 @@
 import { ThemeProvider } from "next-themes";
+import { WindowHeader } from "@/components/window-header";
 import { ErrorBoundary } from "react-error-boundary";
 import { Toaster } from "@/components/ui/sonner";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -89,14 +90,19 @@ export function App({ onReady }: { onReady?: () => void }) {
 
   return (
     <ErrorBoundary FallbackComponent={ErrorFallback}>
-      <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
         <TooltipProvider>
           {/* Global macOS titlebar drag region — sits above all content */}
           <div
             data-tauri-drag-region
             className="fixed inset-x-0 top-0 z-[9999] h-[var(--titlebar-height)]"
           />
-          {projectRoot ? <WorkspaceWithCodex /> : <ProjectPicker />}
+          <div className="flex h-full min-h-0 flex-col">
+            <WindowHeader />
+            <div className="min-h-0 flex-1">
+              {projectRoot ? <WorkspaceWithCodex /> : <ProjectPicker />}
+            </div>
+          </div>
           {showDebug && (
             <div className="fixed inset-0 z-[9998] flex items-end justify-center">
               <div

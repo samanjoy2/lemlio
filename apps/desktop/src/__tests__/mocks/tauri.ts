@@ -1,4 +1,13 @@
 import { vi } from "vitest";
+vi.mock("voice-glow", () => ({
+  VoiceBeam: ({ children }: { children: unknown }) => children,
+  useMicrophone: () => ({
+    stream: null,
+    state: "idle",
+    start: vi.fn(async () => null),
+    stop: vi.fn(),
+  }),
+}));
 
 const storageData = new Map<string, string>();
 const mockStorage = {

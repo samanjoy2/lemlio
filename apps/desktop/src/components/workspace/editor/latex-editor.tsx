@@ -369,18 +369,22 @@ export function LatexEditor() {
   // Compile: save all files first, then compile via Tauri command
   compileRef.current = async () => {
     const state = useDocumentStore.getState();
-    if (!projectRoot || activeFile?.type !== "tex") return;
+    if (!projectRoot) return;
     if (state.isCompiling) {
       // Queue a recompile after the current one finishes
       state.setPendingRecompile(true);
       return;
     }
     const { files: allFiles } = state;
-    const resolved = resolveCompileTarget(activeFile.id, allFiles);
+    const resolved = resolveCompileTarget(
+      activeFile?.id ?? "",
+      allFiles,
+      state.mainFileId,
+    );
     if (!resolved) {
       setCompileError(
         "No .tex file found in this project. Create a main.tex file to compile.",
-        activeFile.id,
+        activeFile?.id,
       );
       return;
     }

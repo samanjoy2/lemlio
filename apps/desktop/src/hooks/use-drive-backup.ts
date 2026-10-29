@@ -103,14 +103,20 @@ export function useDriveBackup() {
           ...(library?.projects || []).map((p) => p.path),
           ...useProjectStore.getState().knownProjects.map((p) => p.path),
         ];
+        const migrateFolders =
+          localStorage.getItem("lemlio-drive-layout") !== "folders-v1";
         for (const path of paths) {
           const key = projectPathKey(path);
-          if (!queue.has(key) && !projectDriveStatus(path).lastBackup) {
+          if (
+            !queue.has(key) &&
+            (migrateFolders || !projectDriveStatus(path).lastBackup)
+          ) {
             queue.set(key, { path, version: `${Date.now()}-${++sequence}` });
             updateDriveBackup(path, "pending");
           }
         }
         persist();
+        localStorage.setItem("lemlio-drive-layout", "folders-v1");
         void pump();
       } catch {
         /* Existing queued backups still retry independently. */
@@ -120,7 +126,10 @@ export function useDriveBackup() {
       void discover();
       void pump();
     };
-    const retry = setInterval(() => void pump(), 60000);
+    const retry = setInterval(() => {
+      void discover();
+      void pump();
+    }, 60000);
     void pump();
     window.addEventListener("lemlio-project-saved", saved);
     window.addEventListener("lemlio-drive-connected", connected);

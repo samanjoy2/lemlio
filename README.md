@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.2.1"><img alt="Release 1.2.1" src="https://img.shields.io/badge/release-1.2.1-5fb7a5?style=flat-square" /></a>
+  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.2.2"><img alt="Release 1.2.2" src="https://img.shields.io/badge/release-1.2.2-5fb7a5?style=flat-square" /></a>
   <a href="https://github.com/samanjoy2/lemlio/releases/latest"><img alt="Download Windows x64 installer" src="https://img.shields.io/badge/download-Windows_x64-5fb7a5?style=flat-square&amp;logo=windows" /></a>
   <img alt="Built with Tauri and React" src="https://img.shields.io/badge/Tauri-React-273e43?style=flat-square&amp;logo=tauri" />
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-273e43?style=flat-square" /></a>
@@ -24,9 +24,9 @@
   · <a href="#build-from-source">Build from source</a>
 </p>
 
-![Lemlio project library with PDF covers, search, favorites, and project dates](assets/screenshots/projects.png)
+![Lemlio dark project library with PDF covers, connections, and project dates](assets/screenshots/projects-dark.png)
 
-Lemlio brings your LaTeX projects into a searchable library with PDF covers, an editor beside the compiled document, and Codex chat when you need help. Open an existing folder or import a project ZIP, keep working with ordinary local files, and optionally save automatic backups to your own Google Drive.
+Lemlio brings your LaTeX projects into a searchable library with PDF covers, an editor beside the compiled document, and Codex chat when you need help. Open an existing folder or import a project ZIP, keep working with ordinary local files, and optionally save automatic folder backups to your own Google Drive.
 
 **A fresh installation starts empty.** Your documents, account connections, and Google OAuth JSON are not bundled with the app. Tectonic is included and selected by default; Codex, Google Drive, and MiKTeX can be configured later.
 
@@ -35,10 +35,10 @@ Lemlio brings your LaTeX projects into a searchable library with PDF covers, an 
 | Feature | In Lemlio |
 | --- | --- |
 | **Browse your projects** | PDF thumbnails, search, favorites, recent projects, and grid or list views. Failed previews use a document fallback. |
-| **Keep projects organized** | Rename project titles and see creation and last-modified dates without changing the underlying folder paths. |
-| **Write beside your PDF** | LaTeX editing, document outline, source navigation, and a resizable PDF preview. |
+| **Keep projects organized** | Rename titles from the library or inside a project, and see creation and last-modified dates without changing folder paths. |
+| **Write beside your PDF** | LaTeX editing, document outline, source navigation, a visible main-file selector, and a PDF that stays open while you browse related files. |
 | **Work with Codex** | Use your Codex sign-in, stream replies, choose a named model, review approval requests, and return to saved chats. GPT-6 Luna is the default model. |
-| **See what is happening** | A centered compilation orb, visible agent activity, and an explicit **Stop agent** button. |
+| **See what is happening** | A centered compilation orb, a breathing **Agent thinking…** pill, colorful chat borders, and an explicit **Stop agent** button. |
 | **Choose when to compile** | Switch between **Auto** and **Manual**. Use bundled Tectonic or select an optional MiKTeX / TeX Live installation. |
 | **Move projects easily** | Import and export ZIPs with nested source folders, figures, and bibliography files. Keep the original ZIP or choose to move it. |
 | **Back up automatically** | Connect Google Drive once. Saved edits and newly imported projects queue for backup, with failed jobs retained for retry. |
@@ -47,20 +47,24 @@ Lemlio brings your LaTeX projects into a searchable library with PDF covers, an 
 
 ## Download and install
 
-Lemlio **1.2.1** is available as a **Windows x64 installer**.
+Lemlio **1.2.2** is available as a **Windows x64 installer**.
 
 1. Open the [latest GitHub release](https://github.com/samanjoy2/lemlio/releases/latest).
-2. Under **Assets**, download `Lemlio_1.2.1_x64-setup.exe`. GitHub's source-code ZIP is for development.
+2. Under **Assets**, download `Lemlio_1.2.2_x64-setup.exe`. GitHub's source-code ZIP is for development.
 3. Close an older running copy of Lemlio or PrismPro, then run the installer.
 4. Open Lemlio and create a project, open a folder, or select **Import ZIP**.
 
-The release also includes `Lemlio-1.2.1-SHA256SUMS.txt`. To compare your download with its published checksum:
+The release also includes `Lemlio-1.2.2-SHA256SUMS.txt`. To compare your download with its published checksum:
 
 ```powershell
-Get-FileHash .\Lemlio_1.2.1_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Lemlio_1.2.2_x64-setup.exe -Algorithm SHA256
 ```
 
 The installer is currently unsigned, so Windows may identify its publisher as unknown. This repository is private; viewing releases and downloading assets requires repository access.
+
+### Updating
+
+Close Lemlio and run the newer Windows setup. The installer detects the existing installation; choose to continue without uninstalling to update in place. Projects, saved settings, and your Google Drive connection are retained. **Settings → About → Download latest update** opens the release page.
 
 ### First launch
 
@@ -75,16 +79,36 @@ The first-run **Settings & setup** screen can be closed and reopened later. Edit
 
 Codex uses your account's allowance; Lemlio does not include an AI subscription. See [Codex pricing and usage](https://learn.chatgpt.com/docs/pricing) for account-specific details. Tectonic may download TeX packages during compilation. Some documents need additional fonts, packages, or a system compiler.
 
+## Voice prompts and main documents
+
+Click the microphone in Codex chat to dictate with Windows speech recognition. A colorful glow responds to the microphone; words go into the editable prompt and are sent only when you press Send. Stop with the square button or close the chat. Windows needs an installed speech recognizer and microphone permission. **Settings → Voice** explains how to install a speech language. No extra OpenAI API key is required; recognition is unavailable until that Windows component is installed.
+
+The tree marks the compile target **MAIN**, colors LaTeX files teal and bibliography files amber, and offers **Use as main compile file**. The PDF panel also has a **Compile file** dropdown. Lemlio remembers your choice per project; opening another complete document switches the target, while a bibliography, figure, or included chapter keeps the current PDF.
+
 ## A look inside
 
-| Project library | Compiler settings |
-| --- | --- |
-| ![Lemlio project cards with PDF thumbnails and dates](assets/screenshots/projects.png) | ![Lemlio settings with optional system compiler selection](assets/screenshots/compiler.png) |
-| Search, star, rename, and open projects from one place. | Choose a compiler and turn automatic compilation on or off. |
+### Write beside your PDF
 
-![Lemlio settings dialog](assets/screenshots/settings.png)
+![Dark editor with highlighted main document, bibliography, compile-file selector, and Drive backup age](assets/screenshots/editor-dark.png)
 
-Screenshots use demonstration documents. The library and settings captures predate the Google Drive status indicators added in 1.2.1.
+The file tree identifies the main document and bibliography; the PDF stays visible while you browse related files. The header keeps project navigation, folder access, settings, and window controls together.
+
+### Codex chat
+
+![Dark Codex chat with one breathing thinking pill, colorful input border, microphone, and Stop agent button](assets/screenshots/chat-dark.png)
+
+One compact indicator shows agent activity. The microphone inserts editable prompt text, and **Stop agent** is always visible while the agent works.
+
+<details>
+<summary><strong>Light mode</strong></summary>
+
+![Light project library](assets/screenshots/projects-light.png)
+
+![Light editor and PDF preview](assets/screenshots/editor-light.png)
+
+</details>
+
+Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.2.2.md) for checks and practical limits.
 
 ## Import, export, and local files
 
@@ -96,6 +120,8 @@ Screenshots use demonstration documents. The library and settings captures preda
 | **Move ZIP** | Imports the project, verifies the saved archive, then moves the original ZIP into the app's `Projects/Archives` folder. A failed move keeps the original and reports the problem. |
 | **Open a folder** | Works with the folder you select. Your project files stay there. |
 | **Export project ZIP** | Saves open edits first, then includes source files, assets, and empty folders. App caches, Git metadata, app history, virtual environments, and `node_modules` are excluded. |
+
+You can also place a LaTeX project folder directly inside **Imports**. Each immediate subfolder containing LaTeX sources is discovered automatically, including nested main documents. Use **Imports folder** on the home page to open the location. The folder is created during installation and startup; the library refreshes every 10 seconds and when it regains focus. Discovered projects enter the automatic Drive backup queue when connected.
 
 Imported projects live under:
 
@@ -111,7 +137,7 @@ The home page shows **Google Drive connected** or a connection prompt beside the
 
 ### Connect once
 
-1. In Google Cloud, create a project, enable **Google Drive API**, and configure the OAuth consent screen. If the OAuth app is in Testing, add your Google account as a test user.
+1. In Google Cloud, create a project, enable **Google Drive API**, and configure the OAuth consent screen. Under **Google Auth Platform → Audience → Test users**, add the exact Google email you will sign in with and save. Google may show “Google hasn’t verified this app”; continue only for the OAuth project you created.
 2. Add the non-sensitive `https://www.googleapis.com/auth/drive.file` scope.
 3. Create an OAuth client with application type **Desktop app** and download its JSON.
 4. In **Settings → Google Drive**, select **Choose OAuth JSON**, then **Connect Google Drive** and approve Google's sign-in.
@@ -123,12 +149,12 @@ Each installation uses the OAuth JSON you choose. Lemlio copies it into local ap
 - **Local saving:** edited files save after a two-second pause in typing.
 - **Drive backup:** with automatic backup enabled, saved changes queue for upload after about 15 seconds. Newly imported projects queue too.
 - **Retries:** pending jobs are checked every minute while Lemlio is open. The queue survives app restarts, so failed uploads can be retried later.
-- **Versioned copies:** each completed backup is a ZIP in your Drive's **Lemlio Backups** folder. Older backups stay until you remove them in Drive.
-- **Restoring:** download a backup ZIP from Drive and import it into Lemlio. Manual snapshots are also available in Drive settings.
+- **Normal folders:** each project has its own folder inside **Lemlio Backups**, preserving source and asset subfolders. Changed files update in place; unchanged files are skipped. Files removed locally and old ZIP backups are retained in Drive.
+- **Restoring:** download a project folder from Drive (Google may package the download as a ZIP), then open or import it into Lemlio. Drive edits are not pulled back into your local folder automatically. Manual backups are also available.
 
 Automatic backup is enabled by default, but requires a connected Google account and Lemlio to be running. This is a desktop backup workflow; there is no live browser collaboration or background upload service after the app closes. Changes that have not reached Drive are not protected against loss of the PC.
 
-Standard Drive API use has [no additional API charge](https://developers.google.com/workspace/drive/api/guides/limits); backup ZIPs use your Google storage. OAuth apps in Testing may require reconnection. Google Drive for desktop folder syncing is an alternative to the direct account connection.
+Standard Drive API use has [no additional API charge](https://developers.google.com/workspace/drive/api/guides/limits); backup files use your Google storage. OAuth apps in Testing may require reconnection. Google Drive for desktop folder syncing is an alternative to the direct account connection.
 
 ## Privacy and storage
 
@@ -136,7 +162,7 @@ Standard Drive API use has [no additional API charge](https://developers.google.
 | --- | --- |
 | **Documents, figures, PDFs, and history** | Stay in local project folders and app-managed files. |
 | **Codex requests** | Prompts and files used by the agent are sent to the configured model provider. |
-| **Drive backups** | Project ZIPs are uploaded to your connected Google account when you enable backup. |
+| **Drive backups** | Project folders and files are uploaded to your connected Google account when you enable backup. |
 | **OAuth client JSON** | Copied into local app settings. Keep your original outside project folders or in `Keys/`. |
 | **Google sign-in tokens** | Stored in Windows Credential Manager. |
 | **Installer and source repository** | Exclude personal projects, local build tools, and saved credentials. |
@@ -192,4 +218,4 @@ For a bug report, include your Lemlio version, compiler choice, and steps to rep
 
 Lemlio builds on [Claude Prism by delibae](https://github.com/delibae/claude-prism), with substantial changes to Codex integration, project management, compilation, ZIP transfers, and the interface. Original MIT copyright notices are retained in [LICENSE](LICENSE).
 
-Loading animations use [thinking-orbs](https://libraries.dev/orbs). The VS Code icon comes from [Microsoft's VS Code repository](https://github.com/microsoft/vscode). Third-party projects retain their own licenses.
+Loading animations use [thinking-orbs](https://libraries.dev/orbs); chat effects use [Border Beam](https://libraries.dev/beam) and [Voice Glow](https://libraries.dev/voice). The VS Code icon comes from [Microsoft's VS Code repository](https://github.com/microsoft/vscode). Third-party projects retain their own licenses.

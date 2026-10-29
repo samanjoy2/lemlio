@@ -122,7 +122,7 @@ export function DriveSettings() {
     <div className="space-y-4">
       <h3 className="font-medium">Google Drive account</h3>
       <p>
-        Connect your account to save versioned project ZIPs in a{" "}
+        Connect your account to save project folders and their files in a{" "}
         <strong>Lemlio Backups</strong> folder in your Drive.
       </p>
       <div className="space-y-3 rounded-lg border p-4">
@@ -147,9 +147,10 @@ export function DriveSettings() {
               API.
             </li>
             <li>
-              Configure Google Auth Platform with your app name and support
-              email. For personal testing, add your Google account as a test
-              user.
+              In Google Auth Platform → Audience, keep Testing enabled and add
+              the exact Google email you will sign in with under Test users.
+              Save before connecting. Google may show “Google hasn’t verified
+              this app”; continue only for the OAuth project you created.
             </li>
             <li>
               Add the non-sensitive scope
@@ -223,7 +224,11 @@ export function DriveSettings() {
           Automatic backups run after a short pause in saving while Lemlio is
           open and connected. Existing projects can be backed up together below.
           Failed uploads keep your local files and can be retried. Each backup
-          is a new ZIP; older backups remain until you remove them in Drive.
+          updates ordinary files inside a project folder in Drive. Unchanged
+          files are skipped. Files removed locally and older ZIP backups are
+          kept in Drive; Lemlio does not delete your remote files. This is a
+          one-way backup from this PC; changes made in Drive are not
+          automatically downloaded into your working project.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">

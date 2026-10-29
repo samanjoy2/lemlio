@@ -72,6 +72,8 @@ interface DocumentState {
   files: ProjectFile[];
   folders: string[];
   activeFileId: string;
+  mainFileId: string;
+  setMainFile: (id: string) => void;
   cursorPosition: number;
   selectionRange: { start: number; end: number } | null;
   jumpToPosition: number | null;
@@ -251,6 +253,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   files: [],
   folders: [],
   activeFileId: "",
+  mainFileId: "",
   cursorPosition: 0,
   selectionRange: null,
   jumpToPosition: null,
@@ -319,7 +322,9 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     }
 
     // Find the main tex file
+    const rememberedMain = localStorage.getItem(`lemlio-main:${rootPath}`);
     const mainTex =
+      projectFiles.find((f) => f.id === rememberedMain && f.type === "tex") ||
       projectFiles.find(
         (f) => f.name === "main.tex" || f.name === "document.tex",
       ) ||
@@ -339,6 +344,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       files: projectFiles,
       folders: fsFolders,
       activeFileId: mainTex?.id || projectFiles[0]?.id || "",
+      mainFileId: mainTex?.id || "",
       pdfRevision: 0,
       compileError: null,
       compileErrorCache: new Map(),
@@ -379,6 +385,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       compileErrorCache: new Map(),
       lastCompiledGenerations: new Map(),
       initialized: false,
+      mainFileId: "",
     });
     // Reset chat session so stale messages don't leak into the next project
     useCodexChatStore.getState().newSession();
@@ -386,7 +393,15 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
   setActiveFile: (id) => {
     const state = get();
-    const rootId = resolveTexRoot(id, state.files);
+    const file = state.files.find((f) => f.id === id);
+    if (
+      file?.type === "tex" &&
+      /\\documentclass[\s{[]/.test(file.content || "") &&
+      file.id !== state.mainFileId
+    ) {
+      state.setMainFile(file.id);
+    }
+    const rootId = get().mainFileId || resolveTexRoot(id, state.files);
     const newPdfRootId = _pdfBytesCache.has(rootId) ? rootId : null;
     const pdfRootChanged = newPdfRootId !== _currentPdfRootId;
     _currentPdfRootId = newPdfRootId;
@@ -396,6 +411,19 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       selectionRange: null,
       ...(pdfRootChanged ? { pdfRevision: s.pdfRevision + 1 } : {}),
       compileError: cachedError,
+    }));
+  },
+
+  setMainFile: (id) => {
+    const state = get();
+    if (!state.files.some((f) => f.id === id && f.type === "tex")) return;
+    if (state.projectRoot)
+      localStorage.setItem(`lemlio-main:${state.projectRoot}`, id);
+    _currentPdfRootId = _pdfBytesCache.has(id) ? id : null;
+    set((s) => ({
+      mainFileId: id,
+      pdfRevision: s.pdfRevision + 1,
+      compileError: s.compileErrorCache.get(id) ?? null,
     }));
   },
 
@@ -560,6 +588,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
             : f,
         ),
         activeFileId: isActive ? newRelativePath : s.activeFileId,
+        mainFileId: s.mainFileId === id ? newRelativePath : s.mainFileId,
         compileErrorCache,
         lastCompiledGenerations,
       };
@@ -586,9 +615,10 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
   setPdfData: (data, rootFileId?) => {
     if (data) {
-      const key = rootFileId ?? "__default__";
+      const key = rootFileId ?? (get().mainFileId || "__default__");
       _pdfBytesCache.set(key, data);
-      _currentPdfRootId = key;
+      if (!get().mainFileId || get().mainFileId === key)
+        _currentPdfRootId = key;
     } else if (rootFileId) {
       _pdfBytesCache.delete(rootFileId);
       if (_currentPdfRootId === rootFileId) _currentPdfRootId = null;
@@ -604,7 +634,10 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
         lastCompiledGenerations.set(rootFileId, s.contentGeneration);
         set((prev) => ({
           pdfRevision: prev.pdfRevision + 1,
-          compileError: null,
+          compileError:
+            !prev.mainFileId || prev.mainFileId === rootFileId
+              ? null
+              : prev.compileError,
           compileErrorCache,
           lastCompiledGenerations,
         }));
@@ -630,7 +663,13 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       } else {
         compileErrorCache.delete(rootFileId);
       }
-      set({ compileError: error, compileErrorCache });
+      set((state) => ({
+        compileError:
+          !state.mainFileId || state.mainFileId === rootFileId
+            ? error
+            : state.compileError,
+        compileErrorCache,
+      }));
     } else {
       set({ compileError: error });
     }
@@ -876,6 +915,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
         ),
         activeFileId:
           s.activeFileId === fileId ? newRelativePath : s.activeFileId,
+        mainFileId: s.mainFileId === fileId ? newRelativePath : s.mainFileId,
         compileErrorCache,
         lastCompiledGenerations,
       };
@@ -899,6 +939,11 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     await renameFileOnDisk(oldAbsPath, newAbsPath);
 
     // Reload project to pick up all new paths
+    if (state.mainFileId.startsWith(`${folderPath}/`))
+      localStorage.setItem(
+        `lemlio-main:${state.projectRoot}`,
+        `${newFolderPath}/${state.mainFileId.slice(folderPath.length + 1)}`,
+      );
     await state.openProject(state.projectRoot);
   },
 
@@ -1066,3 +1111,22 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 }));
 
 storeRef = useDocumentStore;
+useDocumentStore.subscribe((state, previous) => {
+  if (
+    state.projectRoot &&
+    state.mainFileId &&
+    (state.mainFileId !== previous.mainFileId ||
+      state.projectRoot !== previous.projectRoot)
+  ) {
+    localStorage.setItem(`lemlio-main:${state.projectRoot}`, state.mainFileId);
+  }
+  if (
+    state.initialized &&
+    state.mainFileId &&
+    !state.files.some((f) => f.id === state.mainFileId && f.type === "tex")
+  ) {
+    const first = state.files.find((f) => f.type === "tex");
+    if (first) state.setMainFile(resolveTexRoot(first.id, state.files));
+    else useDocumentStore.setState({ mainFileId: "" });
+  }
+});

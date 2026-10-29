@@ -1,5 +1,21 @@
 {
   "bundle": {
     "resources": ["resources/tectonic/*"]
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Lemlio",
+        "fullscreen": false,
+        "maximized": true,
+        "width": 1400,
+        "height": 900,
+        "minWidth": 800,
+        "minHeight": 600,
+        "visible": false,
+        "backgroundThrottling": "disabled",
+        "decorations": false
+      }
+    ]
   }
 }

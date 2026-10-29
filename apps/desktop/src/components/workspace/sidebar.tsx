@@ -1,4 +1,5 @@
 import { AppSettings } from "@/components/app-settings";
+import { ProjectTitle } from "@/components/project-title";
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import {
@@ -69,6 +70,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useUvSetupStore } from "@/stores/uv-setup-store";
 import { UvSetupDialog } from "@/components/uv-setup";
@@ -184,6 +186,14 @@ function buildFileTree(files: ProjectFile[], folders: string[]): TreeNode[] {
 // ─── File Icon ───
 
 function getFileIcon(file: ProjectFile) {
+  if (file.type === "tex")
+    return (
+      <FileTextIcon className="size-4 shrink-0 text-teal-600 dark:text-teal-400" />
+    );
+  if (file.type === "bib")
+    return (
+      <FileSpreadsheetIcon className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+    );
   if (file.type === "image") return <ImageIcon className="size-4 shrink-0" />;
   if (file.type === "pdf")
     return <FileSpreadsheetIcon className="size-4 shrink-0" />;
@@ -627,14 +637,9 @@ export function Sidebar() {
       <div className="relative flex h-[calc(48px+var(--titlebar-height))] items-center justify-center border-sidebar-border border-b px-3 pt-[var(--titlebar-height)]">
         <div className="flex w-full min-w-0 flex-col items-center px-12">
           <span className="font-semibold text-sm">Lemlio</span>
-          <span
-            className="max-w-full truncate text-muted-foreground text-xs"
-            title={projectRoot ?? undefined}
-          >
-            {projectRoot?.split(/[/\\]/).pop() || "Desktop"}
-          </span>
+          <ProjectTitle path={projectRoot} />
         </div>
-        <div className="absolute right-3 flex items-center gap-0.5">
+        <div className="absolute left-3 flex items-center gap-0.5">
           <ProjectZipExportButton projectPath={projectRoot} />
           <Button
             variant="ghost"
@@ -808,15 +813,17 @@ export function Sidebar() {
       <div className="flex items-center justify-between border-sidebar-border border-t px-3 py-2 text-muted-foreground text-xs">
         <span className="truncate">Lemlio v{appVersion}</span>
         <div className="flex shrink-0 items-center gap-1">
-          <Button variant="ghost" size="icon" className="size-6" asChild>
-            <a
-              href="https://developers.openai.com/codex/cli"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="GitHub"
-            >
-              <GithubIcon className="size-3.5" />
-            </a>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            title="Lemlio on GitHub"
+            aria-label="Lemlio on GitHub"
+            onClick={() =>
+              void openExternal("https://github.com/samanjoy2/lemlio")
+            }
+          >
+            <GithubIcon className="size-3.5" />
           </Button>
           <Button
             variant="ghost"
@@ -1044,6 +1051,7 @@ function FileTreeNode({
   nativeDragOver,
 }: FileTreeNodeProps) {
   const isExpanded = expandedFolders.has(node.relativePath);
+  const mainFileId = useDocumentStore((s) => s.mainFileId);
 
   if (node.type === "folder") {
     return (
@@ -1134,6 +1142,8 @@ function FileTreeNode({
               file.id === activeFileId
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "hover:bg-sidebar-accent/50",
+              file.id === mainFileId &&
+                "border-teal-500 border-l-2 bg-teal-500/10 font-medium",
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
             onClick={() => {
@@ -1143,6 +1153,16 @@ function FileTreeNode({
           >
             {getFileIcon(file)}
             <span className="min-w-0 flex-1 truncate">{node.name}</span>
+            {file.id === mainFileId && (
+              <span className="shrink-0 rounded bg-teal-500/15 px-1 text-[9px] text-teal-700 dark:text-teal-300">
+                MAIN
+              </span>
+            )}
+            {file.type === "bib" && (
+              <span className="shrink-0 text-[9px] text-amber-700 dark:text-amber-300">
+                BIB
+              </span>
+            )}
             {file.isDirty && (
               <span
                 className="ml-auto size-2 shrink-0 rounded-full bg-blue-500"
@@ -1152,6 +1172,13 @@ function FileTreeNode({
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          {file.type === "tex" && (
+            <ContextMenuItem
+              onClick={() => useDocumentStore.getState().setMainFile(file.id)}
+            >
+              Use as main compile file
+            </ContextMenuItem>
+          )}
           <ContextMenuItem onClick={() => onRename(file.id, file.name)}>
             <PencilIcon className="mr-2 size-4" />
             Rename

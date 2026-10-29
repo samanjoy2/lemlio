@@ -71,7 +71,7 @@ export function UvSetupDialog({ open, onClose }: UvSetupDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[85vh] min-w-0 overflow-y-auto overflow-x-hidden sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <TerminalIcon className="size-5" />
@@ -82,7 +82,7 @@ export function UvSetupDialog({ open, onClose }: UvSetupDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="min-w-0 space-y-4 py-2">
           {/* uv status */}
           <div className="flex items-center gap-3 rounded-lg border p-3">
             <StatusIcon status={status} isInstalling={isInstalling} />
@@ -102,7 +102,9 @@ export function UvSetupDialog({ open, onClose }: UvSetupDialogProps) {
                 </div>
               )}
               {error && (
-                <div className="mt-1 text-destructive text-xs">{error}</div>
+                <div className="mt-1 break-words text-destructive text-xs">
+                  {error}
+                </div>
               )}
             </div>
             {status === "not-installed" && !isInstalling && (
@@ -140,7 +142,7 @@ export function UvSetupDialog({ open, onClose }: UvSetupDialogProps) {
                 </div>
                 {venvPath && (
                   <div
-                    className="truncate text-muted-foreground text-xs"
+                    className="break-all text-muted-foreground text-xs"
                     title={venvPath}
                   >
                     {venvPath}
@@ -148,7 +150,7 @@ export function UvSetupDialog({ open, onClose }: UvSetupDialogProps) {
                 )}
                 {pythonPath && (
                   <div
-                    className="truncate text-muted-foreground text-xs"
+                    className="break-all text-muted-foreground text-xs"
                     title={pythonPath}
                   >
                     Python: {pythonPath.split(/[/\\]/).pop()}
@@ -165,7 +167,7 @@ export function UvSetupDialog({ open, onClose }: UvSetupDialogProps) {
 
           {/* Info text */}
           {status === "ready" && venvReady && (
-            <p className="text-muted-foreground text-xs leading-relaxed">
+            <p className="min-w-0 break-words text-muted-foreground text-xs leading-relaxed">
               Codex will automatically use this environment when running Python
               code. Use <code className="text-foreground">uv pip install</code>{" "}
               to add packages.

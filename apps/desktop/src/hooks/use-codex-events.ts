@@ -352,8 +352,16 @@ export function useCodexEvents() {
         activeFileId,
         isCompiling: alreadyCompiling,
       } = useDocumentStore.getState();
-      if (projectRoot && !alreadyCompiling) {
-        const resolved = resolveCompileTarget(activeFileId, files);
+      if (
+        projectRoot &&
+        !alreadyCompiling &&
+        useSettingsStore.getState().autoCompile
+      ) {
+        const resolved = resolveCompileTarget(
+          activeFileId,
+          files,
+          useDocumentStore.getState().mainFileId,
+        );
         if (resolved) {
           const { rootId, targetPath } = resolved;
           useDocumentStore.getState().setIsCompiling(true);
