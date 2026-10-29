@@ -33,3 +33,7 @@ Initial complete packaging verification: https://github.com/samanjoy2/lemlio/act
 - Mac builds are ad hoc signed, **not Apple notarized**. Interactive testing on a physical Mac has not been performed here; native CI compilation and packaged-compiler checks are recorded above.
 - Windows speech recording remains Windows-only. macOS uses its system Dictation shortcut; the microphone button opens Voice setup.
 - Latin Modern is bundled. Arbitrary missing fonts are not downloaded automatically. EPS conversion still requires an available Ghostscript/system converter.
+
+## Final Windows artifact check
+
+The final release executable compiled a disposable fontspec document with bundled Tectonic and Latin Modern Sans regular/bold/italic successfully (5,685-byte PDF, exit code 0). The release installer and Desktop copy have the same SHA-256 checksum. No user project was used for this smoke test.
