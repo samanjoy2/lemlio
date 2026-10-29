@@ -2,6 +2,8 @@ import { ThemeProvider } from "next-themes";
 import { WindowHeader } from "@/components/window-header";
 import { AppContextMenu } from "@/components/app-context-menu";
 import { DeleteProjectDialog } from "@/components/delete-project-dialog";
+import { CloseConfirmation } from "@/components/close-confirmation";
+import { DriveRestoreDialog } from "@/components/drive-restore-dialog";
 import { ErrorBoundary } from "react-error-boundary";
 import { Toaster } from "@/components/ui/sonner";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -108,6 +110,8 @@ export function App({ onReady }: { onReady?: () => void }) {
             </div>
           </AppContextMenu>
           <DeleteProjectDialog />
+          <CloseConfirmation />
+          <DriveRestoreDialog />
           {showDebug && (
             <div className="fixed inset-0 z-[9998] flex items-end justify-center">
               <div

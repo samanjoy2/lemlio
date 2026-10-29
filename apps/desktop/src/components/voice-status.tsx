@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { MicIcon } from "lucide-react";
 
 export function VoiceStatus() {
+  const mac = navigator.userAgent.includes("Mac");
   const [ready, setReady] = useState<boolean>();
   useEffect(() => {
     let disposed = false;
@@ -45,7 +46,13 @@ export function VoiceStatus() {
           ready ? "home-connection-badge is-connected" : "home-connection-badge"
         }
       >
-        {ready === undefined ? "Checking" : ready ? "Ready" : "Setup"}
+        {mac
+          ? "System dictation"
+          : ready === undefined
+            ? "Checking"
+            : ready
+              ? "Ready"
+              : "Setup"}
       </span>
     </button>
   );

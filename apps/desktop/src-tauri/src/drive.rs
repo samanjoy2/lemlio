@@ -59,34 +59,34 @@ fn config() -> Result<ClientConfig, String> {
     .map_err(|_| "Invalid Drive client configuration".into())
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn credential() -> Result<keyring::Entry, String> {
     keyring::Entry::new("Lemlio.GoogleDrive", "oauth-tokens")
-        .map_err(|_| "Cannot access Windows Credential Manager".into())
+        .map_err(|_| "Cannot access the system credential store".into())
 }
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn tokens() -> Result<Option<Tokens>, String> {
     match credential()?.get_password() {
         Ok(raw) => serde_json::from_str(&raw)
             .map(Some)
             .map_err(|_| "Stored Drive connection is invalid; reconnect".into()),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(_) => Err("Cannot read Drive connection from Windows Credential Manager".into()),
+        Err(_) => Err("Cannot read Drive connection from the system credential store".into()),
     }
 }
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn tokens() -> Result<Option<Tokens>, String> {
     Ok(None)
 }
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn save_tokens(tokens: &Tokens) -> Result<(), String> {
     credential()?
         .set_password(&serde_json::to_string(tokens).map_err(|_| "Cannot encode Drive connection")?)
-        .map_err(|_| "Cannot save Drive connection in Windows Credential Manager".into())
+        .map_err(|_| "Cannot save Drive connection in the system credential store".into())
 }
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn save_tokens(_: &Tokens) -> Result<(), String> {
-    Err("Direct Drive sign-in is currently supported on Windows".into())
+    Err("Direct Drive sign-in is currently supported on Windows and macOS".into())
 }
 
 pub fn configure_client(path: &Path) -> Result<(), String> {
@@ -121,7 +121,7 @@ pub fn configure_client(path: &Path) -> Result<(), String> {
 }
 
 pub fn clear_local_setup() -> Result<(), String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     match credential()?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => {}
         Err(_) => return Err("Cannot remove the local Drive connection".into()),
@@ -304,7 +304,7 @@ pub async fn drive_disconnect(state: tauri::State<'_, DriveState>) -> Result<(),
             .send()
             .await;
     }
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     match credential()?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => {}
         Err(_) => return Err("Cannot remove the stored Drive connection".into()),
@@ -707,7 +707,7 @@ pub async fn drive_reset_backups(state: tauri::State<'_, DriveState>) -> Result<
     reset_backups(&state).await
 }
 
-fn local_revision(source: &Path) -> Result<String, String> {
+pub(crate) fn local_revision(source: &Path) -> Result<String, String> {
     let mut hash = Sha256::new();
     for (relative, folder) in crate::projects::project_entries(source)? {
         hash.update(relative.to_string_lossy().as_bytes());
@@ -737,10 +737,16 @@ pub async fn drive_project_revision(project_path: String) -> Result<String, Stri
 fn check_archive_conflict(
     remote: &Value,
     expected_remote_hash: Option<&str>,
+    baseline: Option<&str>,
+    local_hash: &str,
 ) -> Result<(), String> {
     let actual = remote["sha256Checksum"].as_str();
     let recorded = remote["appProperties"]["lemlioArchiveHash"].as_str();
-    if actual.is_some() && (actual == recorded || actual == expected_remote_hash) {
+    if actual.is_some()
+        && (actual == Some(local_hash)
+            || actual == expected_remote_hash
+            || (actual == baseline && actual == recorded))
+    {
         return Ok(());
     }
     Err(format!(
@@ -772,8 +778,18 @@ async fn backup_project_with_choice(
         if local_revision(&source)? != revision {
             return Err("Project changed while preparing its ZIP; backup will retry".into());
         }
-        let normalized = source.to_string_lossy().replace('\\', "/").to_lowercase();
-        let key = format!("{:x}", Sha256::digest(normalized.as_bytes()));
+        let local_path = source.to_string_lossy().to_string();
+        let receipt = crate::drive_receipts::load(&local_path)?;
+        // Keep the established archive identity for existing Windows projects.
+        let normalized = if cfg!(target_os = "windows") {
+            local_path.replace('\\', "/").to_lowercase()
+        } else {
+            crate::drive_receipts::path_key(&local_path)
+        };
+        let key = receipt
+            .as_ref()
+            .map(|r| r.project_key.clone())
+            .unwrap_or_else(|| format!("{:x}", Sha256::digest(normalized.as_bytes())));
         let name = crate::projects::project_details(project_path)
             .ok()
             .and_then(|d| d["name"].as_str().map(str::to_string))
@@ -784,7 +800,9 @@ async fn backup_project_with_choice(
                     .to_string_lossy()
                     .to_string()
             });
-        Ok::<_, String>((directory, file_count, key, name, revision))
+        Ok::<_, String>((
+            directory, file_count, key, name, revision, receipt, local_path,
+        ))
     })
     .await
     .map_err(|_| "Cannot prepare backup files")??;
@@ -831,14 +849,19 @@ async fn backup_project_with_choice(
             && f["appProperties"]["lemlioFormat"] == "zip-v2"
             && f["mimeType"] == "application/zip"
     });
-    if let Some(remote) = existing {
-        check_archive_conflict(remote, expected_remote_hash)?;
-    }
     let archive = snapshot.0.path().join("backup.zip");
     let hash = sha256_file(&archive)?;
     let size = std::fs::metadata(&archive)
         .map_err(|e| e.to_string())?
         .len();
+    if let Some(remote) = existing {
+        let baseline = snapshot
+            .5
+            .as_ref()
+            .filter(|r| r.folder_id == root && remote["id"].as_str() == Some(r.archive_id.as_str()))
+            .map(|r| r.archive_hash.as_str());
+        check_archive_conflict(remote, expected_remote_hash, baseline, &hash)?;
+    }
     let unchanged = existing.is_some_and(|f| drive_file_matches(f, &hash, size));
     let archive_name = backup_archive_name(&snapshot.3, &snapshot.2);
     let archive_id = if unchanged && existing.is_some_and(|f| f["name"] == archive_name) {
@@ -867,6 +890,17 @@ async fn backup_project_with_choice(
     };
     token.last_backup = Some(now());
     save_tokens(&token)?;
+    crate::drive_receipts::save(
+        &snapshot.6,
+        crate::drive_receipts::Receipt {
+            project_key: snapshot.2.clone(),
+            archive_id: archive_id.clone(),
+            archive_hash: hash,
+            source_revision: snapshot.4.clone(),
+            folder_id: root.to_string(),
+            last_backup: token.last_backup.unwrap_or_default(),
+        },
+    )?;
     Ok(
         json!({"name":snapshot.3,"format":"zip","sourceFiles":snapshot.1,"sourceRevision":snapshot.4,"uploadedFiles":if unchanged {0} else {1},"unchangedFiles":if unchanged {1} else {0},"lastBackup":token.last_backup,"archiveUrl":format!("https://drive.google.com/file/d/{archive_id}/view"),"folderUrl":format!("https://drive.google.com/drive/folders/{root}")}),
     )
@@ -886,14 +920,34 @@ mod tests {
     #[test]
     fn remote_edits_require_the_exact_version_the_user_reviewed() {
         let mut remote = json!({"name":"Paper.zip","sha256Checksum":"original","appProperties":{"lemlioArchiveHash":"original"}});
-        assert!(check_archive_conflict(&remote, None).is_ok());
+        assert!(check_archive_conflict(&remote, None, Some("original"), "local-edit").is_ok());
         remote["sha256Checksum"] = json!("edited-in-drive");
-        assert!(check_archive_conflict(&remote, None)
-            .unwrap_err()
-            .starts_with("DRIVE_CONFLICT:"));
-        assert!(check_archive_conflict(&remote, Some("edited-in-drive")).is_ok());
-        assert!(check_archive_conflict(&remote, Some("older-remote-version")).is_err());
-        assert!(check_archive_conflict(&json!({"sha256Checksum":"unknown"}), None).is_err());
+        assert!(
+            check_archive_conflict(&remote, None, Some("original"), "local-edit")
+                .unwrap_err()
+                .starts_with("DRIVE_CONFLICT:")
+        );
+        assert!(check_archive_conflict(
+            &remote,
+            Some("edited-in-drive"),
+            Some("original"),
+            "local-edit"
+        )
+        .is_ok());
+        assert!(check_archive_conflict(
+            &remote,
+            Some("older-remote-version"),
+            Some("original"),
+            "local-edit"
+        )
+        .is_err());
+        assert!(check_archive_conflict(
+            &json!({"sha256Checksum":"unknown"}),
+            None,
+            None,
+            "different"
+        )
+        .is_err());
     }
     #[test]
     fn reset_only_accepts_owned_lemlio_backup_folders() {
@@ -998,4 +1052,248 @@ mod tests {
         assert_eq!(pairs["state"], "nonce");
         assert_eq!(pairs["access_type"], "offline");
     }
+}
+
+async fn existing_backup_root(
+    client: &reqwest::Client,
+    token: &mut Tokens,
+) -> Result<Option<String>, String> {
+    if let Some(id) = token.folder_id.clone() {
+        let response = client
+            .get(format!("https://www.googleapis.com/drive/v3/files/{id}"))
+            .bearer_auth(&token.access_token)
+            .query(&[("fields", "id,trashed")])
+            .send()
+            .await
+            .map_err(|_| "Cannot reach Drive")?;
+        if response.status().is_success() && google_json(response).await?["trashed"] != true {
+            return Ok(Some(id));
+        }
+    }
+    let root = drive_children(client, &token.access_token, "root")
+        .await?
+        .into_iter()
+        .find(|f| {
+            f["name"] == "Lemlio Backups" && f["mimeType"] == "application/vnd.google-apps.folder"
+        })
+        .and_then(|f| f["id"].as_str().map(str::to_string));
+    token.folder_id = root.clone();
+    save_tokens(token)?;
+    Ok(root)
+}
+fn display_archive_name(file: &Value) -> String {
+    let name = file["name"]
+        .as_str()
+        .unwrap_or("Project.zip")
+        .trim_end_matches(".zip");
+    let key = file["appProperties"]["lemlioProject"]
+        .as_str()
+        .unwrap_or("");
+    match name.rsplit_once("--") {
+        Some((title, suffix)) if !suffix.is_empty() && key.starts_with(suffix) => title.to_string(),
+        _ => name.to_string(),
+    }
+}
+fn managed_archive(file: &Value, root: &str) -> bool {
+    file["trashed"] != true
+        && file["mimeType"] == "application/zip"
+        && file["appProperties"]["lemlioFormat"] == "zip-v2"
+        && file["appProperties"]["lemlioProject"].as_str().is_some()
+        && file["parents"]
+            .as_array()
+            .is_some_and(|p| p.iter().any(|id| id == root))
+}
+#[tauri::command]
+pub async fn drive_list_backups() -> Result<Value, String> {
+    let mut token = authorized_tokens().await?;
+    let client = http_client()?;
+    let Some(root) = existing_backup_root(&client, &mut token).await? else {
+        return Ok(json!({"projects":[]}));
+    };
+    let files = drive_children(&client, &token.access_token, &root).await?;
+    let mut projects = Vec::new();
+    for file in files.into_iter().filter(|f| {
+        f["mimeType"] == "application/zip" && f["appProperties"]["lemlioFormat"] == "zip-v2"
+    }) {
+        let key = file["appProperties"]["lemlioProject"]
+            .as_str()
+            .ok_or("Invalid backup identity")?;
+        let local = crate::drive_receipts::linked_project(key)?;
+        projects.push(json!({"id":file["id"],"name":display_archive_name(&file),"size":file["size"],"modifiedTime":file["modifiedTime"],"localPath":local}));
+    }
+    Ok(json!({"projects":projects}))
+}
+#[tauri::command]
+pub async fn drive_restore_project(
+    state: tauri::State<'_, DriveState>,
+    archive_id: String,
+) -> Result<Value, String> {
+    restore_project(&state, archive_id).await
+}
+pub async fn restore_project(state: &DriveState, archive_id: String) -> Result<Value, String> {
+    let _upload = state.upload.lock().await;
+    let mut token = authorized_tokens().await?;
+    let client = http_client()?;
+    let root = existing_backup_root(&client, &mut token)
+        .await?
+        .ok_or("No backup folder was found in this account")?;
+    let metadata = google_json(
+        client
+            .get(format!(
+                "https://www.googleapis.com/drive/v3/files/{archive_id}"
+            ))
+            .bearer_auth(&token.access_token)
+            .query(&[(
+                "fields",
+                "id,name,mimeType,parents,trashed,sha256Checksum,size,appProperties",
+            )])
+            .send()
+            .await
+            .map_err(|_| "Cannot inspect the Drive backup")?,
+    )
+    .await?;
+    if !managed_archive(&metadata, &root) {
+        return Err("Choose a ZIP from this account's Lemlio backup folder".into());
+    }
+    let project_key = metadata["appProperties"]["lemlioProject"]
+        .as_str()
+        .ok_or("Missing project identity")?
+        .to_string();
+    if crate::drive_receipts::linked_project(&project_key)?.is_some() {
+        return Err("This Drive project is already linked to a local folder. Open that local project instead.".into());
+    }
+    let expected_hash = metadata["sha256Checksum"]
+        .as_str()
+        .ok_or("Drive has not confirmed the backup checksum yet")?
+        .to_string();
+    let name = display_archive_name(&metadata);
+    let temp = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || "<>:\"/\\|?*".contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .take(120)
+        .collect();
+    let archive = temp.path().join(format!(
+        "{}.zip",
+        if safe.trim().is_empty() {
+            "Project"
+        } else {
+            safe.trim()
+        }
+    ));
+    let mut response = client
+        .get(format!(
+            "https://www.googleapis.com/drive/v3/files/{archive_id}"
+        ))
+        .bearer_auth(&token.access_token)
+        .query(&[("alt", "media")])
+        .send()
+        .await
+        .map_err(|_| "Cannot download the backup ZIP")?;
+    if !response.status().is_success() {
+        google_json(response).await?;
+        return Err("Cannot download the backup ZIP".into());
+    }
+    let mut file = tokio::fs::File::create(&archive)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut hash = Sha256::new();
+    let mut total = 0u64;
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "Backup download was interrupted; local projects were kept")?
+    {
+        total = total
+            .checked_add(chunk.len() as u64)
+            .ok_or("Backup ZIP is too large")?;
+        if total > 2 * 1024 * 1024 * 1024 {
+            return Err("Backup ZIP exceeds the 2 GB download limit".into());
+        }
+        hash.update(&chunk);
+        file.write_all(&chunk).await.map_err(|e| e.to_string())?;
+    }
+    file.sync_all().await.map_err(|e| e.to_string())?;
+    drop(file);
+    if format!("{:x}", hash.finalize()) != expected_hash {
+        return Err("The Drive ZIP changed or its download is incomplete. Refresh backups and try again; local files were kept.".into());
+    }
+    let result = tokio::task::spawn_blocking(move || crate::projects::restore_snapshot(&archive))
+        .await
+        .map_err(|e| e.to_string())??;
+    let path = result.storage_path.clone();
+    let source_revision = local_revision(Path::new(&path))?;
+    crate::drive_receipts::save(
+        &path,
+        crate::drive_receipts::Receipt {
+            project_key,
+            archive_id,
+            archive_hash: expected_hash,
+            source_revision: source_revision.clone(),
+            folder_id: root,
+            last_backup: now(),
+        },
+    )?;
+    Ok(
+        json!({"projects":result.projects,"path":path,"lastBackup":now(),"sourceRevision":source_revision}),
+    )
+}
+#[tauri::command]
+pub async fn drive_backup_summary(project_paths: Vec<String>) -> Result<Value, String> {
+    let mut paths = std::collections::BTreeSet::new();
+    paths.extend(
+        project_paths
+            .into_iter()
+            .map(|p| crate::drive_receipts::path_key(&p)),
+    );
+    let mut rows = Vec::new();
+    for path in paths {
+        let receipt = crate::drive_receipts::load(&path)?;
+        let revision = drive_project_revision(path.clone()).await;
+        let saved = receipt.as_ref().is_some_and(|r| {
+            revision
+                .as_ref()
+                .is_ok_and(|current| current == &r.source_revision)
+        });
+        rows.push(json!({"path":path,"status":if saved{"saved"}else{"pending"},"lastBackup":receipt.as_ref().map(|r|r.last_backup),"receipt":receipt}));
+    }
+    if rows.is_empty() {
+        return Ok(json!({"allBackedUp":true,"projects":[],"connected":tokens()?.is_some()}));
+    }
+    let verified = async {
+        let mut token = authorized_tokens().await?;
+        let client = http_client()?;
+        let Some(root) = existing_backup_root(&client, &mut token).await? else {
+            return Err("No Drive backup folder is available".to_string());
+        };
+        let remote = drive_children(&client, &token.access_token, &root).await?;
+        for row in &mut rows {
+            let receipt = &row["receipt"];
+            let matches = remote.iter().any(|f| {
+                f["id"] == receipt["archiveId"]
+                    && f["sha256Checksum"] == receipt["archiveHash"]
+                    && receipt["folderId"] == root
+            });
+            if row["status"] == "saved" && !matches {
+                row["status"] = json!("conflict");
+            }
+        }
+        Ok::<_, String>(())
+    }
+    .await;
+    for row in &mut rows {
+        if let Some(record) = row.as_object_mut() {
+            record.remove("receipt");
+        }
+    }
+    let all = verified.is_ok() && rows.iter().all(|r| r["status"] == "saved");
+    Ok(
+        json!({"allBackedUp":all,"projects":rows,"connected":verified.is_ok(),"error":verified.err()}),
+    )
 }

@@ -20,6 +20,7 @@ export function requestProjectDelete(path: string, name: string) {
 }
 
 export function DeleteProjectDialog() {
+  const trash = navigator.userAgent.includes("Mac") ? "Trash" : "Recycle Bin";
   const [project, setProject] = useState<{ path: string; name: string }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -42,8 +43,8 @@ export function DeleteProjectDialog() {
         <DialogHeader>
           <DialogTitle>Delete {project?.name}?</DialogTitle>
           <DialogDescription>
-            The project folder and its files will move to the Windows Recycle
-            Bin. Existing Drive backups are kept.
+            The project folder and its files will move to {trash}. Existing
+            Drive backups are kept.
           </DialogDescription>
         </DialogHeader>
         <p className="break-all text-muted-foreground text-xs">
@@ -99,7 +100,7 @@ export function DeleteProjectDialog() {
               }
             }}
           >
-            {busy ? "Moving to Recycle Bin…" : "Move to Recycle Bin"}
+            {busy ? `Moving to ${trash}…` : `Move to ${trash}`}
           </Button>
         </div>
       </DialogContent>

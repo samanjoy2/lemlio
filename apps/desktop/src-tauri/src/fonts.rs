@@ -76,3 +76,69 @@ mod tests {
         assert_eq!(xml("A&B/<font>\"'"), "A&amp;B/&lt;font&gt;&quot;&apos;");
     }
 }
+
+#[cfg(target_os = "macos")]
+pub fn prepare_mac(main: &std::path::Path) -> Result<(), String> {
+    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let packaged = executable
+        .parent()
+        .ok_or("Cannot locate font resources")?
+        .join("../Resources/resources/tectonic/fonts");
+    let fonts = if packaged.join("lmsans10-regular.otf").is_file() {
+        packaged
+    } else {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/tectonic/fonts")
+    };
+    let directory = main
+        .parent()
+        .ok_or("Cannot locate the build folder")?
+        .join(".lemlio-fonts");
+    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    let families = [
+        (
+            "Latin Modern Sans",
+            [
+                "lmsans10-regular",
+                "lmsans10-bold",
+                "lmsans10-oblique",
+                "lmsans10-boldoblique",
+            ],
+        ),
+        (
+            "Latin Modern Roman",
+            [
+                "lmroman10-regular",
+                "lmroman10-bold",
+                "lmroman10-italic",
+                "lmroman10-bolditalic",
+            ],
+        ),
+        (
+            "Latin Modern Mono",
+            [
+                "lmmono10-regular",
+                "lmmonolt10-bold",
+                "lmmono10-italic",
+                "lmmonolt10-boldoblique",
+            ],
+        ),
+    ];
+    let mut rules = String::from("\\AddToHook{package/fontspec/after}{");
+    for (family, files) in families {
+        for file in files {
+            let name = format!("{file}.otf");
+            let destination = directory.join(&name);
+            if !destination.is_file() {
+                std::fs::copy(fonts.join(name), destination)
+                    .map_err(|e| format!("Cannot prepare bundled fonts: {e}"))?;
+            }
+        }
+        rules.push_str(&format!("\\defaultfontfeatures[{family}]{{Path={{.lemlio-fonts/}},Extension=.otf,UprightFont={},BoldFont={},ItalicFont={},BoldItalicFont={}}}",files[0],files[1],files[2],files[3]));
+    }
+    rules.push('}');
+    let source = std::fs::read_to_string(main).map_err(|e| e.to_string())?;
+    if !source.starts_with(&rules) {
+        std::fs::write(main, format!("{rules}{source}")).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}

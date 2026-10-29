@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-shell";
 import { Button } from "./ui/button";
 import { ActivityOrb } from "./activity-feedback";
 import { DriveBackupOverview } from "./drive-backup-overview";
+import { requestDriveRestore } from "./drive-restore-dialog";
 import {
   Dialog,
   DialogContent,
@@ -145,7 +146,8 @@ export function DriveSettings() {
           the JSON file downloaded from Google Cloud. It is copied into local
           app settings, outside your projects. Configuration files are excluded
           from Git and backups; sign-in tokens stay in Windows Credential
-          Manager. Authorization requests go directly to Google.
+          Manager or macOS Keychain. Authorization requests go directly to
+          Google.
         </p>
         <Button variant="outline" onClick={configure}>
           {status?.configured
@@ -269,6 +271,13 @@ export function DriveSettings() {
         )}
       </div>
       <DriveBackupOverview />
+      <Button
+        variant="outline"
+        disabled={!status?.connected || busy}
+        onClick={requestDriveRestore}
+      >
+        Restore projects from Drive
+      </Button>
       {status?.connected && (
         <Button
           variant="outline"

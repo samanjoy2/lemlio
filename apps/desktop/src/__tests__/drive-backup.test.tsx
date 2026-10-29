@@ -37,7 +37,7 @@ it("detects externally changed PC files and migrates older folder backups to ZIP
     expect(invoke).toHaveBeenCalledWith("drive_backup_project", {
       projectPath: "C:/Imported",
     });
-    expect(localStorage.getItem("lemlio-drive-layout")).toBe("zip-v2");
+    expect(localStorage.getItem("lemlio-drive-layout")).toBe("zip-v3");
   } finally {
     await act(async () => root.unmount());
   }

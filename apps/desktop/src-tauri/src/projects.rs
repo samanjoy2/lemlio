@@ -70,6 +70,7 @@ pub async fn project_pdf_preview(
     state: tauri::State<'_, crate::latex::LatexCompilerState>,
     project_path: String,
     main_file: Option<String>,
+    use_texlive: Option<bool>,
 ) -> Result<tauri::ipc::Response, String> {
     let main_file = main_file.or_else(|| {
         project_metadata(Path::new(&project_path), Path::new(""), "").ok()?["mainFile"]
@@ -100,7 +101,7 @@ pub async fn project_pdf_preview(
             &state,
             project_path,
             main,
-            crate::latex::detect_texlive().available,
+            use_texlive.unwrap_or(false),
         )
         .await
         .map(tauri::ipc::Response::new);
@@ -237,8 +238,8 @@ pub enum ImportMode {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportResult {
-    projects: Vec<Value>,
-    storage_path: String,
+    pub(crate) projects: Vec<Value>,
+    pub(crate) storage_path: String,
     archive_path: Option<String>,
     source_moved: bool,
     warning: Option<String>,
@@ -422,6 +423,17 @@ fn files_equal(first: &Path, second: &Path) -> std::io::Result<bool> {
 }
 
 fn import_into(root: &Path, source: &Path, mode: ImportMode) -> Result<ImportResult, String> {
+    import_with_options(root, source, mode, false)
+}
+pub(crate) fn restore_snapshot(source: &Path) -> Result<ImportResult, String> {
+    import_with_options(&library_root()?, source, ImportMode::Copy, true)
+}
+fn import_with_options(
+    root: &Path,
+    source: &Path,
+    mode: ImportMode,
+    snapshot: bool,
+) -> Result<ImportResult, String> {
     let _guard = IMPORT_LOCK.lock().map_err(|error| error.to_string())?;
     let mut catalog = read_catalog(root)?;
     if !catalog["projects"].is_array() {
@@ -517,7 +529,7 @@ fn import_into(root: &Path, source: &Path, mode: ImportMode) -> Result<ImportRes
     let mut projects = Vec::new();
     // Prism's full-library export has one directory per project and an export report.
     let report = staging.path().join("export-errors.json");
-    if report.is_file() {
+    if report.is_file() && !snapshot {
         if let Ok(report) = fs::read_to_string(&report)
             .ok()
             .and_then(|raw| serde_json::from_str::<Value>(raw.trim_start_matches('\u{feff}')).ok())
@@ -562,7 +574,7 @@ fn import_into(root: &Path, source: &Path, mode: ImportMode) -> Result<ImportRes
     } else {
         let mut metadata = project_metadata(staging.path(), Path::new(""), &name)?;
         metadata["relativePath"] = json!(display_path(relative));
-        if metadata["texFileCount"].as_u64().unwrap_or(0) == 0 {
+        if !snapshot && metadata["texFileCount"].as_u64().unwrap_or(0) == 0 {
             return Err(
                 "No LaTeX source was found in this ZIP. Choose an exported project ZIP."
                     .to_string(),

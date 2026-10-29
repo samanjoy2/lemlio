@@ -5,9 +5,15 @@ fn converter() -> Option<PathBuf> {
         .into_iter()
         .find_map(|name| which::which(name).ok())
         .or_else(|| {
-            dirs::data_local_dir()
-                .map(|p| p.join("Programs/MiKTeX/miktex/bin/x64/mgs.exe"))
-                .filter(|p| p.is_file())
+            ["/opt/homebrew/bin/gs", "/usr/local/bin/gs"]
+                .into_iter()
+                .map(PathBuf::from)
+                .find(|p| p.is_file())
+                .or_else(|| {
+                    dirs::data_local_dir()
+                        .map(|p| p.join("Programs/MiKTeX/miktex/bin/x64/mgs.exe"))
+                        .filter(|p| p.is_file())
+                })
         })
 }
 

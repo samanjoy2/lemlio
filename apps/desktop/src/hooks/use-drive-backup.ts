@@ -109,7 +109,7 @@ export function useDriveBackup() {
           ...useProjectStore.getState().knownProjects.map((p) => p.path),
         ];
         const migrateArchives =
-          localStorage.getItem("lemlio-drive-layout") !== "zip-v2";
+          localStorage.getItem("lemlio-drive-layout") !== "zip-v3";
         for (const path of new Set(paths)) {
           const key = projectPathKey(path);
           const previous = projectDriveStatus(path);
@@ -135,7 +135,7 @@ export function useDriveBackup() {
           }
         }
         persist();
-        localStorage.setItem("lemlio-drive-layout", "zip-v2");
+        localStorage.setItem("lemlio-drive-layout", "zip-v3");
         void pump();
       } catch {
         /* Existing queued backups still retry independently. */

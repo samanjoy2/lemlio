@@ -128,6 +128,13 @@ pub async fn speech_start(window: WebviewWindow, session_id: String) -> Result<(
 
 #[tauri::command]
 pub fn open_speech_settings() -> Result<(), String> {
+    if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.Keyboard-Settings.extension")
+            .spawn()
+            .map_err(|_| "Cannot open Keyboard settings")?;
+        return Ok(());
+    }
     if !cfg!(target_os = "windows") {
         return Err("Open your operating system's speech language settings".into());
     }

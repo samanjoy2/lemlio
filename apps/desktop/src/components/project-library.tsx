@@ -13,7 +13,13 @@ import {
 import type { CatalogProject } from "@/lib/project-catalog";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getMupdfClient } from "@/lib/mupdf/mupdf-client";
+import { listen } from "@tauri-apps/api/event";
+import {
+  cachedProjectThumbnail,
+  projectThumbnail,
+  THUMBNAIL_UPDATED,
+} from "@/lib/project-thumbnails";
+import { useSettingsStore } from "@/stores/settings-store";
 import { ActivityOrb } from "./activity-feedback";
 import { requestProjectDelete } from "./delete-project-dialog";
 import {
@@ -63,7 +69,7 @@ export function ProjectCard({
   const archive = project.texFileCount === 0;
   const card = useRef<HTMLElement>(null);
   const [thumbnail, setThumbnail] = useState<string>();
-  const [previewLoading, setPreviewLoading] = useState(true);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [details, setDetails] = useState<{
     name?: string;
     created?: number;
@@ -81,35 +87,39 @@ export function ProjectCard({
   }, [project.path]);
   useEffect(() => {
     let disposed = false;
-    let url: string | undefined;
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((e) => e.isIntersecting)) return;
       observer.disconnect();
       void (async () => {
-        let doc: number | undefined;
-        const client = getMupdfClient();
         try {
-          const buffer = await invoke<ArrayBuffer>("project_pdf_preview", {
-            projectPath: project.path,
-            mainFile: project.mainFile ?? null,
-          });
-          doc = await client.openDocument(buffer);
-          const png = await client.renderThumbnail(doc, 0, 400);
-          url = URL.createObjectURL(new Blob([png], { type: "image/png" }));
-          if (!disposed) setThumbnail(url);
-          else URL.revokeObjectURL(url);
+          const url = await projectThumbnail(
+            project.path,
+            project.mainFile,
+            useSettingsStore.getState().compilerBackend === "texlive",
+            () => {
+              if (!disposed) setPreviewLoading(true);
+            },
+          );
+          if (!disposed) setThumbnail(url || undefined);
         } catch {
         } finally {
           if (!disposed) setPreviewLoading(false);
-          if (doc !== undefined) await client.closeDocument(doc);
         }
       })();
+    });
+    const unlisten = listen<string>(THUMBNAIL_UPDATED, (event) => {
+      if (event.payload === project.path)
+        void cachedProjectThumbnail(project.path)
+          .then((cached) => {
+            if (!disposed) setThumbnail(cached.dataUrl || undefined);
+          })
+          .catch(() => {});
     });
     if (card.current) observer.observe(card.current);
     return () => {
       disposed = true;
       observer.disconnect();
-      if (url) URL.revokeObjectURL(url);
+      void unlisten.then((stop) => stop()).catch(() => {});
     };
   }, [project.path, project.mainFile]);
   const date = (value?: number) =>

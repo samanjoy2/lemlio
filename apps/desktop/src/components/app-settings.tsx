@@ -107,18 +107,31 @@ export function AppSettings() {
           </nav>
           <div className="space-y-4 py-4 text-sm">
             {tab === "General" && (
-              <label>
-                Appearance
-                <select
-                  className="ml-3 rounded border p-2"
-                  value={theme}
-                  onChange={(e) => setTheme(e.target.value)}
-                >
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                  <option value="system">System</option>
-                </select>
-              </label>
+              <div className="space-y-4">
+                <label>
+                  Appearance
+                  <select
+                    className="ml-3 rounded border p-2"
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value)}
+                  >
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                    <option value="system">System</option>
+                  </select>
+                </label>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={settings.skipCloseWhenBackedUp}
+                    onChange={(e) =>
+                      settings.setSkipCloseWhenBackedUp(e.target.checked)
+                    }
+                  />
+                  Skip the close confirmation only when every project is saved
+                  and backed up
+                </label>
+              </div>
             )}
             {tab === "Codex" && (
               <>
@@ -193,34 +206,51 @@ export function AppSettings() {
                 </Button>
                 <p>
                   MiKTeX is optional during setup and can be installed later.
-                  Tectonic is included in the Windows build.
+                  Tectonic is included in the desktop app.
                 </p>
               </>
             )}
             {tab === "Skills" && <SkillsLibrary />}
             {tab === "Google Drive" && <DriveSettings />}
-            {tab === "Voice" && (
-              <div className="space-y-3">
-                <h3 className="font-medium">Windows speech dictation</h3>
-                <p>
-                  Use the microphone in Codex chat to dictate an editable
-                  prompt. Review it, then press Send. No extra OpenAI API key is
-                  needed.
-                </p>
-                <p className="text-muted-foreground">
-                  Install a Windows speech language under Time &amp; language →
-                  Language &amp; region → your language → Language options →
-                  Speech. Restart Lemlio after installation.
-                </p>
-                <Button onClick={() => void invoke("open_speech_settings")}>
-                  Open Windows language settings
-                </Button>
-                <p className="text-muted-foreground text-xs">
-                  Microphone access must be allowed in Windows. Recording stops
-                  when you stop dictation or close the chat.
-                </p>
-              </div>
-            )}
+            {tab === "Voice" &&
+              (navigator.userAgent.includes("Mac") ? (
+                <div className="space-y-3">
+                  <h3 className="font-medium">macOS Dictation</h3>
+                  <p>
+                    Enable Dictation in System Settings → Keyboard → Dictation.
+                    Focus the Codex prompt and use the Dictation shortcut
+                    configured there. Review the text before pressing Send.
+                  </p>
+                  <Button onClick={() => void invoke("open_speech_settings")}>
+                    Open macOS Keyboard settings
+                  </Button>
+                  <p className="text-muted-foreground text-xs">
+                    Mac voice input uses system Dictation. The Windows
+                    microphone recording mode is not used on macOS.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <h3 className="font-medium">Windows speech dictation</h3>
+                  <p>
+                    Use the microphone in Codex chat to dictate an editable
+                    prompt. Review it, then press Send. No extra OpenAI API key
+                    is needed.
+                  </p>
+                  <p className="text-muted-foreground">
+                    Install a Windows speech language under Time &amp; language
+                    → Language &amp; region → your language → Language options →
+                    Speech. Restart Lemlio after installation.
+                  </p>
+                  <Button onClick={() => void invoke("open_speech_settings")}>
+                    Open Windows language settings
+                  </Button>
+                  <p className="text-muted-foreground text-xs">
+                    Microphone access must be allowed in Windows. Recording
+                    stops when you stop dictation or close the chat.
+                  </p>
+                </div>
+              ))}
             {tab === "About" && (
               <>
                 <h2 className="font-semibold text-xl">Lemlio {version}</h2>
@@ -233,9 +263,9 @@ export function AppSettings() {
                   Download latest update
                 </Button>
                 <p className="text-muted-foreground text-xs">
-                  Close Lemlio and run the newer Windows installer to update
-                  this installation. Your projects, settings, and Drive
-                  connection are kept. Private releases require GitHub sign-in.
+                  Close Lemlio and run the newer installer to update this
+                  installation. Your projects, settings, and Drive connection
+                  are kept. Private releases require GitHub sign-in.
                 </p>
                 <p>
                   Based on the MIT-licensed Claude Prism project by delibae,

@@ -1,0 +1,65 @@
+name: Build Lemlio for macOS
+on:
+  workflow_dispatch:
+  push:
+    tags: ['lemlio-v*']
+permissions:
+  contents: write
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: AppleSilicon
+          - runner: macos-15-intel
+            arch: Intel
+    runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          key: macos-${{ matrix.arch }}
+      - run: pnpm install --frozen-lockfile
+      - run: bash scripts/prepare-macos.sh
+      - run: pnpm --filter @prismpro/desktop build
+      - run: pnpm --filter @prismpro/desktop test
+      - run: cargo test --release --lib --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - run: pnpm --filter @prismpro/desktop tauri build --bundles app,dmg
+      - name: Verify bundled app and compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=apps/desktop/src-tauri/target/release/bundle/macos/Lemlio.app
+          test -x "$app/Contents/MacOS/prismpro-desktop"
+          test -x "$app/Contents/Resources/resources/tectonic/tectonic"
+          test -f "$app/Contents/Resources/resources/tectonic/fonts/lmsans10-regular.otf"
+          codesign --verify --deep --strict "$app"
+          for binary in "$app/Contents/MacOS/prismpro-desktop" "$app/Contents/Resources/resources/tectonic/tectonic"; do
+            if otool -L "$binary" | grep -E '/opt/homebrew/|/usr/local/'; then
+              echo 'The application must not require external Homebrew libraries.' >&2
+              exit 1
+            fi
+          done
+          mkdir -p .tools/mac-smoke
+          printf '%s\n' '\documentclass{article}\usepackage{fontspec}\setmainfont{Latin Modern Sans}\begin{document}Lemlio: \textbf{bold}, \textit{italic}.\end{document}' > .tools/mac-smoke/main.tex
+          "$app/Contents/MacOS/prismpro-desktop" --compile-project "$PWD/.tools/mac-smoke" main.tex --tectonic
+          test -s .tools/mac-smoke/.prism/build/main.pdf
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lemlio-macOS-${{ matrix.arch }}
+          path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/lemlio-v')
+        with:
+          files: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg

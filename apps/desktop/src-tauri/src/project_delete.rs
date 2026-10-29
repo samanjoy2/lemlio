@@ -32,7 +32,7 @@ fn recycle_script(path: &Path) -> String {
 
 #[tauri::command]
 pub async fn delete_project(project_path: String) -> Result<(), String> {
-    if !cfg!(target_os = "windows") {
+    if !cfg!(any(target_os = "windows", target_os = "macos")) {
         return Err(
             "Move this project to your system Trash, then remove it from recent projects".into(),
         );
@@ -44,6 +44,17 @@ pub async fn delete_project(project_path: String) -> Result<(), String> {
         let mut protected = protected;
         protected.extend([library.join("Imports"), library.join("Archives")]);
         let target = checked_target(Path::new(&project_path), &protected)?;
+        #[cfg(target_os="macos")]
+        {
+            use objc2::{class,msg_send,runtime::{AnyObject,Bool}};
+            return objc2::rc::autoreleasepool(|_|{
+                let path=objc2_foundation::NSString::from_str(&target.to_string_lossy());
+                let manager:*mut AnyObject=unsafe{msg_send![class!(NSFileManager),defaultManager]};
+                let url:*mut AnyObject=unsafe{msg_send![class!(NSURL),fileURLWithPath:&*path]};
+                let result:Bool=unsafe{msg_send![manager,trashItemAtURL:url,resultingItemURL:std::ptr::null_mut::<*mut AnyObject>(),error:std::ptr::null_mut::<*mut AnyObject>()]};
+                if result.as_bool() && !target.exists(){Ok(())}else{Err("macOS could not move this project to Trash. Close files using it and try again.".into())}
+            });
+        }
         let script = recycle_script(&target);
         use base64::Engine;
         let encoded = base64::engine::general_purpose::STANDARD.encode(script.encode_utf16().flat_map(u16::to_le_bytes).collect::<Vec<_>>());

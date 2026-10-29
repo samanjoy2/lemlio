@@ -194,11 +194,22 @@ export async function readTexFileContent(
   return readTextFile(absolutePath);
 }
 
+const fileWrites = new Map<string, Promise<void>>();
 export async function writeTexFileContent(
   absolutePath: string,
   content: string,
 ): Promise<void> {
-  return writeTextFile(absolutePath, content);
+  const previous = fileWrites.get(absolutePath) || Promise.resolve();
+  const writing = previous
+    .catch(() => {})
+    .then(() => writeTextFile(absolutePath, content));
+  fileWrites.set(absolutePath, writing);
+  try {
+    await writing;
+  } finally {
+    if (fileWrites.get(absolutePath) === writing)
+      fileWrites.delete(absolutePath);
+  }
 }
 
 export async function readImageAsDataUrl(

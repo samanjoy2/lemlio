@@ -1,10 +1,12 @@
 mod codex;
 mod drive;
+mod drive_receipts;
 mod eps;
 mod fonts;
 mod history;
 mod latex;
 mod latex_compat;
+mod previews;
 mod project_delete;
 mod projects;
 mod skills;
@@ -467,11 +469,16 @@ pub fn run() {
             drive::drive_backup_project,
             drive::drive_reset_backups,
             drive::drive_project_revision,
+            drive::drive_list_backups,
+            drive::drive_restore_project,
+            drive::drive_backup_summary,
             projects::rename_project,
             project_delete::delete_project,
             projects::project_details,
             projects::project_titles,
             projects::project_pdf_preview,
+            previews::load_project_thumbnail,
+            previews::save_project_thumbnail,
             projects::project_storage_location,
             projects::import_project_zip,
             projects::export_project_zip,
@@ -574,7 +581,15 @@ pub fn run() {
                     app_handle.exit(0);
                 }
             }
-            tauri::RunEvent::ExitRequested { .. } => {
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                let windows = app_handle.webview_windows();
+                if !windows.is_empty() {
+                    api.prevent_exit();
+                    for window in windows.values() {
+                        let _ = window.close();
+                    }
+                    return;
+                }
                 // Clean up LaTeX build temp directories
                 let latex_state = app_handle.state::<latex::LatexCompilerState>();
                 let state_clone = latex_state.inner().clone();

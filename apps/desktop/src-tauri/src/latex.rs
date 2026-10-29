@@ -422,7 +422,7 @@ fn lower_thread_priority() {
 
 // --- Tectonic Compilation ---
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<(), String> {
     use tectonic::config::PersistentConfig;
     use tectonic::driver::{OutputFormat, PassSetting, ProcessingSessionBuilder};
@@ -469,12 +469,19 @@ pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<
 }
 
 /// Use the packaged Tectonic CLI on Windows to avoid a system vcpkg requirement.
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<(), String> {
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     let parent = executable.parent().ok_or("Cannot locate Lemlio")?;
+    #[cfg(target_os = "windows")]
     let bundled = parent.join("resources/tectonic/tectonic.exe");
-    let development = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/tectonic/tectonic.exe");
+    #[cfg(target_os = "macos")]
+    let bundled = parent.join("../Resources/resources/tectonic/tectonic");
+    let development = Path::new(env!("CARGO_MANIFEST_DIR")).join(if cfg!(target_os = "windows") {
+        "resources/tectonic/tectonic.exe"
+    } else {
+        "resources/tectonic/tectonic"
+    });
     let binary = if bundled.is_file() {
         bundled
     } else if development.is_file() {
@@ -485,16 +492,19 @@ pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<
         })?
     };
     let mut command = std::process::Command::new(&binary);
+    #[cfg(target_os = "windows")]
     let _font_config = crate::fonts::configure(&mut command, &binary)?;
-    let output = command
+    command
         .args([
             "--synctex",
             "--keep-logs",
             "--keep-intermediates",
             main_file,
         ])
-        .current_dir(work_dir)
-        .creation_flags(CREATE_NO_WINDOW)
+        .current_dir(work_dir);
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command
         .output()
         .map_err(|e| format!("Could not launch Tectonic: {e}"))?;
     if output.status.success() {
@@ -1035,6 +1045,8 @@ pub(crate) async fn compile_project(
     if !use_texlive {
         crate::eps::prepare(&std::fs::canonicalize(&build_root).map_err(|e| e.to_string())?)?;
     }
+    #[cfg(target_os = "macos")]
+    crate::fonts::prepare_mac(&main_tex_path)?;
     let engine = detect_tex_engine(&main_tex_content);
 
     // Save engine name before `engine` is moved into the spawn_blocking closure

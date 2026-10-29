@@ -1,6 +1,7 @@
 import { AppSettings } from "@/components/app-settings";
 import { DriveStatus } from "@/components/drive-status";
 import { DriveBackupOverview } from "@/components/drive-backup-overview";
+import { requestDriveRestore } from "@/components/drive-restore-dialog";
 import { VoiceStatus } from "@/components/voice-status";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
@@ -355,6 +356,16 @@ export function ProjectPicker() {
               </span>
             </button>
             <DriveStatus />
+            <button
+              type="button"
+              className="home-connection-row"
+              onClick={requestDriveRestore}
+            >
+              <span className="home-connection-icon">
+                <UploadIcon size={15} className="rotate-180" />
+              </span>
+              <span className="home-connection-name">Restore from Drive</span>
+            </button>
             <VoiceStatus />
           </section>
           <label className="home-compiler">

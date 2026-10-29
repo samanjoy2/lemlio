@@ -1276,25 +1276,37 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
               <div className="flex items-center gap-1">
                 <TooltipIconButton
                   tooltip={
-                    dictation.recording || dictation.starting
-                      ? "Stop microphone"
-                      : "Dictate a prompt"
+                    navigator.userAgent.includes("Mac")
+                      ? "Set up macOS Dictation"
+                      : dictation.recording || dictation.starting
+                        ? "Stop microphone"
+                        : "Dictate a prompt"
                   }
                   aria-label={
-                    dictation.recording || dictation.starting
-                      ? "Stop microphone"
-                      : "Dictate a prompt"
+                    navigator.userAgent.includes("Mac")
+                      ? "Set up macOS Dictation"
+                      : dictation.recording || dictation.starting
+                        ? "Stop microphone"
+                        : "Dictate a prompt"
                   }
                   className={
                     dictation.recording
                       ? "text-red-500"
                       : "text-muted-foreground"
                   }
-                  onClick={() =>
+                  onClick={() => {
+                    if (navigator.userAgent.includes("Mac")) {
+                      window.dispatchEvent(
+                        new CustomEvent("lemlio-open-settings", {
+                          detail: "Voice",
+                        }),
+                      );
+                      return;
+                    }
                     void (dictation.recording || dictation.starting
                       ? dictation.stop()
-                      : dictation.start())
-                  }
+                      : dictation.start());
+                  }}
                 >
                   {dictation.recording || dictation.starting ? (
                     <SquareIcon size={14} />

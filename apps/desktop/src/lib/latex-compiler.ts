@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { resolveTexRoot, type ProjectFile } from "@/stores/document-store";
 import { createLogger } from "@/lib/debug/logger";
+import {
+  refreshProjectThumbnail,
+  failedProjectThumbnail,
+  thumbnailGeneration,
+} from "./project-thumbnails";
 
 const log = createLogger("latex");
 
@@ -46,14 +51,24 @@ export async function compileLatex(
     `Compiling ${mainFile} (backend: ${useTexlive ? "texlive" : "tectonic"})`,
   );
   const start = performance.now();
+  const thumbnailStartedAt = thumbnailGeneration();
   // compile_latex returns raw PDF bytes via Tauri IPC Response
-  const buffer = await invoke<ArrayBuffer>("compile_latex", {
-    projectDir,
-    mainFile,
-    useTexlive,
-  });
+  let buffer: ArrayBuffer;
+  try {
+    buffer = await invoke<ArrayBuffer>("compile_latex", {
+      projectDir,
+      mainFile,
+      useTexlive,
+    });
+  } catch (error) {
+    void failedProjectThumbnail(projectDir, thumbnailStartedAt).catch(() => {});
+    throw error;
+  }
 
   const result = new Uint8Array(buffer);
+  void refreshProjectThumbnail(projectDir, result, thumbnailStartedAt).catch(
+    () => {},
+  );
   log.info(
     `Compiled ${mainFile} in ${(performance.now() - start).toFixed(0)}ms (${(result.byteLength / 1024).toFixed(0)} KB)`,
   );

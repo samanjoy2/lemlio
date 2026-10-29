@@ -755,7 +755,11 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
         new CustomEvent("lemlio-project-saved", { detail: state.projectRoot }),
       );
     set((s) => ({
-      files: s.files.map((f) => (f.id === id ? { ...f, isDirty: false } : f)),
+      files: s.files.map((f) =>
+        f.id === id && f.content === file.content
+          ? { ...f, isDirty: false }
+          : f,
+      ),
     }));
   },
 
@@ -775,7 +779,10 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     if (savedIds.size > 0) {
       set((s) => ({
         files: s.files.map((f) =>
-          savedIds.has(f.id) ? { ...f, isDirty: false } : f,
+          savedIds.has(f.id) &&
+          dirtyFiles.find((saved) => saved.id === f.id)?.content === f.content
+            ? { ...f, isDirty: false }
+            : f,
         ),
       }));
       if (state.projectRoot && !get().files.some((file) => file.isDirty))
