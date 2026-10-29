@@ -3,6 +3,7 @@ import { getMupdfClient } from "@/lib/mupdf/mupdf-client";
 import { createLogger } from "@/lib/debug/logger";
 import { APP_VISIBILITY_RESTORED } from "@/lib/debug/log-store";
 import type { StructuredTextData, LinkData } from "@/lib/mupdf/types";
+import { pageRenderDpi } from "@/lib/mupdf/render-resolution";
 
 const log = createLogger("mupdf-page");
 
@@ -55,7 +56,7 @@ export const MupdfPage = memo(function MupdfPage({
     const gen = ++renderGenRef.current;
     const client = getMupdfClient();
     const dpr = window.devicePixelRatio || 1;
-    const dpi = scale * 72 * dpr;
+    const dpi = pageRenderDpi(pageWidth, pageHeight, scale, dpr);
 
     client
       .drawPage(docId, pageIndex, dpi)
@@ -78,7 +79,32 @@ export const MupdfPage = memo(function MupdfPage({
         if (gen !== renderGenRef.current) return;
         log.error(`Render error page ${pageIndex}`, { error: String(err) });
       });
-  }, [docId, pageIndex, scale, isVisible]);
+  }, [docId, pageIndex, scale, isVisible, pageWidth, pageHeight]);
+
+  // Moving between monitors or changing Windows display scaling changes DPR.
+  useEffect(() => {
+    let dpr = window.devicePixelRatio || 1;
+    let media: MediaQueryList;
+    const changed = () => {
+      const next = window.devicePixelRatio || 1;
+      if (next !== dpr) {
+        dpr = next;
+        renderPage();
+        arm();
+      }
+    };
+    const arm = () => {
+      media?.removeEventListener("change", changed);
+      media = window.matchMedia(`(resolution: ${dpr}dppx)`);
+      media.addEventListener("change", changed);
+    };
+    arm();
+    window.addEventListener("resize", changed);
+    return () => {
+      media.removeEventListener("change", changed);
+      window.removeEventListener("resize", changed);
+    };
+  }, [renderPage]);
 
   // Initial render and re-render on dependency changes
   useEffect(() => {

@@ -634,12 +634,12 @@ export function Sidebar() {
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Header — padded top for macOS overlay titlebar */}
-      <div className="relative flex h-[calc(48px+var(--titlebar-height))] items-center justify-center border-sidebar-border border-b px-3 pt-[var(--titlebar-height)]">
-        <div className="flex w-full min-w-0 flex-col items-center px-12">
+      <div className="grid h-[calc(56px+var(--titlebar-height))] shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 border-sidebar-border border-b px-3 pt-[var(--titlebar-height)]">
+        <div className="col-start-2 row-start-1 flex min-w-0 flex-col items-start">
           <span className="font-semibold text-sm">Lemlio</span>
           <ProjectTitle path={projectRoot} />
         </div>
-        <div className="absolute left-3 flex items-center gap-0.5">
+        <div className="col-start-1 row-start-1 flex items-center gap-1">
           <ProjectZipExportButton projectPath={projectRoot} />
           <Button
             variant="ghost"

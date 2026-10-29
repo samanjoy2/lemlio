@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.2.2"><img alt="Release 1.2.2" src="https://img.shields.io/badge/release-1.2.2-5fb7a5?style=flat-square" /></a>
+  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.2.3"><img alt="Release 1.2.3" src="https://img.shields.io/badge/release-1.2.3-5fb7a5?style=flat-square" /></a>
   <a href="https://github.com/samanjoy2/lemlio/releases/latest"><img alt="Download Windows x64 installer" src="https://img.shields.io/badge/download-Windows_x64-5fb7a5?style=flat-square&amp;logo=windows" /></a>
   <img alt="Built with Tauri and React" src="https://img.shields.io/badge/Tauri-React-273e43?style=flat-square&amp;logo=tauri" />
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-273e43?style=flat-square" /></a>
@@ -36,28 +36,28 @@ Lemlio brings your LaTeX projects into a searchable library with PDF covers, an 
 | --- | --- |
 | **Browse your projects** | PDF thumbnails, search, favorites, recent projects, and grid or list views. Failed previews use a document fallback. |
 | **Keep projects organized** | Rename titles from the library or inside a project, and see creation and last-modified dates without changing folder paths. |
-| **Write beside your PDF** | LaTeX editing, document outline, source navigation, a visible main-file selector, and a PDF that stays open while you browse related files. |
+| **Write beside your PDF** | LaTeX editing, document outline, source navigation, a visible main-file selector, and a sharper PDF that stays open while you browse related files. |
 | **Work with Codex** | Use your Codex sign-in, stream replies, choose a named model, review approval requests, and return to saved chats. GPT-6 Luna is the default model. |
 | **See what is happening** | A centered compilation orb, a breathing **Agent thinking…** pill, colorful chat borders, and an explicit **Stop agent** button. |
 | **Choose when to compile** | Switch between **Auto** and **Manual**. Use bundled Tectonic or select an optional MiKTeX / TeX Live installation. |
 | **Move projects easily** | Import and export ZIPs with nested source folders, figures, and bibliography files. Keep the original ZIP or choose to move it. |
 | **Back up automatically** | Connect Google Drive once. Saved edits and newly imported projects queue for backup, with failed jobs retained for retry. |
-| **Check your backup status** | See Drive connection status beside Codex on the home page, and this project's confirmed backup age in the editor. |
+| **Check your backup status** | See Codex, Google Drive, and Voice status on the home page, and this project's confirmed backup age in the editor. |
 | **Use your existing tools** | Open the project folder, continue in an installed VS Code editor, and browse your installed Codex research skills. |
 
 ## Download and install
 
-Lemlio **1.2.2** is available as a **Windows x64 installer**.
+Lemlio **1.2.3** is available as a **Windows x64 installer**.
 
 1. Open the [latest GitHub release](https://github.com/samanjoy2/lemlio/releases/latest).
-2. Under **Assets**, download `Lemlio_1.2.2_x64-setup.exe`. GitHub's source-code ZIP is for development.
+2. Under **Assets**, download `Lemlio_1.2.3_x64-setup.exe`. GitHub's source-code ZIP is for development.
 3. Close an older running copy of Lemlio or PrismPro, then run the installer.
 4. Open Lemlio and create a project, open a folder, or select **Import ZIP**.
 
-The release also includes `Lemlio-1.2.2-SHA256SUMS.txt`. To compare your download with its published checksum:
+The release also includes `Lemlio-1.2.3-SHA256SUMS.txt`. To compare your download with its published checksum:
 
 ```powershell
-Get-FileHash .\Lemlio_1.2.2_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Lemlio_1.2.3_x64-setup.exe -Algorithm SHA256
 ```
 
 The installer is currently unsigned, so Windows may identify its publisher as unknown. This repository is private; viewing releases and downloading assets requires repository access.
@@ -108,7 +108,7 @@ One compact indicator shows agent activity. The microphone inserts editable prom
 
 </details>
 
-Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.2.2.md) for checks and practical limits.
+Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.2.3.md) for checks and practical limits.
 
 ## Import, export, and local files
 

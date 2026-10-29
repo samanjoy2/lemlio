@@ -1,5 +1,6 @@
 import { AppSettings } from "@/components/app-settings";
 import { DriveStatus } from "@/components/drive-status";
+import { VoiceStatus } from "@/components/voice-status";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
@@ -333,6 +334,7 @@ export function ProjectPicker() {
               </span>
             </button>
             <DriveStatus />
+            <VoiceStatus />
           </section>
           <label className="home-compiler">
             <span>Compiler</span>

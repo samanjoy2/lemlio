@@ -340,6 +340,9 @@ async fn authorized_tokens() -> Result<Tokens, String> {
 }
 async fn google_json(response: reqwest::Response) -> Result<Value, String> {
     if !response.status().is_success() {
+        if response.status().as_u16() == 411 {
+            return Err("Google Drive rejected the request length (HTTP 411). The backup remains queued; reconnecting is not required.".into());
+        }
         return Err(format!(
             "Google Drive returned HTTP {}. Check access or reconnect.",
             response.status().as_u16()
@@ -375,7 +378,8 @@ async fn drive_children(
                 ),
                 (
                     "fields",
-                    "nextPageToken,files(id,name,mimeType,sha256Checksum,appProperties)".into(),
+                    "nextPageToken,files(id,name,mimeType,size,sha256Checksum,appProperties)"
+                        .into(),
                 ),
                 ("pageSize", "1000".into()),
                 ("pageToken", page.clone()),
@@ -418,6 +422,28 @@ async fn create_drive_folder(
         .map(str::to_string)
         .ok_or("Missing Drive folder ID".into())
 }
+fn chunk_request(
+    client: &reqwest::Client,
+    url: reqwest::Url,
+    token: &str,
+    range: &str,
+    body: Vec<u8>,
+) -> reqwest::RequestBuilder {
+    client
+        .put(url)
+        .bearer_auth(token)
+        .header("Content-Type", "application/octet-stream")
+        .header("Content-Range", range)
+        .header(reqwest::header::CONTENT_LENGTH, body.len().to_string())
+        .body(body)
+}
+
+fn drive_file_matches(remote: &Value, hash: &str, size: u64) -> bool {
+    remote["sha256Checksum"].as_str() == Some(hash)
+        || (size == 0
+            && (remote["size"].as_str() == Some("0") || remote["size"].as_u64() == Some(0)))
+}
+
 async fn upload_drive_file(
     client: &reqwest::Client,
     token: &str,
@@ -458,6 +484,43 @@ async fn upload_drive_file(
     if existing.is_none() {
         metadata["parents"] = json!([parent]);
     }
+    if size == 0 {
+        // Empty files have no resumable chunks. Creating metadata or explicitly
+        // replacing media with a length-zero body avoids invalid empty sessions.
+        let response = if let Some(id) = existing {
+            client
+                .patch(format!(
+                    "https://www.googleapis.com/upload/drive/v3/files/{id}"
+                ))
+                .query(&[
+                    ("uploadType", "media"),
+                    ("fields", "id,size,sha256Checksum"),
+                ])
+                .bearer_auth(token)
+                .header("Content-Type", mime)
+                .header(reqwest::header::CONTENT_LENGTH, "0")
+                .body(Vec::<u8>::new())
+                .send()
+                .await
+                .map_err(|_| "Cannot save the empty Drive file")?
+        } else {
+            client
+                .post("https://www.googleapis.com/drive/v3/files")
+                .query(&[("fields", "id,size,sha256Checksum")])
+                .bearer_auth(token)
+                .json(&metadata)
+                .send()
+                .await
+                .map_err(|_| "Cannot create the empty Drive file")?
+        };
+        let result = google_json(response).await?;
+        if result["id"].as_str().is_none() {
+            return Err("Google did not confirm the empty file".into());
+        }
+        return Ok(result);
+    }
+    let metadata_body =
+        serde_json::to_vec(&metadata).map_err(|_| "Cannot encode Drive upload metadata")?;
     let response = request
         .query(&[
             ("uploadType", "resumable"),
@@ -467,7 +530,11 @@ async fn upload_drive_file(
         .header("Content-Type", "application/json")
         .header("X-Upload-Content-Type", mime)
         .header("X-Upload-Content-Length", size.to_string())
-        .json(&metadata)
+        .header(
+            reqwest::header::CONTENT_LENGTH,
+            metadata_body.len().to_string(),
+        )
+        .body(metadata_body)
         .send()
         .await
         .map_err(|_| "Cannot start the Drive file upload")?;
@@ -503,12 +570,7 @@ async fn upload_drive_file(
         };
         let mut response = None;
         for attempt in 0..3 {
-            match client
-                .put(upload_url.clone())
-                .bearer_auth(token)
-                .header("Content-Type", "application/octet-stream")
-                .header("Content-Range", &range)
-                .body(chunk.clone())
+            match chunk_request(client, upload_url.clone(), token, &range, chunk.clone())
                 .send()
                 .await
             {
@@ -694,7 +756,8 @@ pub async fn backup_project(state: &DriveState, project_path: String) -> Result<
         }
         let path = snapshot.0.path().join(relative);
         let hash = sha256_file(&path)?;
-        if existing.is_some_and(|f| f["sha256Checksum"].as_str() == Some(hash.as_str())) {
+        let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+        if existing.is_some_and(|f| drive_file_matches(f, &hash, size)) {
             unchanged += 1;
             continue;
         }
@@ -731,6 +794,37 @@ pub async fn drive_backup_project(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn upload_chunks_always_declare_their_exact_length_including_empty_bodies() {
+        let client = reqwest::Client::new();
+        for body in [Vec::new(), vec![1, 2, 3]] {
+            let length = body.len();
+            let request = chunk_request(
+                &client,
+                reqwest::Url::parse("http://127.0.0.1/upload").unwrap(),
+                "test",
+                "bytes */3",
+                body,
+            )
+            .build()
+            .unwrap();
+            assert_eq!(
+                request.headers()[reqwest::header::CONTENT_LENGTH],
+                length.to_string()
+            );
+            assert_eq!(request.body().unwrap().as_bytes().unwrap().len(), length);
+        }
+    }
+    #[test]
+    fn empty_backups_are_not_reuploaded_when_drive_has_no_checksum() {
+        assert!(drive_file_matches(&json!({"size":"0"}), "empty-hash", 0));
+        assert!(!drive_file_matches(&json!({"size":"0"}), "file-hash", 2));
+        assert!(drive_file_matches(
+            &json!({"sha256Checksum":"file-hash"}),
+            "file-hash",
+            2
+        ));
+    }
     #[test]
     fn callback_rejects_wrong_or_ambiguous_state() {
         assert!(callback_parameters("/?state=wrong&code=code", "expected").is_none());

@@ -1028,6 +1028,8 @@ pub(crate) async fn compile_project(
 
     // Detect TeX engine from magic comment
     let main_tex_content = std::fs::read_to_string(&main_tex_path).unwrap_or_default();
+    crate::latex_compat::prepare_xcolor(&build_root, &main_tex_path)
+        .map_err(|error| format!("Cannot prepare package options: {error}"))?;
     let engine = detect_tex_engine(&main_tex_content);
 
     // Save engine name before `engine` is moved into the spawn_blocking closure

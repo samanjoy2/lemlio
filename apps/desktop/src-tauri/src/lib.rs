@@ -2,6 +2,7 @@ mod codex;
 mod drive;
 mod history;
 mod latex;
+mod latex_compat;
 mod projects;
 mod skills;
 mod slash_commands;
@@ -484,6 +485,7 @@ pub fn run() {
             skills::get_skill_content,
             uv::check_uv_status,
             speech::speech_start,
+            speech::check_speech_status,
             speech::speech_stop,
             speech::open_speech_settings,
             uv::install_uv,

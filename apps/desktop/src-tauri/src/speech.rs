@@ -8,6 +8,28 @@ use tokio::{
 
 #[derive(Clone, Default)]
 pub struct SpeechState(Arc<Mutex<HashMap<String, (String, Arc<Mutex<Child>>)>>>);
+
+#[tauri::command]
+pub async fn check_speech_status() -> Result<serde_json::Value, String> {
+    if !cfg!(target_os = "windows") {
+        return Ok(serde_json::json!({"available":false,"languages":[]}));
+    }
+    let mut command = Command::new("powershell.exe");
+    command.args(["-NoProfile","-NonInteractive","-Command", "[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); Add-Type -AssemblyName System.Speech; $languages=@([System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers() | ForEach-Object {$_.Culture.Name}); ConvertTo-Json -InputObject $languages -Compress"])
+        .stdin(std::process::Stdio::null()).kill_on_drop(true);
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x08000000);
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), command.output())
+        .await
+        .map_err(|_| "Windows speech check timed out")?
+        .map_err(|_| "Cannot check Windows speech languages")?;
+    if !result.status.success() {
+        return Err("Windows speech recognition is unavailable".into());
+    }
+    let languages: Vec<String> = serde_json::from_slice(&result.stdout)
+        .map_err(|_| "Cannot read Windows speech languages")?;
+    Ok(serde_json::json!({"available":!languages.is_empty(),"languages":languages}))
+}
 pub async fn stop_for_window(state: &SpeechState, label: &str) {
     if let Some((_, child)) = state.0.lock().await.remove(label) {
         let _ = child.lock().await.kill().await;

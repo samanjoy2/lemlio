@@ -1068,12 +1068,20 @@ export function PdfPreview() {
           </Popover>
         </div>
       </div>
-      {renderContent()}
-      {isCompiling && !!pdfData && (
-        <div className="pointer-events-none absolute inset-x-0 top-12 bottom-0 z-20 grid place-items-center bg-background/75 backdrop-blur-sm">
-          <ActivityOrb label="Compiling PDF…" />
-        </div>
-      )}
+      <div
+        className="relative flex min-h-0 flex-1 flex-col"
+        data-pdf-preview-body
+      >
+        {renderContent()}
+        {isCompiling && !!pdfData && (
+          <div
+            className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-background/75 backdrop-blur-sm"
+            data-pdf-compilation-overlay
+          >
+            <ActivityOrb label="Compiling PDF…" />
+          </div>
+        )}
+      </div>
       {/* PDF selection toolbar */}
       {pdfToolbarPosition && pdfSelection && (
         <SelectionToolbar
