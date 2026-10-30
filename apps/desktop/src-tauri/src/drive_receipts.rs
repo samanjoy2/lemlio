@@ -49,8 +49,14 @@ pub fn linked_project(project_key: &str) -> Result<Option<String>, String> {
         .map(|(path, _)| path))
 }
 pub fn save(project: &str, record: Receipt) -> Result<(), String> {
+    save_restored(project, None, record)
+}
+pub fn save_restored(project: &str, previous: Option<&str>, record: Receipt) -> Result<(), String> {
     let _lock = LOCK.lock().map_err(|e| e.to_string())?;
     let mut records = read()?;
+    if let Some(previous) = previous {
+        records.remove(&path_key(previous));
+    }
     records.insert(path_key(project), record);
     let path = path()?;
     let parent = path.parent().ok_or("Invalid backup record path")?;

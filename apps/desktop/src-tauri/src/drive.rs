@@ -1146,6 +1146,22 @@ pub async fn drive_restore_project(
 ) -> Result<Value, String> {
     restore_project(&state, archive_id).await
 }
+#[tauri::command]
+pub async fn drive_download_conflict(
+    state: tauri::State<'_, DriveState>,
+    project_path: String,
+    expected_remote_hash: String,
+) -> Result<Value, String> {
+    let receipt = crate::drive_receipts::load(&project_path)?
+        .ok_or("This project has no linked Drive backup")?;
+    restore_project_into_with_binding(
+        &state,
+        receipt.archive_id,
+        None,
+        Some((project_path, expected_remote_hash)),
+    )
+    .await
+}
 pub async fn restore_project(state: &DriveState, archive_id: String) -> Result<Value, String> {
     restore_project_into(state, archive_id, None).await
 }
@@ -1153,6 +1169,14 @@ async fn restore_project_into(
     state: &DriveState,
     archive_id: String,
     restore_root: Option<PathBuf>,
+) -> Result<Value, String> {
+    restore_project_into_with_binding(state, archive_id, restore_root, None).await
+}
+async fn restore_project_into_with_binding(
+    state: &DriveState,
+    archive_id: String,
+    restore_root: Option<PathBuf>,
+    binding: Option<(String, String)>,
 ) -> Result<Value, String> {
     let _upload = state.upload.lock().await;
     let mut token = authorized_tokens().await?;
@@ -1182,7 +1206,18 @@ async fn restore_project_into(
         .as_str()
         .ok_or("Missing project identity")?
         .to_string();
-    if crate::drive_receipts::linked_project(&project_key)?.is_some() {
+    if let Some((path, expected)) = &binding {
+        let receipt =
+            crate::drive_receipts::load(path)?.ok_or("Backup link changed; refresh and retry")?;
+        if receipt.archive_id != archive_id || receipt.project_key != project_key {
+            return Err("Backup link changed; refresh and retry".into());
+        }
+        if metadata["sha256Checksum"].as_str() != Some(expected.as_str()) {
+            return Err(
+                "The Drive version changed again. Refresh the conflict before downloading.".into(),
+            );
+        }
+    } else if crate::drive_receipts::linked_project(&project_key)?.is_some() {
         return Err("This Drive project is already linked to a local folder. Open that local project instead.".into());
     }
     let expected_hash = metadata["sha256Checksum"]
@@ -1255,8 +1290,9 @@ async fn restore_project_into(
     .map_err(|e| e.to_string())??;
     let path = result.storage_path.clone();
     let source_revision = local_revision(Path::new(&path))?;
-    crate::drive_receipts::save(
+    crate::drive_receipts::save_restored(
         &path,
+        binding.as_ref().map(|(path, _)| path.as_str()),
         crate::drive_receipts::Receipt {
             project_key,
             archive_id,

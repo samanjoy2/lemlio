@@ -79,7 +79,7 @@ it("keeping the Drive version pauses uploads and never changes the PC document",
     );
     await act(async () =>
       [...document.querySelectorAll("button")]
-        .find((b) => b.textContent?.includes("Keep Drive version"))!
+        .find((b) => b.textContent?.includes("Pause uploads only"))!
         .click(),
     );
     expect(projectDriveStatus("C:/Paper").paused).toBe(true);
@@ -119,6 +119,47 @@ it("replacing a conflict requires the specific reviewed remote checksum", async 
       paused: false,
     });
     expect(projectDriveStatus("C:/Paper").conflict).toBeUndefined();
+  } finally {
+    await ui.close();
+  }
+});
+
+it("downloads the reviewed Drive version into a new project while pausing the old folder", async () => {
+  const ui = await mount();
+  try {
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === "drive_status"
+        ? { connected: true }
+        : {
+            path: "C:/Restored Paper",
+            lastBackup: 123,
+            sourceRevision: "drive-source",
+          },
+    );
+    useDocumentStore.setState({ content: "Unsaved PC edits" });
+    updateDriveBackup("C:/Paper", "failed", {
+      error: 'DRIVE_CONFLICT:{"name":"Paper.zip","remoteHash":"reviewed-edit"}',
+    });
+    await ui.render();
+    await act(async () =>
+      [...ui.element.querySelectorAll("button")]
+        .find((b) => b.textContent === "Review")!
+        .click(),
+    );
+    await act(async () =>
+      [...document.querySelectorAll("button")]
+        .find((b) => b.textContent?.includes("Download Drive version"))!
+        .click(),
+    );
+    expect(invoke).toHaveBeenCalledWith("drive_download_conflict", {
+      projectPath: "C:/Paper",
+      expectedRemoteHash: "reviewed-edit",
+    });
+    expect(projectDriveStatus("C:/Paper").paused).toBe(true);
+    expect(projectDriveStatus("C:/Restored Paper").sourceRevision).toBe(
+      "drive-source",
+    );
+    expect(useDocumentStore.getState().content).toBe("Unsaved PC edits");
   } finally {
     await ui.close();
   }

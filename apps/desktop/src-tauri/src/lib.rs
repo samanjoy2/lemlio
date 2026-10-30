@@ -471,6 +471,7 @@ pub fn run() {
             drive::drive_project_revision,
             drive::drive_list_backups,
             drive::drive_restore_project,
+            drive::drive_download_conflict,
             drive::drive_backup_summary,
             projects::rename_project,
             project_delete::delete_project,
