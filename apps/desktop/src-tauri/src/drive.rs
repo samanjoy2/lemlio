@@ -1477,6 +1477,16 @@ mod restore_live_test {
                 backup_project(&state,path.to_string()).await?;
                 let updated=crate::drive_receipts::load(path)?.ok_or("Updated binding missing")?;
                 if updated.archive_id!=record.archive_id || updated.project_key!=record.project_key{return Err("Restored project created a duplicate Drive ZIP".into());}
+                let conflict_device=temporary.path().join("conflict-copy");std::fs::create_dir(&conflict_device).map_err(|e|e.to_string())?;
+                let chosen=restore_project_into_with_binding(&state,record.archive_id.clone(),Some(conflict_device),Some((path.to_string(),updated.archive_hash.clone()))).await?;
+                let chosen_path=chosen["path"].as_str().ok_or("Conflict download path missing")?;
+                if std::fs::read_to_string(Path::new(path).join("main.tex")).map_err(|e|e.to_string())? != "PC edit after explicit restore" { return Err("Conflict download altered the old local copy".into()); }
+                if std::fs::read_to_string(Path::new(chosen_path).join("main.tex")).map_err(|e|e.to_string())? != "PC edit after explicit restore" { return Err("Conflict download differs from Drive".into()); }
+                if crate::drive_receipts::load(path)?.is_some() { return Err("Old local folder still owns the Drive backup link".into()); }
+                let chosen_receipt=crate::drive_receipts::load(chosen_path)?.ok_or("Conflict download lost its backup link")?;
+                if chosen_receipt.archive_id != record.archive_id { return Err("Conflict download created a second Drive identity".into()); }
+                let unchanged=backup_project(&state,chosen_path.to_string()).await?;
+                if unchanged["uploadedFiles"]!=0 { return Err("Conflict download re-uploaded unchanged content".into()); }
                 if std::fs::read_to_string(parked.join("main.tex")).map_err(|e|e.to_string())?!=content{return Err("Original fake source was altered".into());}
                 Ok::<_,String>(())
             }.await;
