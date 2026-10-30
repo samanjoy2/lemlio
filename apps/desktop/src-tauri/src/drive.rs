@@ -734,6 +734,14 @@ pub async fn drive_project_revision(project_path: String) -> Result<String, Stri
         .map_err(|e| e.to_string())?
 }
 
+fn choose_archive_name(existing: Option<&Value>, title: &str, key: &str, rename: bool) -> String {
+    if !rename {
+        if let Some(name) = existing.and_then(|file| file["name"].as_str()) {
+            return name.to_string();
+        }
+    }
+    backup_archive_name(title, key)
+}
 fn check_archive_conflict(
     remote: &Value,
     expected_remote_hash: Option<&str>,
@@ -756,13 +764,14 @@ fn check_archive_conflict(
 }
 
 pub async fn backup_project(state: &DriveState, project_path: String) -> Result<Value, String> {
-    backup_project_with_choice(state, project_path, None).await
+    backup_project_with_choice(state, project_path, None, false).await
 }
 
 async fn backup_project_with_choice(
     state: &DriveState,
     project_path: String,
     expected_remote_hash: Option<&str>,
+    rename_backup: bool,
 ) -> Result<Value, String> {
     let _upload = state.upload.lock().await;
     let mut token = authorized_tokens().await?;
@@ -863,7 +872,7 @@ async fn backup_project_with_choice(
         check_archive_conflict(remote, expected_remote_hash, baseline, &hash)?;
     }
     let unchanged = existing.is_some_and(|f| drive_file_matches(f, &hash, size));
-    let archive_name = backup_archive_name(&snapshot.3, &snapshot.2);
+    let archive_name = choose_archive_name(existing, &snapshot.3, &snapshot.2, rename_backup);
     let archive_id = if unchanged && existing.is_some_and(|f| f["name"] == archive_name) {
         existing
             .and_then(|f| f["id"].as_str())
@@ -910,8 +919,15 @@ pub async fn drive_backup_project(
     state: tauri::State<'_, DriveState>,
     project_path: String,
     expected_remote_hash: Option<String>,
+    rename_backup: Option<bool>,
 ) -> Result<Value, String> {
-    backup_project_with_choice(&state, project_path, expected_remote_hash.as_deref()).await
+    backup_project_with_choice(
+        &state,
+        project_path,
+        expected_remote_hash.as_deref(),
+        rename_backup.unwrap_or(false),
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -948,6 +964,18 @@ mod tests {
             "different"
         )
         .is_err());
+    }
+    #[test]
+    fn drive_rename_is_preserved_until_the_user_renames_inside_lemlio() {
+        let remote = json!({"name":"Renamed in Drive.zip"});
+        assert_eq!(
+            choose_archive_name(Some(&remote), "Local title", "key", false),
+            "Renamed in Drive.zip"
+        );
+        assert_eq!(
+            choose_archive_name(Some(&remote), "New app title", "key", true),
+            backup_archive_name("New app title", "key")
+        );
     }
     #[test]
     fn reset_only_accepts_owned_lemlio_backup_folders() {

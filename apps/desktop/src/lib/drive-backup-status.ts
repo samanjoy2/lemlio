@@ -13,7 +13,26 @@ export interface ProjectDriveStatus {
 const uploading = new Set<string>();
 function read(): Record<string, ProjectDriveStatus> {
   try {
-    return JSON.parse(localStorage.getItem(KEY) || "{}");
+    const raw = JSON.parse(localStorage.getItem(KEY) || "{}");
+    const normalized: Record<string, ProjectDriveStatus> = {};
+    for (const [path, value] of Object.entries(raw) as [
+      string,
+      ProjectDriveStatus,
+    ][]) {
+      const key = projectPathKey(path);
+      const previous = normalized[key];
+      if (
+        !previous ||
+        (value.lastBackup || 0) > (previous.lastBackup || 0) ||
+        ((value.lastBackup || 0) === (previous.lastBackup || 0) && path === key)
+      ) {
+        normalized[key] = {
+          ...value,
+          paused: previous?.paused === true ? true : value.paused,
+        };
+      } else if (value.paused) normalized[key] = { ...previous, paused: true };
+    }
+    return normalized;
   } catch {
     return {};
   }
@@ -47,7 +66,7 @@ export function updateDriveBackup(
     pending: stage !== "saved",
     sourceRevision:
       stage === "saved" ? result?.sourceRevision : previous.sourceRevision,
-    paused: stage === "saved" ? false : previous.paused,
+    paused: previous.paused,
     conflict,
     error:
       stage === "failed"

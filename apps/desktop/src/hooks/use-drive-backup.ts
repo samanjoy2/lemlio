@@ -10,7 +10,7 @@ import {
   projectDriveStatus,
 } from "@/lib/drive-backup-status";
 const KEY = "lemlio-drive-pending";
-type Pending = { path: string; version: string };
+type Pending = { path: string; version: string; rename?: boolean };
 export function useDriveBackup() {
   useEffect(() => {
     let initial: Pending[] = [];
@@ -66,7 +66,10 @@ export function useDriveBackup() {
             const result = await invoke<{
               lastBackup?: number;
               sourceRevision?: string;
-            }>("drive_backup_project", { projectPath: item.path });
+            }>("drive_backup_project", {
+              projectPath: item.path,
+              ...(item.rename ? { renameBackup: true } : {}),
+            });
             updateDriveBackup(item.path, "saved", result);
             if (queue.get(key)?.version === item.version) queue.delete(key);
             else updateDriveBackup(item.path, "pending");
@@ -92,6 +95,9 @@ export function useDriveBackup() {
       queue.set(projectPathKey(path), {
         path,
         version: `${Date.now()}-${++sequence}`,
+        rename:
+          event.type === "lemlio-project-renamed" ||
+          queue.get(projectPathKey(path))?.rename,
       });
       persist();
       updateDriveBackup(path, "pending");
@@ -140,6 +146,12 @@ export function useDriveBackup() {
         const versions = new Map(
           [...queue].map(([key, item]) => [key, item.version]),
         );
+        const observedStatuses = new Map(
+          paths.map((path) => [
+            projectPathKey(path),
+            JSON.stringify(projectDriveStatus(path)),
+          ]),
+        );
         const verification = await invoke<{
           connected: boolean;
           projects: {
@@ -157,7 +169,12 @@ export function useDriveBackup() {
           for (const row of verification.projects || []) {
             const current = projectDriveStatus(row.path);
             const key = projectPathKey(row.path);
-            if (current.paused) continue;
+            if (
+              current.paused ||
+              current.uploading ||
+              JSON.stringify(current) !== observedStatuses.get(key)
+            )
+              continue;
             if (row.status === "conflict" && row.conflict)
               updateDriveBackup(row.path, "failed", {
                 error: `DRIVE_CONFLICT:${JSON.stringify(row.conflict)}`,
@@ -166,6 +183,7 @@ export function useDriveBackup() {
               row.status === "saved" &&
               row.sourceRevision &&
               !current.uploading &&
+              !queue.get(key)?.rename &&
               (!queue.has(key) || queue.get(key)?.version === versions.get(key))
             ) {
               queue.delete(key);
@@ -205,7 +223,7 @@ export function useDriveBackup() {
       ).detail;
       const key = projectPathKey(result.path);
       const item = queue.get(key);
-      if (!item) return;
+      if (!item || item.rename) return;
       void invoke<string>("drive_project_revision", {
         projectPath: result.path,
       })
@@ -227,6 +245,7 @@ export function useDriveBackup() {
     }, 60000);
     void pump();
     window.addEventListener("lemlio-project-saved", saved);
+    window.addEventListener("lemlio-project-renamed", saved);
     window.addEventListener("lemlio-drive-connected", connected);
     window.addEventListener("project-library-changed", connected);
     window.addEventListener("lemlio-project-deleted", deleted);
@@ -237,6 +256,7 @@ export function useDriveBackup() {
       clearTimeout(timer);
       clearInterval(retry);
       window.removeEventListener("lemlio-project-saved", saved);
+      window.removeEventListener("lemlio-project-renamed", saved);
       window.removeEventListener("lemlio-drive-connected", connected);
       window.removeEventListener("project-library-changed", connected);
       window.removeEventListener("lemlio-project-deleted", deleted);

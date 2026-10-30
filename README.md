@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.2.5"><img alt="Release 1.2.5" src="https://img.shields.io/badge/release-1.2.5-5fb7a5?style=flat-square" /></a>
+  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.2.7"><img alt="Release 1.2.7" src="https://img.shields.io/badge/release-1.2.7-5fb7a5?style=flat-square" /></a>
   <a href="https://github.com/samanjoy2/lemlio/releases/latest"><img alt="Download Windows x64 installer" src="https://img.shields.io/badge/download-Windows_x64-5fb7a5?style=flat-square&amp;logo=windows" /></a>
   <a href="https://github.com/samanjoy2/lemlio/releases/latest"><img alt="Download macOS Apple Silicon and Intel" src="https://img.shields.io/badge/download-macOS-5fb7a5?style=flat-square&amp;logo=apple" /></a>
   <img alt="Built with Tauri and React" src="https://img.shields.io/badge/Tauri-React-273e43?style=flat-square&amp;logo=tauri" />
@@ -48,19 +48,19 @@ Lemlio brings your LaTeX projects into a searchable library with PDF covers, an 
 
 ## Download and install
 
-Lemlio **1.2.5** includes a **Windows x64 installer** and **macOS disk images for Apple Silicon and Intel**.
+Lemlio **1.2.7** includes a **Windows x64 installer** and **macOS disk images for Apple Silicon and Intel**.
 
 1. Open the [latest GitHub release](https://github.com/samanjoy2/lemlio/releases/latest).
-2. Under **Assets**, download `Lemlio_1.2.5_x64-setup.exe`. GitHub's source-code ZIP is for development.
+2. Under **Assets**, download `Lemlio_1.2.7_x64-setup.exe`. GitHub's source-code ZIP is for development.
 3. Close an older running copy of Lemlio or PrismPro, then run the installer.
 4. Open Lemlio and create a project, open a folder, or select **Import ZIP**.
 
 On macOS, choose the **AppleSilicon** image for an M-series Mac or **Intel** for an Intel Mac. Open the DMG and drag Lemlio into Applications. Tectonic and Latin Modern fonts are included; Homebrew is not required. The Mac app is ad hoc signed and is **not Apple notarized**. macOS may require approval in **System Settings → Privacy & Security** after an initial launch attempt.
 
-The release also includes `Lemlio-1.2.5-SHA256SUMS.txt`. To compare your download with its published checksum:
+The release also includes `Lemlio-1.2.7-SHA256SUMS.txt`. To compare your download with its published checksum:
 
 ```powershell
-Get-FileHash .\Lemlio_1.2.5_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Lemlio_1.2.7_x64-setup.exe -Algorithm SHA256
 ```
 
 The installer is currently unsigned, so Windows may identify its publisher as unknown. This repository is private; viewing releases and downloading assets requires repository access.
@@ -113,7 +113,7 @@ One compact indicator shows agent activity. The microphone inserts editable prom
 
 </details>
 
-Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.2.5.md) for checks and practical limits.
+Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.2.7.md) for checks and practical limits.
 
 ## Import, export, and local files
 
@@ -157,7 +157,8 @@ Each installation uses the OAuth JSON you choose. Lemlio copies it into local ap
 - **Drive backup:** with automatic backup enabled, saved changes queue for upload after about 15 seconds. Newly imported projects queue too.
 - **Retries:** pending jobs are checked every minute while Lemlio is open. The queue survives app restarts, so failed uploads can be retried later.
 - **ZIP snapshots:** each project has one ZIP inside **Lemlio Backups**. Saved PC files are the source of truth. Local changes replace the complete archive; unchanged archives are skipped. External local changes are checked every minute while the app is open.
-- **Conflicts:** if a Drive ZIP changes on another device or outside Lemlio, review it before replacement. Idle projects are checked every minute while the app is open. Choose the PC version to replace that specific Drive version. The 1.2.6 conflict dialog also offers **Download Drive version**: it restores into a new local project, transfers the backup link, and pauses the old local folder. **Pause uploads only** leaves local files as they are and does not download anything.
+- **Conflicts:** if a Drive ZIP changes on another device or outside Lemlio, review it before replacement. Idle projects are checked every minute while the app is open. Choose the PC version to replace that specific Drive version. Older status checks cannot reapply a conflict after a newer successful decision. The conflict dialog also offers **Download Drive version**: it restores into a new local project, transfers the backup link, and pauses the old local folder. **Pause uploads only** leaves local files as they are and does not download anything.
+- **Renaming:** saving a project title in Lemlio queues an update to its Drive ZIP name, even if the document files are unchanged. Renaming the ZIP directly in Drive keeps its identity and is preserved by ordinary backups. Drive filenames do not automatically rename existing local project titles.
 - **Status:** the home page summarizes every project's backup, including pending, failed, and conflicting projects. The editor shows the open project's confirmed backup age.
 - **Reset:** Settings → Google Drive can move the old backup folder to Trash and start fresh. If Google blocks a reset because the folder contains items outside the app's access, move the folder to Trash through Drive's own page, then retry Reset.
 - **New device or recovery:** select **Restore from Google Drive** from the home-page Drive menu or Settings → Google Drive. Select backups and restore them into new local project folders. Restored projects keep their Drive identity, so their next backup updates the same archive. Existing local folders are never overwritten by restoration.

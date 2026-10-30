@@ -35,7 +35,11 @@ export interface CatalogProject extends ProjectRecord {
 }
 
 export function projectPathKey(path: string): string {
-  const key = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  let key = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (key.toLowerCase().startsWith("//?/unc/"))
+    return `//${key.slice(8)}`.toLowerCase();
+  if (key.startsWith("//?/")) key = key.slice(4);
+  if (key.startsWith("//")) return key.toLowerCase();
   return /^[a-z]:\//i.test(key) ? key.toLowerCase() : key;
 }
 

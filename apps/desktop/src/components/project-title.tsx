@@ -60,6 +60,9 @@ export function ProjectTitle({ path }: { path: string | null }) {
                 setName(draft.trim());
                 setEditing(false);
                 window.dispatchEvent(new Event("project-library-changed"));
+                window.dispatchEvent(
+                  new CustomEvent("lemlio-project-renamed", { detail: path }),
+                );
               } catch (error) {
                 setError(String(error));
               } finally {

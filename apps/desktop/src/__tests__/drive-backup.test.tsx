@@ -220,3 +220,117 @@ it("keeps a failed project queued while backing up other projects", async () => 
     await act(async () => root.unmount());
   }
 });
+
+it("ignores a stale conflict check after the user successfully chooses the PC version", async () => {
+  (
+    globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.clear();
+  useSettingsStore.setState({ autoDriveBackup: true });
+  localStorage.setItem("lemlio-drive-layout", "zip-v3");
+  updateDriveBackup("C:/Paper", "saved", {
+    lastBackup: 100,
+    sourceRevision: "pc",
+  });
+  let finish!: (value: unknown) => void;
+  const response = new Promise((resolve) => {
+    finish = resolve;
+  });
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "list_imported_projects")
+      return { projects: [{ path: "C:/Paper" }] };
+    if (command === "drive_project_revision") return "pc";
+    if (command === "drive_backup_summary") return response;
+    return { connected: true };
+  });
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<BackupListener />));
+    await act(async () => {
+      updateDriveBackup("C:/Paper", "saved", {
+        lastBackup: 200,
+        sourceRevision: "pc",
+      });
+      finish({
+        connected: true,
+        projects: [
+          {
+            path: "C:/Paper",
+            status: "conflict",
+            conflict: { name: "Paper.zip", remoteHash: "outdated" },
+          },
+        ],
+      });
+    });
+    expect(projectDriveStatus("C:/Paper").conflict).toBeUndefined();
+    expect(projectDriveStatus("C:/Paper").lastBackup).toBe(200);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("backs up a rename even when source files are unchanged, and keeps it through a later edit", async () => {
+  (
+    globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.useFakeTimers();
+  localStorage.clear();
+  useSettingsStore.setState({ autoDriveBackup: true });
+  localStorage.setItem("lemlio-drive-layout", "zip-v3");
+  updateDriveBackup("C:/Paper", "saved", {
+    lastBackup: 100,
+    sourceRevision: "same-content",
+  });
+  let connected = false;
+  vi.mocked(invoke).mockClear();
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "list_imported_projects")
+      return { projects: [{ path: "C:/Paper" }] };
+    if (command === "drive_project_revision") return "same-content";
+    if (command === "drive_backup_summary")
+      return {
+        connected: true,
+        projects: [
+          {
+            path: "C:/Paper",
+            status: "saved",
+            lastBackup: 100,
+            sourceRevision: "same-content",
+          },
+        ],
+      };
+    if (command === "drive_backup_project")
+      return { lastBackup: 200, sourceRevision: "same-content" };
+    return { connected };
+  });
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<BackupListener />));
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("lemlio-project-renamed", { detail: "C:/Paper" }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("lemlio-project-saved", { detail: "C:/Paper" }),
+      );
+      window.dispatchEvent(new Event("project-library-changed"));
+    });
+    expect(
+      JSON.parse(localStorage.getItem("lemlio-drive-pending")!)[0].rename,
+    ).toBe(true);
+    connected = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15000);
+    });
+    expect(invoke).toHaveBeenCalledWith("drive_backup_project", {
+      projectPath: "C:/Paper",
+      renameBackup: true,
+    });
+    expect(JSON.parse(localStorage.getItem("lemlio-drive-pending")!)).toEqual(
+      [],
+    );
+  } finally {
+    await act(async () => root.unmount());
+    vi.useRealTimers();
+  }
+});

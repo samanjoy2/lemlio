@@ -1,6 +1,11 @@
 name: Build Lemlio for macOS
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional existing draft release to upload verified Mac installers to'
+        required: false
+        type: string
   push:
     tags: ['lemlio-v*']
 permissions:
@@ -59,6 +64,21 @@ jobs:
           name: Lemlio-macOS-${{ matrix.arch }}
           path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
           if-no-files-found: error
+      - name: Upload verified installer to draft release
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          MAC_ARCH: ${{ matrix.arch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./apps/desktop/package.json').version")
+          test "$RELEASE_TAG" = "lemlio-v$version"
+          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+          image="$RUNNER_TEMP/Lemlio_${version}_${MAC_ARCH}.dmg"
+          cp apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg "$image"
+          gh release upload "$RELEASE_TAG" "$image" --repo "$GITHUB_REPOSITORY"
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/lemlio-v')
         with:

@@ -278,6 +278,11 @@ export function ProjectCard({
                     setDetails({ ...details, name: title.trim() });
                     setEditing(false);
                     window.dispatchEvent(new Event("project-library-changed"));
+                    window.dispatchEvent(
+                      new CustomEvent("lemlio-project-renamed", {
+                        detail: project.path,
+                      }),
+                    );
                   } catch (e) {
                     setRenameError(String(e));
                   }

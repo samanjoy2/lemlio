@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { DriveBackupOverview } from "@/components/drive-backup-overview";
 import {
   projectDriveStatus,
+  pauseDriveProject,
   updateDriveBackup,
 } from "@/lib/drive-backup-status";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -163,4 +164,15 @@ it("downloads the reviewed Drive version into a new project while pausing the ol
   } finally {
     await ui.close();
   }
+});
+
+it("a late background upload cannot undo the user's pause, including verbatim Windows paths", () => {
+  localStorage.clear();
+  pauseDriveProject("C:/Paper", true);
+  updateDriveBackup("\\\\?\\C:\\Paper", "saved", {
+    lastBackup: 123,
+    sourceRevision: "late-upload",
+  });
+  expect(projectDriveStatus("C:/Paper").paused).toBe(true);
+  expect(projectDriveStatus("C:/Paper").sourceRevision).toBe("late-upload");
 });

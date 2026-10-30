@@ -259,6 +259,7 @@ export function DriveBackupOverview({
                     });
 
                     updateDriveBackup(review.path, "saved", result);
+                    pauseDriveProject(review.path, false);
 
                     window.dispatchEvent(new Event("lemlio-drive-connected"));
 
