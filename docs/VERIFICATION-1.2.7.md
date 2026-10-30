@@ -12,3 +12,14 @@ This update includes all 1.2.6 conflict-download changes on Windows and macOS, p
 Drive filenames and local display titles are separate. This is not a collaborative rename notification or an activity feed showing who changed a name.
 
 Windows uses Credential Manager and macOS uses Keychain. Both Mac architectures include Tectonic and Latin Modern fonts; Mac packages are ad hoc signed and are not Apple notarized. Physical Mac UI testing remains outstanding.
+
+## Verification results
+
+- Windows: 186 frontend tests passed across 29 files; 139 native tests passed, with the connected-Drive test excluded from the default run.
+- The separate live Drive test passed with disposable generated data: restored source and binary files matched, an unchanged snapshot was skipped, and later local edits updated the same remote archive. Original test source files stayed unchanged. Only the generated test archive was moved to Trash afterward.
+- TypeScript and source formatting checks passed. Windows installer packaging completed.
+- Native Mac packaging and bundled-compiler checks: https://github.com/samanjoy2/lemlio/actions/runs/41061580237
+
+## Updating earlier installations
+
+The repository and release downloads are public. Older Lemlio versions can open Settings → About → Download latest update. Close the running app, then run the newer Windows installer, or replace the app in Applications on macOS. Existing project folders, settings, and account connections are retained. The earlier versions have no automatic updater; publishing a release cannot remotely replace those installed applications.

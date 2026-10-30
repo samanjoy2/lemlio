@@ -63,7 +63,7 @@ The release also includes `Lemlio-1.2.7-SHA256SUMS.txt`. To compare your downloa
 Get-FileHash .\Lemlio_1.2.7_x64-setup.exe -Algorithm SHA256
 ```
 
-The installer is currently unsigned, so Windows may identify its publisher as unknown. This repository is private; viewing releases and downloading assets requires repository access.
+The installer is currently unsigned, so Windows may identify its publisher as unknown. Releases and installers are available publicly on GitHub.
 
 ### Updating
 
