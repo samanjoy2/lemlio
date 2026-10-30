@@ -78,7 +78,7 @@ jobs:
           test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
           image="$RUNNER_TEMP/Lemlio_${version}_${MAC_ARCH}.dmg"
           cp apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg "$image"
-          gh release upload "$RELEASE_TAG" "$image" --repo "$GITHUB_REPOSITORY"
+          gh release upload "$RELEASE_TAG" "$image" --repo "$GITHUB_REPOSITORY" --clobber
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/lemlio-v')
         with:

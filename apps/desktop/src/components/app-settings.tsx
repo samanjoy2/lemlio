@@ -1,3 +1,4 @@
+import { AppUpdates } from "./app-updates";
 import { DriveSettings } from "./drive-settings";
 import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useState } from "react";
@@ -255,18 +256,7 @@ export function AppSettings() {
               <>
                 <h2 className="font-semibold text-xl">Lemlio {version}</h2>
                 <p>LaTeX projects, PDF previews, and Codex on your desktop.</p>
-                <Button
-                  onClick={() =>
-                    open("https://github.com/samanjoy2/lemlio/releases/latest")
-                  }
-                >
-                  Download latest update
-                </Button>
-                <p className="text-muted-foreground text-xs">
-                  Close Lemlio and run the newer installer to update this
-                  installation. Your projects, settings, and Drive connection
-                  are kept. Private releases require GitHub sign-in.
-                </p>
+                <AppUpdates />
                 <p>
                   Based on the MIT-licensed Claude Prism project by delibae,
                   with a new Codex integration, project library, ZIP transfers,

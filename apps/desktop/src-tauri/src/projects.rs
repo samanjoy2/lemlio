@@ -34,7 +34,7 @@ pub fn rename_project(project_path: String, name: String) -> Result<(), String> 
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or(json!({}));
-    details[project_path.replace('\\', "/").to_lowercase()] = json!(name);
+    details[crate::drive_receipts::path_key(&project_path).to_lowercase()] = json!(name);
     let mut temporary = tempfile::NamedTempFile::new_in(path.parent().ok_or("Missing library")?)
         .map_err(|e| e.to_string())?;
     serde_json::to_writer_pretty(&mut temporary, &details).map_err(|e| e.to_string())?;
@@ -61,7 +61,7 @@ pub fn project_details(project_path: String) -> Result<Value, String> {
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or(json!({}));
     Ok(
-        json!({"name":details[project_path.replace('\\',"/").to_lowercase()],"created":timestamp(metadata.created()),"modified":timestamp(modified.ok_or_else(||std::io::Error::other("No files")))}),
+        json!({"name":details.as_object().and_then(|titles| titles.iter().find(|(path,_)|crate::drive_receipts::path_key(path).to_lowercase()==crate::drive_receipts::path_key(&project_path).to_lowercase())).map(|(_,title)|title),"created":timestamp(metadata.created()),"modified":timestamp(modified.ok_or_else(||std::io::Error::other("No files")))}),
     )
 }
 

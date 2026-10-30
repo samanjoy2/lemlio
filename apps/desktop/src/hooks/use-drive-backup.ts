@@ -91,7 +91,12 @@ export function useDriveBackup() {
     };
     const saved = (event: Event) => {
       const path = (event as CustomEvent<string>).detail;
-      if (!path || !useSettingsStore.getState().autoDriveBackup) return;
+      if (
+        !path ||
+        (!useSettingsStore.getState().autoDriveBackup &&
+          event.type !== "lemlio-project-renamed")
+      )
+        return;
       queue.set(projectPathKey(path), {
         path,
         version: `${Date.now()}-${++sequence}`,

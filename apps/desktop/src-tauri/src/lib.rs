@@ -12,6 +12,7 @@ mod projects;
 mod skills;
 mod slash_commands;
 mod speech;
+mod updates;
 mod uv;
 
 use std::path::Path;
@@ -441,6 +442,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             create_new_window,
             startup_settings_tab,
+            updates::check_app_update,
             allow_project_directory,
             detect_editors,
             open_in_editor,

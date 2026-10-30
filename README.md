@@ -67,7 +67,7 @@ The installer is currently unsigned, so Windows may identify its publisher as un
 
 ### Updating
 
-Close Lemlio and run the newer Windows setup. The installer detects the existing installation; choose to continue without uninstalling to update in place. On macOS, replace the older copy in Applications. Projects, saved settings, and your Google Drive connection are retained. **Settings → About → Download latest update** opens the release page.
+Close Lemlio and run the newer Windows setup. The installer detects the existing installation; choose to continue without uninstalling to update in place. On macOS, replace the older copy in Applications. Projects, saved settings, and your Google Drive connection are retained. **Settings → About → Check for updates** shows the installed and latest versions, then offers the correct installer for your computer. Downloads open in the browser; run the installer or replace the Mac app after closing Lemlio. Earlier versions can use their **Download latest update** link.
 
 ### First launch
 

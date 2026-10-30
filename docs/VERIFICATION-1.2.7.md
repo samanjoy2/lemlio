@@ -15,7 +15,7 @@ Windows uses Credential Manager and macOS uses Keychain. Both Mac architectures 
 
 ## Verification results
 
-- Windows: 186 frontend tests passed across 29 files; 139 native tests passed, with the connected-Drive test excluded from the default run.
+- Windows: 189 frontend tests passed across 30 files; 141 native tests passed, with the connected-Drive test excluded from the default run.
 - The separate live Drive test passed with disposable generated data: restored source and binary files matched, an unchanged snapshot was skipped, and later local edits updated the same remote archive. Original test source files stayed unchanged. Only the generated test archive was moved to Trash afterward.
 - TypeScript and source formatting checks passed. Windows installer packaging completed.
 - Native Mac packaging and bundled-compiler checks: https://github.com/samanjoy2/lemlio/actions/runs/41061580237
@@ -23,3 +23,9 @@ Windows uses Credential Manager and macOS uses Keychain. Both Mac architectures 
 ## Updating earlier installations
 
 The repository and release downloads are public. Older Lemlio versions can open Settings → About → Download latest update. Close the running app, then run the newer Windows installer, or replace the app in Applications on macOS. Existing project folders, settings, and account connections are retained. The earlier versions have no automatic updater; publishing a release cannot remotely replace those installed applications.
+
+## In-app update checks
+
+Settings → About → Check for updates reads the latest public GitHub release, compares versions numerically, and offers the installer for Windows x64, Mac Apple Silicon, or Mac Intel. Download starts only when the user clicks; it opens the browser. Installation remains manual: close Lemlio and run setup or replace the Mac app. No silent installation or retroactive update mechanism is claimed for earlier versions.
+
+Version checks handle offline errors and do not offer downgrades. Existing local titles saved before this update are included in backup revision checks; old generated backup filenames are updated to those titles while custom filenames set in Drive are preserved on ordinary backups.

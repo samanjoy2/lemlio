@@ -724,6 +724,19 @@ pub(crate) fn local_revision(source: &Path) -> Result<String, String> {
             hash.update(time.to_le_bytes());
         }
     }
+    let key = crate::drive_receipts::path_key(&source.to_string_lossy()).to_lowercase();
+    if let Some(title) = crate::projects::project_titles()
+        .as_object()
+        .and_then(|titles| {
+            titles
+                .iter()
+                .find(|(path, _)| crate::drive_receipts::path_key(path).to_lowercase() == key)
+                .and_then(|(_, value)| value.as_str())
+        })
+    {
+        hash.update(b"Lemlio-project-title-v1:");
+        hash.update(title.as_bytes());
+    }
     Ok(format!("{:x}", hash.finalize()))
 }
 
@@ -734,8 +747,16 @@ pub async fn drive_project_revision(project_path: String) -> Result<String, Stri
         .map_err(|e| e.to_string())?
 }
 
-fn choose_archive_name(existing: Option<&Value>, title: &str, key: &str, rename: bool) -> String {
-    if !rename {
+fn choose_archive_name(
+    existing: Option<&Value>,
+    title: &str,
+    key: &str,
+    rename: bool,
+    folder_name: &str,
+) -> String {
+    let legacy_title_pending = title != folder_name
+        && existing.is_some_and(|file| file["name"] == backup_archive_name(folder_name, key));
+    if !rename && !legacy_title_pending {
         if let Some(name) = existing.and_then(|file| file["name"].as_str()) {
             return name.to_string();
         }
@@ -872,7 +893,16 @@ async fn backup_project_with_choice(
         check_archive_conflict(remote, expected_remote_hash, baseline, &hash)?;
     }
     let unchanged = existing.is_some_and(|f| drive_file_matches(f, &hash, size));
-    let archive_name = choose_archive_name(existing, &snapshot.3, &snapshot.2, rename_backup);
+    let archive_name = choose_archive_name(
+        existing,
+        &snapshot.3,
+        &snapshot.2,
+        rename_backup,
+        Path::new(&snapshot.6)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(&snapshot.3),
+    );
     let archive_id = if unchanged && existing.is_some_and(|f| f["name"] == archive_name) {
         existing
             .and_then(|f| f["id"].as_str())
@@ -969,12 +999,35 @@ mod tests {
     fn drive_rename_is_preserved_until_the_user_renames_inside_lemlio() {
         let remote = json!({"name":"Renamed in Drive.zip"});
         assert_eq!(
-            choose_archive_name(Some(&remote), "Local title", "key", false),
+            choose_archive_name(
+                Some(&remote),
+                "Local title",
+                "key",
+                false,
+                "Original folder"
+            ),
             "Renamed in Drive.zip"
         );
         assert_eq!(
-            choose_archive_name(Some(&remote), "New app title", "key", true),
+            choose_archive_name(
+                Some(&remote),
+                "New app title",
+                "key",
+                true,
+                "Original folder"
+            ),
             backup_archive_name("New app title", "key")
+        );
+        let legacy = json!({"name":backup_archive_name("Copy of New Project", "key")});
+        assert_eq!(
+            choose_archive_name(
+                Some(&legacy),
+                "Cover Letter - MSc CRT - Saman",
+                "key",
+                false,
+                "Copy of New Project"
+            ),
+            backup_archive_name("Cover Letter - MSc CRT - Saman", "key")
         );
     }
     #[test]
