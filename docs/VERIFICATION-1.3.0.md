@@ -28,4 +28,14 @@ Process: [unslop](https://heydamir.design/unslop) by Damir Sokolovsky (@heydamir
 
 Windows production build and lint passed. Final Windows native tests passed 145 tests (one opt-in live test excluded); frontend passed 191 tests. A real Drive test using disposable generated projects passed cross-device fast-forward, binary integrity, rename propagation, no-change deduplication, genuine conflict protection, explicit resolution, and recovery-source checks. Only its generated ZIPs were moved to Trash.
 
-Mac installers are ad hoc signed, not Apple notarized. Native CI tests and packaged compiler checks will be recorded after both architecture builds complete. Physical Mac UI testing is not available on this Windows PC.
+Both Mac architectures passed **191 frontend tests and 143 native tests**, plus app signature/dependency checks and real compilation with bundled Tectonic and Latin Modern fonts. Each produced a 5,463-byte smoke-test PDF. [Mac verification workflow](https://github.com/samanjoy2/lemlio/actions/runs/41875476673).
+
+Windows packaging passed and the packaged application compiled the same demo document to a 5,463-byte PDF. The final release source passed the opt-in live Drive test again. The repository lint workflow passed. Production code was built from `41ca06ff1c3764c83dade14637b0b55ce14b3517`; the later verification commit changes documentation only.
+
+Installer SHA-256 values:
+
+- Windows x64: `fa1a67ffb2c3f6fd4297cb376534e3f910713605348a1f99b3a67e958ff429df`
+- Apple Silicon: `5de6a7ac5097261c0bbd157ea85e394a93f1a9289d4e782583a26769bfad7e93`
+- Mac Intel: `d69c913357bb801fdc23499f90e196f4fc72e31485be42fad30019bd80f650ce`
+
+Mac installers are ad hoc signed, not Apple notarized. Physical Mac UI testing is not available on this Windows PC. The interface was checked in a browser using isolated fictional demo data, in dark and light themes.
