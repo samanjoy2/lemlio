@@ -79,11 +79,21 @@ export function ProjectCard({
   const [title, setTitle] = useState(project.name);
   const [renameError, setRenameError] = useState("");
   useEffect(() => {
-    void invoke<typeof details>("project_details", {
-      projectPath: project.path,
-    })
-      .then(setDetails)
-      .catch(() => {});
+    let disposed = false;
+    const refresh = () =>
+      void invoke<typeof details>("project_details", {
+        projectPath: project.path,
+      })
+        .then((value) => {
+          if (!disposed) setDetails(value);
+        })
+        .catch(() => {});
+    refresh();
+    window.addEventListener("project-library-changed", refresh);
+    return () => {
+      disposed = true;
+      window.removeEventListener("project-library-changed", refresh);
+    };
   }, [project.path]);
   useEffect(() => {
     let disposed = false;
@@ -159,7 +169,10 @@ export function ProjectCard({
                 <span />
                 <span />
               </div>
-              <span className="home-project-kind">
+              <span
+                className="home-project-kind"
+                style={thumbnail ? { display: "none" } : undefined}
+              >
                 {archive
                   ? "Archive"
                   : project.category === "Other"
@@ -187,22 +200,24 @@ export function ProjectCard({
                   ? ` · ${project.mainFile.split(/[/\\]/).pop()}`
                   : ""}
               </p>
-              <div className="home-project-bottom">
-                <span>
-                  {opening
-                    ? "Opening project…"
-                    : project.lastOpened
-                      ? openedLabel(project.lastOpened)
-                      : project.imported
-                        ? ""
-                        : ""}
-                </span>
-                {opening ? (
-                  <Loader2Icon size={14} className="animate-spin" />
-                ) : (
-                  <ArrowUpRightIcon size={14} />
-                )}
-              </div>
+              {(opening || project.lastOpened) && (
+                <div className="home-project-bottom">
+                  <span>
+                    {opening
+                      ? "Opening project…"
+                      : project.lastOpened
+                        ? openedLabel(project.lastOpened)
+                        : project.imported
+                          ? ""
+                          : ""}
+                  </span>
+                  {opening ? (
+                    <Loader2Icon size={14} className="animate-spin" />
+                  ) : (
+                    <ArrowUpRightIcon size={14} />
+                  )}
+                </div>
+              )}
             </div>
           </button>
           <DropdownMenu>

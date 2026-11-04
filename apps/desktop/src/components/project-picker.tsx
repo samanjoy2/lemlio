@@ -273,7 +273,7 @@ export function ProjectPicker() {
               }
             </small>
           </button>
-          <p className="home-nav-label">COLLECTIONS</p>
+          <p className="home-nav-label">Collections</p>
           {categories.map(({ label, icon: Icon }) => (
             <button
               type="button"
@@ -291,7 +291,7 @@ export function ProjectPicker() {
               </small>
             </button>
           ))}
-          <p className="home-nav-label">WORKSPACE</p>
+          <p className="home-nav-label">Workspace</p>
           <button type="button" onClick={() => setSkillsOpen(true)}>
             <BookOpenIcon size={16} />
             <span>Skills</span>

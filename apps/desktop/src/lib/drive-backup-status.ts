@@ -8,9 +8,46 @@ export interface ProjectDriveStatus {
   pending?: boolean;
   error?: string;
   paused?: boolean;
-  conflict?: { name: string; modifiedTime?: string; remoteHash?: string };
+  incoming?: boolean;
+  deviceName?: string;
+  conflict?: {
+    name: string;
+    modifiedTime?: string;
+    remoteHash?: string;
+    deviceName?: string;
+    branches?: number;
+    versions?: {
+      remoteHash: string;
+      deviceName?: string;
+      modifiedTime?: string;
+    }[];
+  };
 }
 const uploading = new Set<string>();
+const syncing = new Set<string>();
+export const isDriveSyncing = (path: string) =>
+  syncing.has(projectPathKey(path));
+export function setDriveSyncing(path: string, value: boolean) {
+  if (value) syncing.add(projectPathKey(path));
+  else syncing.delete(projectPathKey(path));
+}
+export function markDriveIncoming(
+  path: string,
+  conflict: ProjectDriveStatus["conflict"],
+) {
+  const statuses = read();
+  const key = projectPathKey(path);
+  statuses[key] = {
+    ...statuses[key],
+    pending: false,
+    incoming: true,
+    error: undefined,
+    conflict,
+    deviceName: conflict?.deviceName,
+  };
+  localStorage.setItem(KEY, JSON.stringify(statuses));
+  window.dispatchEvent(new Event(DRIVE_UPDATED));
+}
 function read(): Record<string, ProjectDriveStatus> {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || "{}");
@@ -44,7 +81,12 @@ export function projectDriveStatus(path: string) {
 export function updateDriveBackup(
   path: string,
   stage: "pending" | "uploading" | "saved" | "failed",
-  result?: { lastBackup?: number; sourceRevision?: string; error?: string },
+  result?: {
+    lastBackup?: number;
+    sourceRevision?: string;
+    error?: string;
+    deviceName?: string;
+  },
 ) {
   const key = projectPathKey(path);
   const statuses = read();
@@ -67,11 +109,14 @@ export function updateDriveBackup(
     sourceRevision:
       stage === "saved" ? result?.sourceRevision : previous.sourceRevision,
     paused: previous.paused,
+    incoming:
+      stage === "saved" || stage === "failed" ? undefined : previous.incoming,
+    deviceName: result?.deviceName || previous.deviceName,
     conflict,
     error:
       stage === "failed"
         ? conflict
-          ? "The Drive ZIP changed outside Lemlio. Choose which backup to keep."
+          ? "Both versions need review. Your local files are kept."
           : result?.error
         : undefined,
   };

@@ -22,6 +22,7 @@ import {
   pauseDriveProject,
   projectDriveStatus,
   updateDriveBackup,
+  setDriveSyncing,
 } from "@/lib/drive-backup-status";
 
 import type { ProjectRecord, ProjectCatalogData } from "@/lib/project-catalog";
@@ -29,6 +30,10 @@ import type { ProjectRecord, ProjectCatalogData } from "@/lib/project-catalog";
 import { projectPathKey } from "@/lib/project-catalog";
 
 import { useProjectStore } from "@/stores/project-store";
+
+import { useDocumentStore } from "@/stores/document-store";
+
+import { useCodexChatStore } from "@/stores/codex-chat-store";
 
 import { useSettingsStore } from "@/stores/settings-store";
 
@@ -48,6 +53,7 @@ export function DriveBackupOverview({
   const [review, setReview] = useState<Pick<ProjectRecord, "path" | "name">>();
 
   const [busy, setBusy] = useState(false);
+  const [reviewHash, setReviewHash] = useState<string>();
 
   const [error, setError] = useState("");
 
@@ -118,7 +124,8 @@ export function DriveBackupOverview({
       !p.status.pending &&
       !p.status.error &&
       !p.status.paused &&
-      !p.status.uploading,
+      !p.status.uploading &&
+      !p.status.incoming,
   );
 
   const attention = rows.filter(
@@ -135,7 +142,7 @@ export function DriveBackupOverview({
 
   return (
     <section
-      className="mb-5 rounded-xl border border-border bg-card px-4 py-3"
+      className="drive-overview mb-6 rounded-xl border border-border bg-card p-4"
       aria-label="Google Drive backup overview"
     >
       <div className="flex items-start gap-3">
@@ -150,20 +157,20 @@ export function DriveBackupOverview({
         <div className="min-w-0 flex-1">
           <p className="font-medium text-sm" role="status">
             {complete
-              ? `All ${rows.length} projects backed up to Drive`
+              ? `All ${rows.length} projects up to date in Drive`
               : `${saved.length} of ${rows.length} projects backed up${attention.length ? ` · ${attention.length} need attention` : " · Backup pending"}`}
           </p>
           <p className="mt-1 text-muted-foreground text-xs">
             {!auto ? "Automatic backup is paused. " : ""}
             {oldest
-              ? `Latest checked PC versions saved ${driveRelativeTime(oldest)}. `
+              ? `Latest checked versions saved ${driveRelativeTime(oldest)}. `
               : ""}
-            PC files are the source. One ZIP per project; local changes are
-            checked every minute while Lemlio is open.
+            Changes sync between your devices every minute while Lemlio is open.
+            If both copies change, you choose which to keep.
           </p>
           <details className="mt-2 text-xs">
             <summary className="cursor-pointer text-muted-foreground">
-              Project backup details
+              Project revisions
             </summary>
             <ul className="mt-2 space-y-2">
               {rows.map((p) => (
@@ -175,20 +182,24 @@ export function DriveBackupOverview({
                     {p.name}
                   </span>
                   <span className="flex items-center gap-2 text-muted-foreground">
-                    {p.status.paused
-                      ? "Local backup paused"
-                      : p.status.conflict
-                        ? "Drive version changed"
-                        : p.status.uploading
-                          ? "Uploading ZIP…"
-                          : p.status.error
-                            ? "Backup failed"
-                            : p.status.pending || !p.status.sourceRevision
-                              ? "Pending"
-                              : p.status.lastBackup
-                                ? `Saved ${driveRelativeTime(p.status.lastBackup)}`
-                                : "No backup yet"}
-                    {(p.status.conflict || p.status.paused) && (
+                    {p.status.incoming
+                      ? `Update from ${p.status.deviceName || "another device"}`
+                      : p.status.paused
+                        ? "Local backup paused"
+                        : p.status.conflict
+                          ? "Drive version changed"
+                          : p.status.uploading
+                            ? "Uploading ZIP…"
+                            : p.status.error
+                              ? "Backup failed"
+                              : p.status.pending || !p.status.sourceRevision
+                                ? "Pending"
+                                : p.status.lastBackup
+                                  ? `Saved ${driveRelativeTime(p.status.lastBackup)}`
+                                  : "No backup yet"}
+                    {(p.status.conflict ||
+                      p.status.paused ||
+                      p.status.incoming) && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -196,6 +207,7 @@ export function DriveBackupOverview({
                         onClick={() => {
                           setError("");
 
+                          setReviewHash(p.status.conflict?.remoteHash);
                           setReview(p);
                         }}
                       >
@@ -217,11 +229,19 @@ export function DriveBackupOverview({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Resolve the Drive conflict</DialogTitle>
+            <DialogTitle>
+              {review && projectDriveStatus(review.path).incoming
+                ? "Update from another device"
+                : "Review project versions"}
+            </DialogTitle>
             <DialogDescription>
-              {review?.name}: choose which version to use. Downloading the Drive
-              version creates a new local project and pauses the old local copy.
-              Your existing folder is kept for recovery.
+              {review?.name}:{" "}
+              {review && projectDriveStatus(review.path).incoming
+                ? "Your local source is unchanged. You can get the newer revision safely. "
+                : "Choose which version to use. "}
+              Downloading the Drive version creates a new local project and
+              pauses the old local copy. Your existing folder is kept for
+              recovery.
             </DialogDescription>
           </DialogHeader>
           {review && (
@@ -237,6 +257,113 @@ export function DriveBackupOverview({
               <p className="break-all text-muted-foreground text-xs">
                 PC folder: {review.path}
               </p>
+              {(projectDriveStatus(review.path).conflict?.versions?.length ||
+                0) > 1 && (
+                <label className="grid gap-2 text-sm">
+                  Drive revision
+                  <select
+                    className="h-9 rounded-lg border bg-background px-3"
+                    value={reviewHash}
+                    onChange={(e) => setReviewHash(e.target.value)}
+                  >
+                    {projectDriveStatus(review.path).conflict?.versions?.map(
+                      (v) => (
+                        <option key={v.remoteHash} value={v.remoteHash}>
+                          {v.deviceName || "Other device"} ·{" "}
+                          {v.modifiedTime
+                            ? new Date(v.modifiedTime).toLocaleString()
+                            : v.remoteHash.slice(0, 8)}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+              )}
+              {projectDriveStatus(review.path).incoming && (
+                <Button
+                  disabled={busy}
+                  onClick={async () => {
+                    const doc = useDocumentStore.getState();
+
+                    const wasOpen =
+                      !!doc.projectRoot &&
+                      projectPathKey(doc.projectRoot) ===
+                        projectPathKey(review.path);
+
+                    if (
+                      (wasOpen &&
+                        (doc.files.some((f) => f.isDirty) ||
+                          doc.isCompiling)) ||
+                      useCodexChatStore
+                        .getState()
+                        .tabs.some((t) => t.isStreaming)
+                    ) {
+                      setError(
+                        "Save your edits and wait for the compiler and agent to finish first",
+                      );
+
+                      return;
+                    }
+
+                    setBusy(true);
+                    setError("");
+                    setDriveSyncing(review.path, true);
+
+                    if (wasOpen) doc.closeProject();
+
+                    try {
+                      const result = await invoke<{
+                        lastBackup: number;
+                        sourceRevision: string;
+                        deviceName?: string;
+                      }>("drive_sync_project", {
+                        projectPath: review.path,
+                        expectedRemoteHash:
+                          reviewHash ||
+                          projectDriveStatus(review.path).conflict!.remoteHash,
+                      });
+
+                      updateDriveBackup(review.path, "saved", result);
+
+                      window.dispatchEvent(
+                        new Event("project-library-changed"),
+                      );
+
+                      setReview(undefined);
+
+                      toast.success("Latest revision downloaded", {
+                        description:
+                          "The previous source is kept in a recovery folder beside your project",
+                      });
+                    } catch (e) {
+                      setError(String(e));
+                    } finally {
+                      setDriveSyncing(review.path, false);
+                      setBusy(false);
+
+                      if (wasOpen)
+                        await useDocumentStore
+                          .getState()
+                          .openProject(review.path);
+                    }
+                  }}
+                >
+                  {busy ? "Getting revision…" : "Get latest revision"}
+                </Button>
+              )}
+              {projectDriveStatus(review.path).conflict?.deviceName && (
+                <p className="text-muted-foreground text-xs">
+                  Saved on{" "}
+                  {projectDriveStatus(review.path).conflict?.deviceName}
+                </p>
+              )}
+              {(projectDriveStatus(review.path).conflict?.branches || 0) >
+                1 && (
+                <p className="text-sm">
+                  These devices saved competing revisions. Choosing a version
+                  keeps both original ZIPs in Drive history.
+                </p>
+              )}
               <Button
                 disabled={busy}
                 onClick={async () => {
@@ -254,11 +381,13 @@ export function DriveBackupOverview({
                     }>("drive_backup_project", {
                       projectPath: review.path,
 
-                      expectedRemoteHash: projectDriveStatus(review.path)
-                        .conflict?.remoteHash,
+                      expectedRemoteHash:
+                        reviewHash ||
+                        projectDriveStatus(review.path).conflict?.remoteHash,
                     });
 
                     updateDriveBackup(review.path, "saved", result);
+
                     pauseDriveProject(review.path, false);
 
                     window.dispatchEvent(new Event("lemlio-drive-connected"));
@@ -305,6 +434,7 @@ export function DriveBackupOverview({
                   const previous = projectDriveStatus(review.path).paused;
 
                   setBusy(true);
+
                   setError("");
 
                   pauseDriveProject(review.path, true);
@@ -312,28 +442,40 @@ export function DriveBackupOverview({
                   try {
                     const result = await invoke<{
                       path: string;
+
                       lastBackup: number;
+
                       sourceRevision: string;
+                      syncError?: string;
                     }>("drive_download_conflict", {
                       projectPath: review.path,
 
-                      expectedRemoteHash: projectDriveStatus(review.path)
-                        .conflict!.remoteHash,
+                      expectedRemoteHash:
+                        reviewHash ||
+                        projectDriveStatus(review.path).conflict!.remoteHash,
                     });
 
                     updateDriveBackup(result.path, "saved", result);
+                    if (result.syncError)
+                      updateDriveBackup(result.path, "failed", {
+                        error: result.syncError,
+                      });
 
                     window.dispatchEvent(new Event("project-library-changed"));
 
                     window.dispatchEvent(new Event("lemlio-drive-connected"));
 
                     toast.success(
-                      "Drive version downloaded as a new local project",
+                      result.syncError
+                        ? "Drive version downloaded; sync needs review"
+                        : "Drive version downloaded as a new local project",
+
                       {
                         description: result.path,
 
                         action: {
                           label: "Open folder",
+
                           onClick: () => {
                             void invoke("open_project_folder", {
                               projectPath: result.path,
@@ -346,6 +488,7 @@ export function DriveBackupOverview({
                     setReview(undefined);
                   } catch (e) {
                     pauseDriveProject(review.path, !!previous);
+
                     setError(String(e));
                   } finally {
                     setBusy(false);

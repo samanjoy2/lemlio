@@ -1,6 +1,7 @@
 mod codex;
 mod drive;
 mod drive_receipts;
+mod drive_sync;
 mod eps;
 mod fonts;
 mod history;
@@ -475,6 +476,7 @@ pub fn run() {
             drive::drive_restore_project,
             drive::drive_download_conflict,
             drive::drive_backup_summary,
+            drive::drive_sync_project,
             projects::rename_project,
             project_delete::delete_project,
             projects::project_details,

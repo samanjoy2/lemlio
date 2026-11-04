@@ -136,7 +136,7 @@ export function DriveSettings() {
     <div className="space-y-4">
       <h3 className="font-medium">Google Drive account</h3>
       <p>
-        Connect your account to save one ZIP per project in a{" "}
+        Connect your account to sync versioned project ZIPs in a{" "}
         <strong>Lemlio Backups</strong> folder in your Drive.
       </p>
       <div className="space-y-3 rounded-lg border p-4">
@@ -233,17 +233,15 @@ export function DriveSettings() {
             checked={auto}
             onChange={(e) => setAuto(e.target.checked)}
           />
-          Back up automatically after saving
+          Sync automatically
         </label>
         <p className="text-muted-foreground text-xs">
-          Automatic backups run after a short pause in saving while Lemlio is
-          open and connected. Existing projects can be backed up together below.
-          Failed uploads keep your local files and can be retried. Each backup
-          replaces that project's ZIP with a complete snapshot of the saved PC
-          files. Unchanged archives are skipped. PC files are the source of
-          truth; Drive files are never copied into your local project. If a
-          Drive ZIP was edited elsewhere, choose which backup to keep before it
-          is replaced.
+          Saved changes upload after a short pause. Every minute, unchanged
+          closed projects receive newer revisions from your other devices. Open
+          projects wait for review. If both copies changed, choose a version
+          first. Each ZIP keeps its revision manifest and device details;
+          previous revisions remain in Drive and use storage. Update all devices
+          to Lemlio 1.3.0 or later and use the same OAuth project.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">

@@ -247,6 +247,7 @@ pub struct ImportResult {
 
 fn ignored_component(name: &str) -> bool {
     if name.eq_ignore_ascii_case("Keys")
+        || name.eq_ignore_ascii_case(crate::drive_sync::MANIFEST)
         || name == "drive-client.json"
         || name == "google-drive-oauth.json"
         || (name.starts_with("client_secret") && name.ends_with(".json"))
@@ -255,7 +256,15 @@ fn ignored_component(name: &str) -> bool {
     }
     matches!(
         name,
-        ".prism" | ".prismpro" | ".git" | ".venv" | "node_modules" | "__MACOSX"
+        ".prism"
+            | ".prismpro"
+            | ".git"
+            | ".venv"
+            | "node_modules"
+            | "__MACOSX"
+            | ".DS_Store"
+            | "Thumbs.db"
+            | "desktop.ini"
     )
 }
 

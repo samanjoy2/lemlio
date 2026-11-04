@@ -8,6 +8,8 @@ pub struct Receipt {
     pub archive_id: String,
     pub archive_hash: String,
     pub source_revision: String,
+    #[serde(default)]
+    pub content_revision: String,
     pub folder_id: String,
     pub last_backup: u64,
 }

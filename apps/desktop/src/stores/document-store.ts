@@ -23,6 +23,7 @@ import { clearScrollPositionCache } from "@/components/workspace/preview/pdf-vie
 import { clearZoomCache } from "@/components/workspace/preview/pdf-preview";
 import { clearEditorStateCache } from "@/components/workspace/editor/latex-editor";
 import { createLogger } from "@/lib/debug/logger";
+import { isDriveSyncing } from "@/lib/drive-backup-status";
 
 const log = createLogger("document");
 
@@ -269,6 +270,10 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   lastCompiledGenerations: new Map(),
 
   openProject: async (rootPath: string) => {
+    if (isDriveSyncing(rootPath))
+      throw new Error(
+        "This project is receiving a Drive update. Try again in a moment.",
+      );
     log.info(`Opening project: ${rootPath}`);
     await invoke("allow_project_directory", { rootPath });
     const { files: fsFiles, folders: fsFolders } =

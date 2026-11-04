@@ -4,6 +4,8 @@ import { expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { useDriveBackup } from "@/hooks/use-drive-backup";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useDocumentStore } from "@/stores/document-store";
+import { useCodexChatStore } from "@/stores/codex-chat-store";
 import {
   updateDriveBackup,
   pauseDriveProject,
@@ -13,6 +15,78 @@ function BackupListener() {
   useDriveBackup();
   return null;
 }
+it.each([
+  false,
+  true,
+])("fast-forwards a closed untouched project, but defers an open editor (open=%s)", async (open) => {
+  (
+    globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.clear();
+  useSettingsStore.setState({ autoDriveBackup: true });
+  useDocumentStore.setState({
+    projectRoot: open ? "C:/Paper" : null,
+    files: [],
+  });
+  useCodexChatStore.setState({ tabs: [] });
+  updateDriveBackup("C:/Paper", "saved", {
+    lastBackup: 100,
+    sourceRevision: "base",
+  });
+  vi.mocked(invoke).mockClear();
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "list_imported_projects")
+      return { projects: [{ path: "C:/Paper" }] };
+    if (command === "drive_project_revision") return "base";
+    if (command === "drive_backup_summary")
+      return {
+        connected: true,
+        projects: [
+          {
+            path: "C:/Paper",
+            status: "incoming",
+            conflict: {
+              name: "Paper.zip",
+              remoteHash: "mac-version",
+              deviceName: "Mac abc123",
+            },
+          },
+        ],
+      };
+    if (command === "drive_sync_project")
+      return {
+        lastBackup: 200,
+        sourceRevision: "new-base",
+        deviceName: "Mac abc123",
+      };
+    return { connected: true };
+  });
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<BackupListener />));
+    if (open) {
+      expect(projectDriveStatus("C:/Paper").incoming).toBe(true);
+      expect(invoke).not.toHaveBeenCalledWith(
+        "drive_sync_project",
+        expect.anything(),
+      );
+    } else {
+      expect(invoke).toHaveBeenCalledWith("drive_sync_project", {
+        projectPath: "C:/Paper",
+        expectedRemoteHash: "mac-version",
+      });
+      expect(projectDriveStatus("C:/Paper").sourceRevision).toBe("new-base");
+      expect(projectDriveStatus("C:/Paper").incoming).toBeUndefined();
+    }
+    expect(invoke).not.toHaveBeenCalledWith(
+      "drive_backup_project",
+      expect.anything(),
+    );
+  } finally {
+    await act(async () => root.unmount());
+    useDocumentStore.setState({ projectRoot: null });
+  }
+});
 it("detects another device's Drive changes without editing or uploading the PC copy", async () => {
   (
     globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }

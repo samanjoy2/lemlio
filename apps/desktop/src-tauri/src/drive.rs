@@ -448,6 +448,7 @@ fn chunk_request(
         .body(body)
 }
 
+#[cfg(test)]
 fn drive_file_matches(remote: &Value, hash: &str, size: u64) -> bool {
     remote["sha256Checksum"].as_str() == Some(hash)
         || (size == 0
@@ -462,6 +463,7 @@ async fn upload_drive_file(
     source: &Path,
     existing: Option<&str>,
     project_key: &str,
+    sync_properties: &Value,
 ) -> Result<Value, String> {
     let mime = match source
         .extension()
@@ -493,6 +495,11 @@ async fn upload_drive_file(
         client.post(url)
     };
     let mut metadata = json!({"name": name,"mimeType":mime,"appProperties":{"lemlioProject":project_key,"lemlioFormat":"zip-v2","lemlioArchiveHash":sha256_file(source)?}});
+    if let Some(properties) = sync_properties.as_object() {
+        for (key, value) in properties {
+            metadata["appProperties"][key] = value.clone();
+        }
+    }
     if existing.is_none() {
         metadata["parents"] = json!([parent]);
     }
@@ -707,7 +714,35 @@ pub async fn drive_reset_backups(state: tauri::State<'_, DriveState>) -> Result<
     reset_backups(&state).await
 }
 
+fn project_title(source: &Path) -> String {
+    crate::projects::project_details(source.to_string_lossy().to_string())
+        .ok()
+        .and_then(|v| v["name"].as_str().map(str::to_string))
+        .unwrap_or_else(|| {
+            source
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+        })
+}
 pub(crate) fn local_revision(source: &Path) -> Result<String, String> {
+    Ok(format!(
+        "content-v1:{}",
+        crate::drive_sync::content_revision(source, &project_title(source))?
+    ))
+}
+fn receipt_unchanged(
+    source: &Path,
+    receipt: &crate::drive_receipts::Receipt,
+) -> Result<bool, String> {
+    if receipt.source_revision.starts_with("content-v1:") {
+        Ok(local_revision(source)? == receipt.source_revision)
+    } else {
+        Ok(legacy_revision(source)? == receipt.source_revision)
+    }
+}
+fn legacy_revision(source: &Path) -> Result<String, String> {
     let mut hash = Sha256::new();
     for (relative, folder) in crate::projects::project_entries(source)? {
         hash.update(relative.to_string_lossy().as_bytes());
@@ -782,6 +817,81 @@ fn check_archive_conflict(
         "DRIVE_CONFLICT:{}",
         json!({"name":remote["name"],"modifiedTime":remote["modifiedTime"],"remoteHash":actual})
     ))
+}
+
+fn conflict_details(file: &Value, branches: usize) -> Value {
+    json!({"name":file["name"],"modifiedTime":file["modifiedTime"],"remoteHash":file["sha256Checksum"],
+        "deviceName":file["appProperties"]["lemlioDeviceName"],"branches":branches})
+}
+fn conflict_error(file: &Value, branches: usize) -> String {
+    format!("DRIVE_CONFLICT:{}", conflict_details(file, branches))
+}
+fn revision_choices(heads: &[&Value]) -> Value {
+    json!(heads
+        .iter()
+        .map(|f| conflict_details(f, heads.len()))
+        .collect::<Vec<_>>())
+}
+async fn conflict_archive(key: &str, expected: &str) -> Result<String, String> {
+    let mut token = authorized_tokens().await?;
+    let client = http_client()?;
+    let root = existing_backup_root(&client, &mut token)
+        .await?
+        .ok_or("No Drive backup folder")?;
+    let files = drive_children(&client, &token.access_token, &root).await?;
+    crate::drive_sync::heads(&files, key)
+        .into_iter()
+        .find(|f| f["sha256Checksum"] == expected)
+        .and_then(|f| f["id"].as_str().map(str::to_string))
+        .ok_or("The Drive revision changed again; refresh before continuing".into())
+}
+
+#[tauri::command]
+pub async fn drive_sync_project(
+    state: tauri::State<'_, DriveState>,
+    project_path: String,
+    expected_remote_hash: String,
+) -> Result<Value, String> {
+    sync_project(&state, project_path, expected_remote_hash).await
+}
+async fn sync_project(
+    state: &DriveState,
+    project_path: String,
+    expected: String,
+) -> Result<Value, String> {
+    let receipt =
+        crate::drive_receipts::load(&project_path)?.ok_or("Project is not linked to Drive")?;
+    if !receipt_unchanged(Path::new(&project_path), &receipt)? {
+        return Err("Local files changed too. Review both versions; nothing was replaced".into());
+    }
+    let id = conflict_archive(&receipt.project_key, &expected).await?;
+    // Only a single, genuine Lemlio revision may fast-forward automatically.
+    let mut token = authorized_tokens().await?;
+    let client = http_client()?;
+    let root = existing_backup_root(&client, &mut token)
+        .await?
+        .ok_or("No backup folder")?;
+    let files = drive_children(&client, &token.access_token, &root).await?;
+    let heads = crate::drive_sync::heads(&files, &receipt.project_key);
+    if heads.len() != 1
+        || heads[0]["id"] != id
+        || heads[0]["appProperties"]["lemlioSync"] != "1"
+        || heads[0]["sha256Checksum"] != heads[0]["appProperties"]["lemlioArchiveHash"]
+    {
+        return Err("Drive has competing or externally edited versions; review them first".into());
+    }
+    let content = crate::drive_sync::content_revision(
+        Path::new(&project_path),
+        &project_title(Path::new(&project_path)),
+    )?;
+    restore_snapshot_with_target(
+        state,
+        id,
+        None,
+        Some((project_path.clone(), expected)),
+        Some((project_path, content)),
+    )
+    .await
 }
 
 pub async fn backup_project(state: &DriveState, project_path: String) -> Result<Value, String> {
@@ -874,25 +984,45 @@ async fn backup_project_with_choice(
     }
     let root = token.folder_id.as_deref().ok_or("Missing backup root")?;
     let children = drive_children(&client, &token.access_token, root).await?;
-    let existing = children.iter().find(|f| {
-        f["appProperties"]["lemlioProject"] == snapshot.2
-            && f["appProperties"]["lemlioFormat"] == "zip-v2"
-            && f["mimeType"] == "application/zip"
-    });
+    let heads = crate::drive_sync::heads(&children, &snapshot.2);
+    if heads.len() > 16 {
+        return Err(
+            "Too many concurrent Drive versions; export local files before resolving in Drive"
+                .into(),
+        );
+    }
+    let existing = heads
+        .iter()
+        .copied()
+        .find(|f| expected_remote_hash.is_some_and(|h| f["sha256Checksum"] == h))
+        .or_else(|| heads.first().copied());
+    if let Some(expected) = expected_remote_hash {
+        if !heads.iter().any(|f| f["sha256Checksum"] == expected) {
+            return Err(existing
+                .map(|f| conflict_error(f, heads.len()))
+                .unwrap_or("Drive revision was removed; refresh first".into()));
+        }
+    }
+    if heads.len() > 1 && expected_remote_hash.is_none() {
+        let mut conflict = conflict_details(existing.unwrap(), heads.len());
+        conflict["versions"] = revision_choices(&heads);
+        return Err(format!("DRIVE_CONFLICT:{conflict}"));
+    }
     let archive = snapshot.0.path().join("backup.zip");
-    let hash = sha256_file(&archive)?;
-    let size = std::fs::metadata(&archive)
-        .map_err(|e| e.to_string())?
-        .len();
+    let content = snapshot.4.trim_start_matches("content-v1:");
+    let old_hash = sha256_file(&archive)?;
     if let Some(remote) = existing {
         let baseline = snapshot
             .5
             .as_ref()
             .filter(|r| r.folder_id == root && remote["id"].as_str() == Some(r.archive_id.as_str()))
             .map(|r| r.archive_hash.as_str());
-        check_archive_conflict(remote, expected_remote_hash, baseline, &hash)?;
+        let same_content = remote["appProperties"]["lemlioContent"] == content
+            && remote["sha256Checksum"] == remote["appProperties"]["lemlioArchiveHash"];
+        if !same_content {
+            check_archive_conflict(remote, expected_remote_hash, baseline, &old_hash)?;
+        }
     }
-    let unchanged = existing.is_some_and(|f| drive_file_matches(f, &hash, size));
     let archive_name = choose_archive_name(
         existing,
         &snapshot.3,
@@ -900,10 +1030,29 @@ async fn backup_project_with_choice(
         rename_backup,
         Path::new(&snapshot.6)
             .file_name()
-            .and_then(|name| name.to_str())
+            .and_then(|n| n.to_str())
             .unwrap_or(&snapshot.3),
     );
-    let archive_id = if unchanged && existing.is_some_and(|f| f["name"] == archive_name) {
+    let unchanged = heads.len() == 1
+        && existing.is_some_and(|f| {
+            f["sha256Checksum"] == old_hash
+                || (f["appProperties"]["lemlioContent"] == content
+                    && f["sha256Checksum"] == f["appProperties"]["lemlioArchiveHash"])
+        });
+    let device = crate::drive_sync::device()?;
+    let parents: Vec<_> = heads.iter().filter_map(|f| f["id"].as_str()).collect();
+    let manifest = json!({"schema":1,"projectId":snapshot.2,"revision":uuid::Uuid::new_v4().to_string(),
+        "parents":parents,"contentHash":content,"title":snapshot.3,"device":device,"savedAt":now()});
+    let mut properties = json!({"lemlioSync":"1","lemlioContent":content,
+        "lemlioDevice":device["id"],"lemlioDeviceName":device["name"],"lemlioSavedAt":now().to_string()});
+    for (i, parent) in parents.iter().enumerate() {
+        properties[format!("lemlioParent{i}")] = json!(parent);
+    }
+    crate::drive_sync::append_manifest(&archive, &manifest)?;
+    let hash = sha256_file(&archive)?;
+    let same_name = existing.is_some_and(|f| f["name"] == archive_name);
+    let reused = unchanged && same_name;
+    let archive_id = if reused {
         existing
             .and_then(|f| f["id"].as_str())
             .ok_or("Missing backup archive ID")?
@@ -915,8 +1064,9 @@ async fn backup_project_with_choice(
             root,
             &archive_name,
             &archive,
-            existing.and_then(|f| f["id"].as_str()),
+            None, // Immutable revision: another device can never overwrite this upload.
             &snapshot.2,
+            &properties,
         )
         .await?;
         if result["sha256Checksum"].as_str() != Some(hash.as_str()) {
@@ -934,14 +1084,22 @@ async fn backup_project_with_choice(
         crate::drive_receipts::Receipt {
             project_key: snapshot.2.clone(),
             archive_id: archive_id.clone(),
-            archive_hash: hash,
+            archive_hash: if reused {
+                existing.unwrap()["sha256Checksum"]
+                    .as_str()
+                    .ok_or("Missing checksum")?
+                    .to_string()
+            } else {
+                hash
+            },
+            content_revision: content.to_string(),
             source_revision: snapshot.4.clone(),
             folder_id: root.to_string(),
             last_backup: token.last_backup.unwrap_or_default(),
         },
     )?;
     Ok(
-        json!({"name":snapshot.3,"format":"zip","sourceFiles":snapshot.1,"sourceRevision":snapshot.4,"uploadedFiles":if unchanged {0} else {1},"unchangedFiles":if unchanged {1} else {0},"lastBackup":token.last_backup,"archiveUrl":format!("https://drive.google.com/file/d/{archive_id}/view"),"folderUrl":format!("https://drive.google.com/drive/folders/{root}")}),
+        json!({"name":snapshot.3,"format":"zip","sourceFiles":snapshot.1,"sourceRevision":snapshot.4,"uploadedFiles":if reused {0} else {1},"unchangedFiles":if reused {1} else {0},"deviceName":device["name"],"lastBackup":token.last_backup,"archiveUrl":format!("https://drive.google.com/file/d/{archive_id}/view"),"folderUrl":format!("https://drive.google.com/drive/folders/{root}")}),
     )
 }
 #[tauri::command]
@@ -1209,14 +1367,19 @@ pub async fn drive_list_backups() -> Result<Value, String> {
     };
     let files = drive_children(&client, &token.access_token, &root).await?;
     let mut projects = Vec::new();
-    for file in files.into_iter().filter(|f| {
-        f["mimeType"] == "application/zip" && f["appProperties"]["lemlioFormat"] == "zip-v2"
-    }) {
+    let keys: std::collections::BTreeSet<_> = files
+        .iter()
+        .filter_map(|f| f["appProperties"]["lemlioProject"].as_str())
+        .collect();
+    for file in keys
+        .into_iter()
+        .flat_map(|key| crate::drive_sync::heads(&files, key))
+    {
         let key = file["appProperties"]["lemlioProject"]
             .as_str()
             .ok_or("Invalid backup identity")?;
         let local = crate::drive_receipts::linked_project(key)?;
-        projects.push(json!({"id":file["id"],"name":display_archive_name(&file),"size":file["size"],"modifiedTime":file["modifiedTime"],"localPath":local}));
+        projects.push(json!({"id":file["id"],"name":display_archive_name(&file),"size":file["size"],"modifiedTime":file["modifiedTime"],"localPath":local,"deviceName":file["appProperties"]["lemlioDeviceName"],"branches":crate::drive_sync::heads(&files,key).len()}));
     }
     Ok(json!({"projects":projects}))
 }
@@ -1235,13 +1398,27 @@ pub async fn drive_download_conflict(
 ) -> Result<Value, String> {
     let receipt = crate::drive_receipts::load(&project_path)?
         .ok_or("This project has no linked Drive backup")?;
-    restore_project_into_with_binding(
+    let mut restored = restore_project_into_with_binding(
         &state,
-        receipt.archive_id,
+        conflict_archive(&receipt.project_key, &expected_remote_hash).await?,
         None,
-        Some((project_path, expected_remote_hash)),
+        Some((project_path, expected_remote_hash.clone())),
     )
-    .await
+    .await?;
+    let path = restored["path"]
+        .as_str()
+        .ok_or("Missing restored folder")?
+        .to_string();
+    // Choosing a branch explicitly commits a child of all currently reviewed
+    // heads. If offline, still return the safe downloaded folder for recovery.
+    match backup_project_with_choice(&state, path, Some(&expected_remote_hash), false).await {
+        Ok(result) => {
+            restored["lastBackup"] = result["lastBackup"].clone();
+            restored["sourceRevision"] = result["sourceRevision"].clone();
+        }
+        Err(error) => restored["syncError"] = json!(error),
+    }
+    Ok(restored)
 }
 pub async fn restore_project(state: &DriveState, archive_id: String) -> Result<Value, String> {
     restore_project_into(state, archive_id, None).await
@@ -1258,6 +1435,15 @@ async fn restore_project_into_with_binding(
     archive_id: String,
     restore_root: Option<PathBuf>,
     binding: Option<(String, String)>,
+) -> Result<Value, String> {
+    restore_snapshot_with_target(state, archive_id, restore_root, binding, None).await
+}
+async fn restore_snapshot_with_target(
+    state: &DriveState,
+    archive_id: String,
+    restore_root: Option<PathBuf>,
+    binding: Option<(String, String)>,
+    sync_target: Option<(String, String)>,
 ) -> Result<Value, String> {
     let _upload = state.upload.lock().await;
     let mut token = authorized_tokens().await?;
@@ -1290,7 +1476,7 @@ async fn restore_project_into_with_binding(
     if let Some((path, expected)) = &binding {
         let receipt =
             crate::drive_receipts::load(path)?.ok_or("Backup link changed; refresh and retry")?;
-        if receipt.archive_id != archive_id || receipt.project_key != project_key {
+        if receipt.project_key != project_key {
             return Err("Backup link changed; refresh and retry".into());
         }
         if metadata["sha256Checksum"].as_str() != Some(expected.as_str()) {
@@ -1363,13 +1549,73 @@ async fn restore_project_into_with_binding(
     if format!("{:x}", hash.finalize()) != expected_hash {
         return Err("The Drive ZIP changed or its download is incomplete. Refresh backups and try again; local files were kept.".into());
     }
+    let staging = if let Some((path, _)) = &sync_target {
+        Some(
+            tempfile::Builder::new()
+                .prefix(".lemlio-staging-")
+                .tempdir_in(Path::new(path).parent().ok_or("Invalid project path")?)
+                .map_err(|e| e.to_string())?,
+        )
+    } else {
+        None
+    };
+    let restore_root = staging
+        .as_ref()
+        .map(|t| t.path().to_path_buf())
+        .or(restore_root);
+    let extraction_archive = archive.clone();
     let result = tokio::task::spawn_blocking(move || match restore_root {
-        Some(root) => crate::projects::restore_snapshot_in(&root, &archive),
-        None => crate::projects::restore_snapshot(&archive),
+        Some(root) => crate::projects::restore_snapshot_in(&root, &extraction_archive),
+        None => crate::projects::restore_snapshot(&extraction_archive),
     })
     .await
     .map_err(|e| e.to_string())??;
-    let path = result.storage_path.clone();
+    let mut path = result.storage_path.clone();
+    let title = if metadata["appProperties"]["lemlioSync"] == "1" {
+        let mut zip =
+            zip::ZipArchive::new(std::fs::File::open(&archive).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+        let entry = zip
+            .by_name(crate::drive_sync::MANIFEST)
+            .map_err(|_| "Missing revision manifest")?;
+        if entry.size() > 64 * 1024 {
+            return Err("Invalid revision manifest".into());
+        }
+        let manifest: Value =
+            serde_json::from_reader(entry).map_err(|_| "Invalid revision manifest")?;
+        if manifest["schema"] != 1
+            || manifest["projectId"] != project_key
+            || manifest["contentHash"] != metadata["appProperties"]["lemlioContent"]
+        {
+            return Err("Revision manifest does not match the Drive backup".into());
+        }
+        manifest["title"]
+            .as_str()
+            .filter(|t| !t.trim().is_empty() && t.len() <= 200)
+            .ok_or("Invalid project title in revision")?
+            .to_string()
+    } else {
+        display_archive_name(&metadata)
+    };
+    let portable = crate::drive_sync::content_revision(Path::new(&path), &title)?;
+    if metadata["appProperties"]["lemlioSync"] == "1"
+        && metadata["appProperties"]["lemlioContent"] != portable
+    {
+        return Err(
+            "Drive revision metadata does not match its source files; local files were kept".into(),
+        );
+    }
+    let mut recovery = None;
+    if let Some((target, expected)) = sync_target {
+        recovery = Some(crate::drive_sync::install_snapshot(
+            Path::new(&target),
+            Path::new(&path),
+            &expected,
+            &project_title(Path::new(&target)),
+        )?);
+        path = target;
+    }
+    crate::projects::rename_project(path.clone(), title)?;
     let source_revision = local_revision(Path::new(&path))?;
     crate::drive_receipts::save_restored(
         &path,
@@ -1378,13 +1624,14 @@ async fn restore_project_into_with_binding(
             project_key,
             archive_id,
             archive_hash: expected_hash,
+            content_revision: portable,
             source_revision: source_revision.clone(),
             folder_id: root,
             last_backup: now(),
         },
     )?;
     Ok(
-        json!({"projects":result.projects,"path":path,"lastBackup":now(),"sourceRevision":source_revision}),
+        json!({"projects":result.projects,"path":path,"lastBackup":now(),"sourceRevision":source_revision,"recoveryPath":recovery,"deviceName":metadata["appProperties"]["lemlioDeviceName"]}),
     )
 }
 #[tauri::command]
@@ -1406,12 +1653,9 @@ pub async fn backup_summary(
     let mut rows = Vec::new();
     for (_, path) in paths {
         let receipt = crate::drive_receipts::load(&path)?;
-        let revision = drive_project_revision(path.clone()).await;
-        let saved = receipt.as_ref().is_some_and(|r| {
-            revision
-                .as_ref()
-                .is_ok_and(|current| current == &r.source_revision)
-        });
+        let saved = receipt
+            .as_ref()
+            .is_some_and(|r| receipt_unchanged(Path::new(&path), r).unwrap_or(false));
         rows.push(json!({"path":path,"status":if saved{"saved"}else{"pending"},"lastBackup":receipt.as_ref().map(|r|r.last_backup),"sourceRevision":receipt.as_ref().map(|r|&r.source_revision),"receipt":receipt}));
     }
     if rows.is_empty() {
@@ -1426,10 +1670,28 @@ pub async fn backup_summary(
         let remote = drive_children(&client, &token.access_token, &root).await?;
         for row in &mut rows {
             let receipt = row["receipt"].clone();
-            match remote.iter().find(|f|f["id"]==receipt["archiveId"] && receipt["folderId"]==root){
-                Some(file) if file["sha256Checksum"]!=receipt["archiveHash"]=>{row["status"]=json!("conflict");row["conflict"]=json!({"name":file["name"],"modifiedTime":file["modifiedTime"],"remoteHash":file["sha256Checksum"]});},
-                None=>row["status"]=json!("pending"),
-                _=>{},
+            let Some(key) = receipt["projectKey"].as_str() else {
+                continue;
+            };
+            let heads = crate::drive_sync::heads(&remote, key);
+            if let Some(file) = heads.first() {
+                let changed = file["id"] != receipt["archiveId"]
+                    || file["sha256Checksum"] != receipt["archiveHash"];
+                if heads.len() > 1 || changed {
+                    let managed = heads.len() == 1
+                        && file["appProperties"]["lemlioSync"] == "1"
+                        && file["sha256Checksum"] == file["appProperties"]["lemlioArchiveHash"];
+                    row["status"] = json!(if managed && row["status"] == "saved" {
+                        "incoming"
+                    } else {
+                        "conflict"
+                    });
+                    row["conflict"] = conflict_details(file, heads.len());
+                    row["conflict"]["versions"] = revision_choices(&heads);
+                    row["deviceName"] = file["appProperties"]["lemlioDeviceName"].clone();
+                }
+            } else {
+                row["status"] = json!("pending");
             }
         }
         Ok::<_, String>(())
@@ -1450,57 +1712,71 @@ pub async fn backup_summary(
 mod restore_live_test {
     use super::*;
     #[test]
-    #[ignore = "Needs the user's connected Drive; uses only disposable generated data"]
-    fn live_restore_round_trip_keeps_identity_and_pc_source() {
+    #[ignore = "Needs connected Drive; only generated disposable projects are uploaded"]
+    fn live_two_device_sync_renames_conflicts_and_recovery() {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let temporary=tempfile::tempdir().unwrap();
-            let name=format!("Lemlio-Restore-QA-{}",uuid::Uuid::new_v4());
-            let source=temporary.path().join(&name);std::fs::create_dir(&source).unwrap();
-            let content="\\documentclass{article}\\begin{document}Disposable restore check.\\end{document}";
-            std::fs::write(source.join("main.tex"),content).unwrap();
-            std::fs::create_dir(source.join("figs")).unwrap();std::fs::write(source.join("figs/binary.dat"),[0,1,2,255]).unwrap();
-            let state=DriveState::default();let mut archive_id=None;let mut project_key=None;
-            let outcome=async{
-                backup_project(&state,source.to_string_lossy().to_string()).await?;
-                let record=crate::drive_receipts::load(&source.to_string_lossy())?.ok_or("Backup record missing")?;
-                archive_id=Some(record.archive_id.clone());project_key=Some(record.project_key.clone());
-                // The original fake source is parked, emulating a device where that path is absent.
-                let parked=temporary.path().join("parked-original");std::fs::rename(&source,&parked).map_err(|e|e.to_string())?;
-                let device=temporary.path().join("new-device");std::fs::create_dir(&device).map_err(|e|e.to_string())?;
-                let restored=restore_project_into(&state,record.archive_id.clone(),Some(device)).await?;
-                let path=restored["path"].as_str().ok_or("Restored path missing")?;
-                if std::fs::read_to_string(Path::new(path).join("main.tex")).map_err(|e|e.to_string())?!=content{return Err("Restored source differs".into());}
-                if std::fs::read(Path::new(path).join("figs/binary.dat")).map_err(|e|e.to_string())?!=[0,1,2,255]{return Err("Restored binary differs".into());}
-                let again=backup_project(&state,path.to_string()).await?;
-                if again["uploadedFiles"]!=0{return Err("Unchanged restored ZIP was uploaded again".into());}
-                std::fs::write(Path::new(path).join("main.tex"),"PC edit after explicit restore").map_err(|e|e.to_string())?;
-                backup_project(&state,path.to_string()).await?;
-                let updated=crate::drive_receipts::load(path)?.ok_or("Updated binding missing")?;
-                if updated.archive_id!=record.archive_id || updated.project_key!=record.project_key{return Err("Restored project created a duplicate Drive ZIP".into());}
-                let conflict_device=temporary.path().join("conflict-copy");std::fs::create_dir(&conflict_device).map_err(|e|e.to_string())?;
-                let chosen=restore_project_into_with_binding(&state,record.archive_id.clone(),Some(conflict_device),Some((path.to_string(),updated.archive_hash.clone()))).await?;
-                let chosen_path=chosen["path"].as_str().ok_or("Conflict download path missing")?;
-                if std::fs::read_to_string(Path::new(path).join("main.tex")).map_err(|e|e.to_string())? != "PC edit after explicit restore" { return Err("Conflict download altered the old local copy".into()); }
-                if std::fs::read_to_string(Path::new(chosen_path).join("main.tex")).map_err(|e|e.to_string())? != "PC edit after explicit restore" { return Err("Conflict download differs from Drive".into()); }
-                if crate::drive_receipts::load(path)?.is_some() { return Err("Old local folder still owns the Drive backup link".into()); }
-                let chosen_receipt=crate::drive_receipts::load(chosen_path)?.ok_or("Conflict download lost its backup link")?;
-                if chosen_receipt.archive_id != record.archive_id { return Err("Conflict download created a second Drive identity".into()); }
-                let unchanged=backup_project(&state,chosen_path.to_string()).await?;
-                if unchanged["uploadedFiles"]!=0 { return Err("Conflict download re-uploaded unchanged content".into()); }
-                if std::fs::read_to_string(parked.join("main.tex")).map_err(|e|e.to_string())?!=content{return Err("Original fake source was altered".into());}
+            let temporary = tempfile::tempdir().unwrap();
+            let title = format!("Lemlio-Sync-QA-{}",uuid::Uuid::new_v4());
+            let a = temporary.path().join("device-a").join(&title);
+            let b = temporary.path().join("device-b").join(&title);
+            for path in [&a,&b] {
+                std::fs::create_dir_all(path.join("figs")).unwrap();
+                std::fs::write(path.join("main.tex"),"Original fictional paper").unwrap();
+                std::fs::write(path.join("figs/binary.dat"),[0,1,2,255]).unwrap();
+            }
+            let a_path = a.to_string_lossy().to_string(); let b_path=b.to_string_lossy().to_string();
+            let state=DriveState::default();
+            backup_project(&state,a_path.clone()).await.unwrap();
+            let base=crate::drive_receipts::load(&a_path).unwrap().unwrap();
+            // Two independent local receipts emulate two installations using one account.
+            crate::drive_receipts::save(&b_path,base.clone()).unwrap();
+            let outcome=async {
+                let no_change=backup_project(&state,b_path.clone()).await?;
+                if no_change["uploadedFiles"] != 0 {return Err("Unchanged second device uploaded unnecessarily".into());}
+                std::fs::write(a.join("main.tex"),"Edited on device A").map_err(|e|e.to_string())?;
+                backup_project(&state,a_path.clone()).await?;
+                let next=crate::drive_receipts::load(&a_path)?.unwrap();
+                if next.archive_id==base.archive_id {return Err("New revision overwrote the base archive".into());}
+                let summary=backup_summary(&state,vec![b_path.clone()]).await?;
+                if summary["projects"][0]["status"]!="incoming" {return Err(format!("Expected incoming update: {summary}"));}
+                let synced=sync_project(&state,b_path.clone(),next.archive_hash.clone()).await?;
+                if std::fs::read_to_string(b.join("main.tex")).map_err(|e|e.to_string())?!="Edited on device A" {return Err("Incoming source was not installed".into());}
+                let recovery=Path::new(synced["recoveryPath"].as_str().ok_or("Missing recovery path")?);
+                if std::fs::read_to_string(recovery.join("main.tex")).map_err(|e|e.to_string())?!="Original fictional paper" {return Err("Recovery source was lost".into());}
+                if std::fs::read(b.join("figs/binary.dat")).map_err(|e|e.to_string())?!=[0,1,2,255] {return Err("Binary changed in sync".into());}
+                let renamed=format!("{title} renamed");
+                crate::projects::rename_project(a_path.clone(),renamed.clone())?;
+                backup_project_with_choice(&state,a_path.clone(),None,true).await?;
+                let rename=crate::drive_receipts::load(&a_path)?.unwrap();
+                sync_project(&state,b_path.clone(),rename.archive_hash.clone()).await?;
+                if project_title(&b)!=renamed {return Err("Project rename did not sync".into());}
+                let unchanged=backup_project(&state,b_path.clone()).await?;
+                if unchanged["uploadedFiles"]!=0 {return Err("Synced project uploaded again".into());}
+                std::fs::write(a.join("main.tex"),"Independent PC edit").map_err(|e|e.to_string())?;
+                std::fs::write(b.join("main.tex"),"Independent Mac edit").map_err(|e|e.to_string())?;
+                backup_project(&state,b_path.clone()).await?;
+                let remote=crate::drive_receipts::load(&b_path)?.unwrap();
+                let conflict=backup_summary(&state,vec![a_path.clone()]).await?;
+                if conflict["projects"][0]["status"]!="conflict" {return Err("Simultaneous local/remote edits were not flagged".into());}
+                if sync_project(&state,a_path.clone(),remote.archive_hash.clone()).await.is_ok() {return Err("Changed local source was overwritten".into());}
+                if std::fs::read_to_string(a.join("main.tex")).map_err(|e|e.to_string())?!="Independent PC edit" {return Err("Local edits were lost".into());}
+                backup_project_with_choice(&state,a_path.clone(),Some(&remote.archive_hash),false).await?;
+                let resolved=backup_summary(&state,vec![a_path.clone()]).await?;
+                if resolved["projects"][0]["status"]!="saved" {return Err("Explicit version resolution did not settle".into());}
                 Ok::<_,String>(())
             }.await;
-            if let (Some(id),Some(key))=(archive_id,project_key){
-                let token=authorized_tokens().await.unwrap();let client=http_client().unwrap();
-                let metadata=google_json(client.get(format!("https://www.googleapis.com/drive/v3/files/{id}")).bearer_auth(&token.access_token).query(&[("fields","id,name,mimeType,parents,trashed,appProperties")]).send().await.unwrap()).await.unwrap();
-                assert!(managed_archive(&metadata,token.folder_id.as_deref().unwrap()));
-                assert_eq!(metadata["appProperties"]["lemlioProject"],key);
-                assert!(metadata["name"].as_str().unwrap().starts_with(&name));
-                let result=google_json(client.patch(format!("https://www.googleapis.com/drive/v3/files/{id}")).bearer_auth(&token.access_token).query(&[("fields","id,trashed")]).json(&json!({"trashed":true})).send().await.unwrap()).await.unwrap();
-                assert_eq!(result["trashed"],true);
+            // Cleanup only exact generated project IDs; never reset or touch other backups.
+            let token=authorized_tokens().await.unwrap(); let client=http_client().unwrap();
+            let root=token.folder_id.as_deref().unwrap();
+            for file in drive_children(&client,&token.access_token,root).await.unwrap() {
+                if file["appProperties"]["lemlioProject"]==base.project_key && file["name"].as_str().is_some_and(|n|n.starts_with(&title)) {
+                    let id=file["id"].as_str().unwrap();
+                    let result=google_json(client.patch(format!("https://www.googleapis.com/drive/v3/files/{id}")).bearer_auth(&token.access_token).query(&[("fields","id,trashed")]).json(&json!({"trashed":true})).send().await.unwrap()).await.unwrap();
+                    assert_eq!(result["trashed"],true);
+                }
             }
             outcome.unwrap();
-            println!("Live ZIP restore verified; identity retained; local edits uploaded to the same archive; disposable remote archive moved to Trash.");
+            println!("Verified live two-device fast-forward, binary integrity, rename propagation, deduplication, genuine conflict protection and explicit resolution. Only disposable snapshots moved to Trash.");
         });
     }
 }

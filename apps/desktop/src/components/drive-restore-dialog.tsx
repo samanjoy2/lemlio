@@ -17,6 +17,8 @@ type Backup = {
   modifiedTime?: string;
   size?: string;
   localPath?: string;
+  deviceName?: string;
+  branches?: number;
 };
 export function DriveRestoreDialog() {
   const [open, setOpen] = useState(false);
@@ -107,6 +109,8 @@ export function DriveRestoreDialog() {
                           : p.modifiedTime
                             ? `Backed up ${new Date(p.modifiedTime).toLocaleString()}`
                             : "Drive ZIP backup"}
+                        {p.deviceName ? ` · ${p.deviceName}` : ""}
+                        {(p.branches || 0) > 1 ? " · Competing revision" : ""}
                       </span>
                     </span>
                   </label>

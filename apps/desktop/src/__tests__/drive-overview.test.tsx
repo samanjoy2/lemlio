@@ -57,7 +57,7 @@ it("only claims all projects are backed up when every PC version is confirmed", 
       }),
     );
     expect(ui.element.textContent).toContain(
-      "All 2 projects backed up to Drive",
+      "All 2 projects up to date in Drive",
     );
     await act(async () => updateDriveBackup(projects[1].path, "pending"));
     expect(ui.element.textContent).not.toContain("All 2 projects backed up");
