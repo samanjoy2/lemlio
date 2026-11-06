@@ -22,10 +22,20 @@ Codex now gets dedicated compiler and PDF inspection tools. Previously, its inst
 
 ## Verification
 
-Frontend production build and all 201 tests passed. Windows native tests passed 147 tests; one opt-in live Drive test was not run. Scoped formatting/lint passed. A real signed-in Codex smoke test accepted the tool schemas, called the actual Lemlio compiler on a generated project, correctly identified the blue heading in its rendered PDF, resumed the thread with its tools, and received a deliberately introduced compilation error. The generated chat was archived. No credential files were read by the test script.
+Frontend production build and all 201 tests passed. Windows native tests passed 147 tests; one opt-in live Drive test was not run. Repository-wide Biome CI passed; the corresponding GitHub lint run also passed after a packaging-JSON formatting correction. A real signed-in Codex smoke test accepted the tool schemas, called the actual Lemlio compiler on a generated project, correctly identified the blue heading in its rendered PDF, resumed the thread with its tools, and received a deliberately introduced compilation error. The generated chat was archived. No credential files were read by the test script.
 
 Isolated browser checks used fictional projects with real MuPDF rendering: selectable words, 3 exact search hits, lazy thumbnails, no clipped controls at a 382px PDF pane, no recompile blur, clone dialog and settings navigation. Checked dark/light appearance and a 2x display (1901 canvas pixels for 475 CSS pixels). No real project or Drive archive was modified.
 
 Windows NSIS packaging passed. The built 1.3.1 executable compiled a generated Latin Modern Sans document using bundled Tectonic to a 5,463-byte PDF. The real Codex compile/image/error check passed again against this exact executable. The Windows installer SHA-256 is `a244fe75cef7ea8c7fd78286bef8c846f22c041516157ec6e537f6168f275d26`.
 
-Mac packaging results will be recorded after installer verification. Physical Mac UI testing is unavailable on this Windows PC; Mac packages remain ad hoc signed and not Apple notarized.
+Both Mac architectures passed **201 frontend tests and 145 native tests** (one opt-in live Drive test excluded), app signature/dependency checks, and compilation with bundled Tectonic and Latin Modern fonts. Each smoke PDF was 5,463 bytes. [Mac verification workflow](https://github.com/samanjoy2/lemlio/actions/runs/42159068167).
+
+All three installers were downloaded/read locally and matched GitHub's asset SHA-256 digests:
+
+```text
+99e5ca9b504d478765aedd197fa60b527ebb078dae9588ccfe41404061d75a2a  Lemlio_1.3.1_AppleSilicon.dmg
+d668e46847cef85fd5d03180a653636f80ede55b1c03028b116fe1bb1457e500  Lemlio_1.3.1_Intel.dmg
+a244fe75cef7ea8c7fd78286bef8c846f22c041516157ec6e537f6168f275d26  Lemlio_1.3.1_x64-setup.exe
+```
+
+Production source: `1684d5c0d9557598870981e901539e4d4254044e`. Later commits change packaging JSON formatting and verification documentation only. Physical Mac UI testing is unavailable on this Windows PC; Mac packages remain ad hoc signed and not Apple notarized.
