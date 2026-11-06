@@ -26,4 +26,6 @@ Frontend production build and all 201 tests passed. Windows native tests passed 
 
 Isolated browser checks used fictional projects with real MuPDF rendering: selectable words, 3 exact search hits, lazy thumbnails, no clipped controls at a 382px PDF pane, no recompile blur, clone dialog and settings navigation. Checked dark/light appearance and a 2x display (1901 canvas pixels for 475 CSS pixels). No real project or Drive archive was modified.
 
-Final packaging results will be recorded after installer verification. Physical Mac UI testing is unavailable on this Windows PC; Mac packages remain ad hoc signed and not Apple notarized.
+Windows NSIS packaging passed. The built 1.3.1 executable compiled a generated Latin Modern Sans document using bundled Tectonic to a 5,463-byte PDF. The real Codex compile/image/error check passed again against this exact executable. The Windows installer SHA-256 is `a244fe75cef7ea8c7fd78286bef8c846f22c041516157ec6e537f6168f275d26`.
+
+Mac packaging results will be recorded after installer verification. Physical Mac UI testing is unavailable on this Windows PC; Mac packages remain ad hoc signed and not Apple notarized.
