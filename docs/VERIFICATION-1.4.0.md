@@ -18,4 +18,16 @@ No real project or live Drive backup was modified during verification. Physical 
 
 ## Packaged release
 
-Build results and published asset digests will be recorded here after verification.
+Windows NSIS packaging passed. The exact built 1.4.0 executable compiled a generated Latin Modern Sans document using bundled Tectonic into a 5,462-byte PDF. The Windows installer SHA-256 is `75175743f7ec3a6b72d56ea7e07354d376cc36e322bed72ec898f2da062e9d62`; it matches the draft GitHub asset digest.
+
+Production source: `17bc8a4fe542f394e7a3782b0ca9af802b61361b` (includes bundled third-party notices). Apple Silicon passed 220 frontend tests and 153 native tests (one opt-in live Drive test excluded), app signature/dependency checks, and bundled Tectonic compilation to a 5,463-byte PDF. The downloaded DMG matches GitHub’s SHA-256 digest `3c31145e93f723f37dd42cf149ac8f2b8a06bbd7bf39148c1f695a5410e0d139`. Intel also passed 220 frontend tests and 153 native tests (one opt-in live Drive test excluded), packaging, signature/dependency checks, and bundled Tectonic compilation to a 5,463-byte PDF. Both workflow jobs finished successfully. [Native Mac verification workflow](https://github.com/samanjoy2/lemlio/actions/runs/42288202169).
+
+All three installers were read locally and matched GitHub’s asset digests. The release includes `Lemlio-1.4.0-SHA256SUMS.txt`:
+
+```text
+3c31145e93f723f37dd42cf149ac8f2b8a06bbd7bf39148c1f695a5410e0d139  Lemlio_1.4.0_AppleSilicon.dmg
+b683398c9896275e124624b9afa3c12a0d483aa4b31adc027bb747b439013b1d  Lemlio_1.4.0_Intel.dmg
+75175743f7ec3a6b72d56ea7e07354d376cc36e322bed72ec898f2da062e9d62  Lemlio_1.4.0_x64-setup.exe
+```
+
+Later commits update verification documentation only. The desktop Windows setup file is a copy of this verified installer.
