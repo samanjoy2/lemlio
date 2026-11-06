@@ -408,3 +408,60 @@ it("backs up a rename even when source files are unchanged, and keeps it through
     vi.useRealTimers();
   }
 });
+
+it("does not refresh Drive on focus and throttles remote checks while saved edits upload promptly", async () => {
+  (
+    globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.useFakeTimers();
+  localStorage.clear();
+  localStorage.setItem("lemlio-drive-layout", "zip-v3");
+  useSettingsStore.setState({ autoDriveBackup: true });
+  useDocumentStore.setState({ projectRoot: null, files: [] });
+  updateDriveBackup("C:/Frequency", "saved", {
+    lastBackup: 100,
+    sourceRevision: "base",
+  });
+  vi.mocked(invoke).mockClear();
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "list_imported_projects")
+      return { projects: [{ path: "C:/Frequency" }] };
+    if (command === "drive_project_revision") return "base";
+    if (command === "drive_backup_summary")
+      return { connected: true, projects: [], availableProjects: [] };
+    if (command === "drive_backup_project")
+      return { lastBackup: 200, sourceRevision: "saved-edit" };
+    return { connected: true };
+  });
+  const root = createRoot(document.createElement("div"));
+  const remoteCalls = () =>
+    vi
+      .mocked(invoke)
+      .mock.calls.filter(([name]) => name === "drive_backup_summary").length;
+  try {
+    await act(async () => root.render(<BackupListener />));
+    expect(remoteCalls()).toBe(1);
+    await act(async () => {
+      for (let i = 0; i < 5; i++) window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(120000);
+    });
+    expect(remoteCalls()).toBe(1);
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("lemlio-project-saved", { detail: "C:/Frequency" }),
+      );
+      await vi.advanceTimersByTimeAsync(15000);
+    });
+    expect(invoke).toHaveBeenCalledWith("drive_backup_project", {
+      projectPath: "C:/Frequency",
+    });
+    expect(remoteCalls()).toBe(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(165000);
+    });
+    expect(remoteCalls()).toBe(2);
+  } finally {
+    await act(async () => root.unmount());
+    vi.useRealTimers();
+  }
+});

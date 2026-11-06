@@ -1,6 +1,7 @@
 import { ThemeProvider } from "next-themes";
 import { WindowHeader } from "@/components/window-header";
 import { AppContextMenu } from "@/components/app-context-menu";
+import { CloneProjectDialog } from "@/components/clone-project-dialog";
 import { DeleteProjectDialog } from "@/components/delete-project-dialog";
 import { CloseConfirmation } from "@/components/close-confirmation";
 import { DriveRestoreDialog } from "@/components/drive-restore-dialog";
@@ -110,6 +111,7 @@ export function App({ onReady }: { onReady?: () => void }) {
             </div>
           </AppContextMenu>
           <DeleteProjectDialog />
+          <CloneProjectDialog />
           <CloseConfirmation />
           <DriveRestoreDialog />
           {showDebug && (

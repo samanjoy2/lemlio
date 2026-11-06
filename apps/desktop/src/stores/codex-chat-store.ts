@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { useDocumentStore } from "./document-store";
 import { useHistoryStore } from "./history-store";
+import { useSettingsStore } from "./settings-store";
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("codex");
@@ -395,6 +396,8 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
           tabId: activeTabId,
           model: selectedModel,
           effortLevel,
+          mainFile: useDocumentStore.getState().mainFileId || null,
+          useTexlive: useSettingsStore.getState().compilerBackend === "texlive",
         });
       } else {
         // New session
@@ -404,6 +407,8 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
           tabId: activeTabId,
           model: selectedModel,
           effortLevel,
+          mainFile: useDocumentStore.getState().mainFileId || null,
+          useTexlive: useSettingsStore.getState().compilerBackend === "texlive",
         });
       }
       log.info(

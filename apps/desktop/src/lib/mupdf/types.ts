@@ -61,6 +61,10 @@ export interface PageSize {
   width: number;
   height: number;
 }
+export interface PdfSearchHit {
+  page: number;
+  boxes: Rect[];
+}
 
 export type WorkerRequest = [string, number, unknown[]];
 export type WorkerResponse =

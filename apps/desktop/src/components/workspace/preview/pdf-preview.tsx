@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { ActivityOrb } from "@/components/activity-feedback";
 import {
+  SearchIcon,
+  PanelsTopLeftIcon,
+  ExternalLinkIcon,
   FileTextIcon,
   SpellCheckIcon,
   AlertCircleIcon,
@@ -15,6 +18,8 @@ import {
   ChevronUpIcon,
   ChevronDownIcon,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import { writeFile, mkdir, exists } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
 import {
@@ -125,7 +130,7 @@ export function PdfPreview() {
   const scrollToPageRef = useRef<((page: number) => void) | null>(null);
   const [scale, setScale] = useState<number>(1.0);
   const [captureMode, setCaptureMode] = useState(false);
-  const [fitMode, setFitMode] = useState<FitMode>(null);
+  const [fitMode, setFitMode] = useState<FitMode>("fit-width");
   const [containerSize, setContainerSize] = useState<{
     width: number;
     height: number;
@@ -654,7 +659,9 @@ export function PdfPreview() {
     if (isCompiling && !pdfData)
       return (
         <div className="grid min-h-0 flex-1 place-items-center">
-          <ActivityOrb label="Compiling PDF…" />
+          <div className="rounded-lg border bg-background/95 px-3 py-2 shadow-sm">
+            <ActivityOrb compact label="Compiling PDF…" />
+          </div>
         </div>
       );
     if (compileError) {
@@ -857,8 +864,11 @@ export function PdfPreview() {
             ))}
         </select>
       </div>
-      <div className="flex h-[calc(40px+var(--titlebar-height))] shrink-0 items-center border-border border-b bg-background px-2 pt-[var(--titlebar-height)]">
-        <div className="flex items-center gap-1">
+      <div
+        data-pdf-toolbar
+        className="flex min-h-10 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-border border-b bg-background px-2 py-1.5"
+      >
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
           <button
             type="button"
             className="rounded border px-2 py-1 text-xs"
@@ -921,8 +931,7 @@ export function PdfPreview() {
             </Button>
           )}
         </div>
-        <div data-tauri-drag-region className="flex-1 self-stretch" />
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="contents">
           {pdfData && (
             <>
               <Button
@@ -1040,10 +1049,53 @@ export function PdfPreview() {
                 title={`Capture & Ask (${navigator.userAgent.includes("Mac") ? "⌘X" : "Ctrl+X"})`}
               >
                 <CrosshairIcon className="size-3.5 shrink-0" />
-                <span className="@[48rem]/pv:inline hidden">Capture & Ask</span>
-                <kbd className="pointer-events-none ml-0.5 @[36rem]/pv:inline hidden rounded border border-background/30 bg-background/20 px-1 py-0.5 font-medium text-[10px] text-background leading-none">
+                <span className="inline">Capture & Ask</span>
+                <kbd className="pointer-events-none ml-0.5 inline rounded border border-background/30 bg-background/20 px-1 py-0.5 font-medium text-[10px] text-background leading-none">
                   {navigator.userAgent.includes("Mac") ? "⌘X" : "Ctrl+X"}
                 </kbd>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="Find in PDF (Ctrl/Cmd+F)"
+                aria-label="Find in PDF"
+                onClick={() =>
+                  window.dispatchEvent(new Event("lemlio-pdf-find"))
+                }
+              >
+                <SearchIcon className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="Page thumbnails"
+                aria-label="Page thumbnails"
+                onClick={() =>
+                  window.dispatchEvent(new Event("lemlio-pdf-pages"))
+                }
+              >
+                <PanelsTopLeftIcon className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="Open PDF in your system reader to print"
+                aria-label="Open PDF in system reader"
+                onClick={() =>
+                  invoke("open_compiled_pdf", {
+                    projectDir: projectRoot,
+                    mainFile: currentRootFileId,
+                  }).catch((error) =>
+                    toast.error("Could not open PDF", {
+                      description: String(error),
+                    }),
+                  )
+                }
+              >
+                <ExternalLinkIcon className="size-3.5" />
               </Button>
               <div className="mx-1 h-4 w-px bg-border" />
               <Button
@@ -1081,10 +1133,12 @@ export function PdfPreview() {
         {renderContent()}
         {isCompiling && !!pdfData && (
           <div
-            className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-background/75 backdrop-blur-sm"
+            className="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center"
             data-pdf-compilation-overlay
           >
-            <ActivityOrb label="Compiling PDF…" />
+            <div className="rounded-lg border bg-background/95 px-3 py-2 shadow-sm">
+              <ActivityOrb compact label="Compiling PDF…" />
+            </div>
           </div>
         )}
       </div>

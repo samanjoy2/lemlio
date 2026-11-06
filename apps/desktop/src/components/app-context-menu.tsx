@@ -12,9 +12,11 @@ import {
 } from "./ui/context-menu";
 import { useDocumentStore } from "@/stores/document-store";
 import { useCodexChatStore } from "@/stores/codex-chat-store";
+import { requestProjectClone } from "./clone-project-dialog";
 import { requestProjectDelete } from "./delete-project-dialog";
 import {
   CopyIcon,
+  CopyPlusIcon,
   ScissorsIcon,
   ClipboardIcon,
   Undo2Icon,
@@ -231,6 +233,17 @@ export function AppContextMenu({ children }: { children: ReactNode }) {
             >
               <FolderOpenIcon />
               Open project folder
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() =>
+                requestProjectClone(
+                  project,
+                  project.split(/[/\\]/).pop() || "Project",
+                )
+              }
+            >
+              <CopyPlusIcon />
+              Clone project
             </ContextMenuItem>
             {streaming && (
               <ContextMenuItem

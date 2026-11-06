@@ -48,6 +48,9 @@
 
 :root {
   --radius: 0.625rem;
+  --success: #26714a;
+  --info: #245f9d;
+  --warning: #986814;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -82,6 +85,9 @@
 }
 
 .dark {
+  --success: #9bd6b4;
+  --info: #94bce6;
+  --warning: #dfbc77;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -191,6 +197,8 @@ select option, select optgroup { color: var(--foreground); background-color: var
 }
 
 .mupdf-text-layer text {
+  user-select: text;
+  -webkit-user-select: text;
   fill: transparent;
   white-space: pre;
   cursor: text;

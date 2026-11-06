@@ -8,6 +8,7 @@ import {
   MoreHorizontalIcon,
   Trash2Icon,
   PencilIcon,
+  CopyPlusIcon,
   FolderOpenIcon,
 } from "lucide-react";
 import type { CatalogProject } from "@/lib/project-catalog";
@@ -21,6 +22,7 @@ import {
 } from "@/lib/project-thumbnails";
 import { useSettingsStore } from "@/stores/settings-store";
 import { ActivityOrb } from "./activity-feedback";
+import { requestProjectClone } from "./clone-project-dialog";
 import { requestProjectDelete } from "./delete-project-dialog";
 import {
   ContextMenu,
@@ -241,6 +243,18 @@ export function ProjectCard({
                 Rename project
               </DropdownMenuItem>
               <DropdownMenuItem
+                disabled={busy}
+                onSelect={() =>
+                  requestProjectClone(
+                    project.path,
+                    details.name || project.name,
+                  )
+                }
+              >
+                <CopyPlusIcon />
+                Clone project
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 onSelect={() =>
                   void invoke("open_project_folder", {
                     projectPath: project.path,
@@ -358,6 +372,15 @@ export function ProjectCard({
         >
           <PencilIcon />
           Rename project
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={busy}
+          onSelect={() =>
+            requestProjectClone(project.path, details.name || project.name)
+          }
+        >
+          <CopyPlusIcon />
+          Clone project
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={() =>

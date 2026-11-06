@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { useCodexChatStore } from "@/stores/codex-chat-store";
+import { runCompilerTool } from "@/lib/codex-compiler-tools";
 
 interface Question {
   id: string;
@@ -25,6 +26,9 @@ interface Request {
     networkApprovalContext?: { host: string; protocol: string };
     questions?: Question[];
     item?: unknown;
+    tool?: string;
+    arguments?: unknown;
+    projectPath?: string;
   };
 }
 
@@ -38,6 +42,29 @@ export function CodexRequests() {
     const stops: (() => void)[] = [];
     const register = async () => {
       const stop = await listen<Request>("codex-request", ({ payload }) => {
+        if (disposed) return;
+        if (
+          payload.method === "item/tool/call" &&
+          ["lemlio_compile", "lemlio_view_pdf_page"].includes(
+            payload.params.tool || "",
+          )
+        ) {
+          void runCompilerTool({
+            tool: payload.params.tool!,
+            arguments: payload.params.arguments,
+            projectPath: payload.params.projectPath,
+          })
+            .then((result) =>
+              invoke("respond_codex_request", {
+                requestId: payload.id,
+                result,
+              }),
+            )
+            .catch(() => {
+              /* An interrupted/disconnected turn no longer needs a response. */
+            });
+          return;
+        }
         setRequests((items) =>
           items.some((item) => item.id === payload.id)
             ? items

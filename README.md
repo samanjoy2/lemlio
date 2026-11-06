@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.3.0"><img alt="Release 1.3.0" src="https://img.shields.io/badge/release-1.3.0-5fb7a5?style=flat-square" /></a>
+  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.3.1"><img alt="Release 1.3.1" src="https://img.shields.io/badge/release-1.3.1-5fb7a5?style=flat-square" /></a>
   <a href="https://github.com/samanjoy2/lemlio/releases/latest"><img alt="Download Windows x64 installer" src="https://img.shields.io/badge/download-Windows_x64-5fb7a5?style=flat-square&amp;logo=windows" /></a>
   <a href="https://github.com/samanjoy2/lemlio/releases/latest"><img alt="Download macOS Apple Silicon and Intel" src="https://img.shields.io/badge/download-macOS-5fb7a5?style=flat-square&amp;logo=apple" /></a>
   <img alt="Built with Tauri and React" src="https://img.shields.io/badge/Tauri-React-273e43?style=flat-square&amp;logo=tauri" />
@@ -36,31 +36,31 @@ Lemlio brings your LaTeX projects into a searchable library with PDF covers, an 
 | Feature | In Lemlio |
 | --- | --- |
 | **Browse your projects** | PDF thumbnails, search, favorites, recent projects, and grid or list views. Failed previews use a document fallback. |
-| **Keep projects organized** | Rename titles, see creation and modification dates, or delete a project to the system Trash or Recycle Bin with confirmation. Use the project menu or right-click for actions. |
-| **Write beside your PDF** | LaTeX editing, document outline, source navigation, a visible main-file selector, and a sharper PDF that stays open while you browse related files. |
+| **Keep projects organized** | Clone projects, rename titles, see creation and modification dates, or delete a project to the system Trash or Recycle Bin with confirmation. Use the project menu or right-click for actions. |
+| **Write beside your PDF** | LaTeX editing, document outline, source navigation, a visible main-file selector, and a high-resolution PDF reader with text selection, links, search, page thumbnails, and fit-to-width zoom. |
 | **Work with Codex** | Use your Codex sign-in, stream replies, choose a named model, review approval requests, and return to saved chats. GPT-6 Luna is the default model. |
-| **See what is happening** | A centered compilation orb, a breathing **Agent thinking…** pill, colorful chat borders, and an explicit **Stop agent** button. |
+| **See what is happening** | A centered orb for first compilation and a compact indicator on recompilation, a breathing **Agent thinking…** pill, colorful chat borders, and an explicit **Stop agent** button. |
 | **Choose when to compile** | Switch between **Auto** and **Manual**. Use bundled Tectonic or select an optional MiKTeX / TeX Live installation. |
 | **Move projects easily** | Import and export ZIPs with nested source folders, figures, and bibliography files. Keep the original ZIP or choose to move it. |
-| **Sync between devices** | Connect Google Drive once. Closed, unchanged projects receive newer revisions automatically; competing edits stay protected for review. |
+| **Sync between devices** | Connect Google Drive once. Five-minute checks, notifications for projects found only in Drive, automatic incoming revisions for closed unchanged projects, and protected conflict review. |
 | **Check your backup status** | See Codex, Google Drive, and Voice status on the home page, and this project's confirmed backup age in the editor. |
 | **Use your existing tools** | Open the project folder, continue in an installed VS Code editor, and browse your installed Codex research skills. |
 
 ## Download and install
 
-Lemlio **1.3.0** includes a **Windows x64 installer** and **macOS disk images for Apple Silicon and Intel**.
+Lemlio **1.3.1** includes a **Windows x64 installer** and **macOS disk images for Apple Silicon and Intel**.
 
 1. Open the [latest GitHub release](https://github.com/samanjoy2/lemlio/releases/latest).
-2. Under **Assets**, download `Lemlio_1.3.0_x64-setup.exe`. GitHub's source-code ZIP is for development.
+2. Under **Assets**, download `Lemlio_1.3.1_x64-setup.exe`. GitHub's source-code ZIP is for development.
 3. Close an older running copy of Lemlio or PrismPro, then run the installer.
 4. Open Lemlio and create a project, open a folder, or select **Import ZIP**.
 
 On macOS, choose the **AppleSilicon** image for an M-series Mac or **Intel** for an Intel Mac. Open the DMG and drag Lemlio into Applications. Tectonic and Latin Modern fonts are included; Homebrew is not required. The Mac app is ad hoc signed and is **not Apple notarized**. macOS may require approval in **System Settings → Privacy & Security** after an initial launch attempt.
 
-The release also includes `Lemlio-1.3.0-SHA256SUMS.txt`. To compare your download with its published checksum:
+The release also includes `Lemlio-1.3.1-SHA256SUMS.txt`. To compare your download with its published checksum:
 
 ```powershell
-Get-FileHash .\Lemlio_1.3.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Lemlio_1.3.1_x64-setup.exe -Algorithm SHA256
 ```
 
 The installer is currently unsigned, so Windows may identify its publisher as unknown. Releases and installers are available publicly on GitHub.
@@ -96,6 +96,8 @@ The tree marks the compile target **MAIN**, colors LaTeX files teal and bibliogr
 
 ![Dark editor with highlighted main document, bibliography, compile-file selector, and Drive backup age](assets/screenshots/editor-dark.png)
 
+The PDF reader supports selectable text and links, **Find in PDF** (Ctrl/Cmd+F), match navigation, page thumbnails, page jumping, zoom, and fit-to-width/height. **Open PDF in system reader** gives access to native printing. Double-click selects words; Ctrl/Cmd-click text or Alt-double-click the page navigates to source. Controls wrap as the panel narrows, and recompiling keeps the last PDF clear. Scanned image-only PDFs need OCR before their text can be searched or selected.
+
 The file tree identifies the main document and bibliography; the PDF stays visible while you browse related files. The header keeps project navigation, folder access, settings, and window controls together.
 
 ### Codex chat
@@ -109,11 +111,11 @@ One compact indicator shows agent activity. The microphone inserts editable prom
 
 ![Light project library](assets/screenshots/projects-light.png)
 
-![Light editor and PDF preview](assets/screenshots/editor-light.png)
+![Light PDF reader with search highlights and page thumbnails](assets/screenshots/pdf-reader-light.png)
 
 </details>
 
-Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.3.0.md) for checks and practical limits.
+Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.3.1.md) for checks and practical limits.
 
 ## Import, export, and local files
 
@@ -121,6 +123,7 @@ Screenshots show the current interface with generated demonstration documents an
 
 | Action | What happens |
 | --- | --- |
+| **Clone project** | Creates an independent library project from an existing project. Source, figures and bibliography are copied; caches, Git internals and Drive identity are excluded. |
 | **Copy project** | Extracts and registers the project while keeping the original ZIP in place. |
 | **Move ZIP** | Imports the project, verifies the saved archive, then moves the original ZIP into the app's `Projects/Archives` folder. A failed move keeps the original and reports the problem. |
 | **Open a folder** | Works with the folder you select. Your project files stay there. |
@@ -137,6 +140,14 @@ Imported projects live under:
 Project dates come from local filesystem timestamps. PDF covers are cached on disk: the first visit uses an existing matching PDF or attempts one preview compilation. Reopening the library reuses the saved cover. Compiling the project refreshes it; a failed compilation records a document fallback.
 
 Collections are predefined: Papers, CVs, Proposals, Posters, and Other. Classification uses the original folder/project name and sometimes the main filename. Renaming the displayed project title does not recategorize it. Custom collections and manual category editing are not available yet.
+
+## Codex compilation and PDF checks
+
+New Codex chats include `lemlio_compile` and `lemlio_view_pdf_page`. The first runs the same compiler pipeline as the editor, using its selected main file and compiler, and returns actual success, errors, and available warning messages. The second sends a rendered page of the last successful agent compilation to Codex for visual inspection. It supports page selection; old previews are not treated as proof of a successful new compile.
+
+The default compiler is bundled Tectonic, including Lemlio's fonts, project staging, and compatibility fixes. The optional system compiler is used only when selected in Settings. Dirty editor changes and concurrent compilation are protected. The host limits these tools to the chat's currently open project.
+
+**After upgrading, start a new chat once to get the direct tools.** Existing chats that already have the tools retain them on resume. Older chats receive an explicit terminal fallback to the installed Lemlio executable; the bundled Tectonic directory is also included in the Codex process PATH. No separate OpenAI API key or Tectonic installation is needed for these tools. A successful compile verifies compilation, while visual layout claims require viewing the rendered PDF.
 
 ## Google Drive backup
 
@@ -155,6 +166,7 @@ Each installation uses the OAuth JSON you choose. Lemlio copies it into local ap
 
 - **Local saving:** edited files save after a two-second pause in typing.
 - **Drive backup:** with automatic backup enabled, saved changes queue for upload after about 15 seconds. Newly imported projects queue too.
+- **Discovery:** remote revision checks run every five minutes while Lemlio is open; minimizing and restoring the window do not trigger them. New projects found only in Drive produce a notice with **Review and download**. Nothing is pulled until you choose it.
 - **Retries:** pending jobs are checked every minute while Lemlio is open. The queue survives app restarts, so failed uploads can be retried later.
 - **Versioned ZIP snapshots:** changed projects create immutable ZIP revisions inside **Lemlio Backups**. Every ZIP includes `.lemlio-sync.json` with the project identity, parent revisions, content hash, device identity, saved title, and save time. The revision graph detects simultaneous saves without overwriting either upload. Unchanged content is skipped. Older revisions remain in Drive and use your storage; there is no automatic history pruning.
 - **Incoming changes:** if another updated device saves a project and this device has not edited its last synced source, a closed project downloads and verifies the newer revision automatically. An open project shows **Update from [device] · Review**. **Get latest revision** checks for unsaved edits, compilation, and active agents before closing/reopening that editor. The previous local source is kept in a hidden `.lemlio-recovery-*` sibling folder; local Git repositories, environments, and app caches stay with the working project.
@@ -255,3 +267,5 @@ Lemlio builds on [Claude Prism by delibae](https://github.com/delibae/claude-pri
 Loading animations use [thinking-orbs](https://libraries.dev/orbs); chat effects use [Border Beam](https://libraries.dev/beam) and [Voice Glow](https://libraries.dev/voice). The VS Code icon comes from [Microsoft's VS Code repository](https://github.com/microsoft/vscode). Third-party projects retain their own licenses.
 
 Interface refinement follows the [unslop](https://heydamir.design/unslop) craft guidelines by Damir Sokolovsky ([@heydamir](https://x.com/heydamir)), licensed CC BY 4.0.
+
+PanelUI web components are used for shared controls, settings tabs, cloning dialogs and project/Drive surfaces. See [third-party notices](THIRD_PARTY_NOTICES.md) for the MIT attribution.

@@ -10,7 +10,8 @@ import { LOCAL_ZOOM_SHORTCUTS_ATTR } from "@/lib/app-zoom";
 import { MupdfPage } from "./mupdf-page";
 import { createLogger } from "@/lib/debug/logger";
 import { APP_VISIBILITY_RESTORED } from "@/lib/debug/log-store";
-import type { PageSize } from "@/lib/mupdf/types";
+import { PdfFindBar, PdfPageRail } from "./pdf-reader-tools";
+import type { PdfSearchHit, PageSize } from "@/lib/mupdf/types";
 
 const log = createLogger("pdf-viewer");
 
@@ -139,6 +140,26 @@ export function PdfViewer({
   const [dragPageNum, setDragPageNum] = useState(0);
 
   const numPages = pageSizes.length;
+  const [showSearch, setShowSearch] = useState(false);
+  const [showPages, setShowPages] = useState(false);
+  const [searchHits, setSearchHits] = useState<PdfSearchHit[]>([]);
+  const [activeHit, setActiveHit] = useState(0);
+  const [visiblePage, setVisiblePage] = useState(1);
+  const closeSearch = () => {
+    setShowSearch(false);
+    setSearchHits([]);
+  };
+  useEffect(() => {
+    if (!isActive) return;
+    const find = () => setShowSearch(true);
+    const pages = () => setShowPages((value) => !value);
+    window.addEventListener("lemlio-pdf-find", find);
+    window.addEventListener("lemlio-pdf-pages", pages);
+    return () => {
+      window.removeEventListener("lemlio-pdf-find", find);
+      window.removeEventListener("lemlio-pdf-pages", pages);
+    };
+  }, [isActive]);
 
   function getVisiblePage(): number {
     const container = containerRef.current;
@@ -359,7 +380,7 @@ export function PdfViewer({
     if (!container) return;
 
     const handleDblClick = (e: MouseEvent) => {
-      if (captureMode) return;
+      if (captureMode || !e.altKey) return;
       const cb = synctexClickRef.current;
       if (!cb) return;
 
@@ -476,8 +497,9 @@ export function PdfViewer({
     const handleScroll = () => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        const cb = currentPageChangeRef.current;
-        if (cb) cb(getVisiblePage());
+        const page = getVisiblePage();
+        setVisiblePage(page);
+        currentPageChangeRef.current?.(page);
       });
     };
 
@@ -540,6 +562,12 @@ export function PdfViewer({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowSearch(true);
+        return;
+      }
       if (!mod) return;
 
       if (e.key === "=" || e.key === "+") {
@@ -726,7 +754,12 @@ export function PdfViewer({
   // Text layer click for onTextClick
   const handleTextLayerClick = useCallback(
     (e: React.MouseEvent) => {
-      if (!onTextClick) return;
+      if (
+        !onTextClick ||
+        !(e.ctrlKey || e.metaKey) ||
+        window.getSelection()?.toString()
+      )
+        return;
       const target = e.target as HTMLElement;
       if (target.tagName === "text" && target.closest(".mupdf-text-layer")) {
         const text = target.textContent?.trim();
@@ -749,46 +782,91 @@ export function PdfViewer({
       : null;
 
   return (
-    <div
-      ref={containerRef}
-      tabIndex={-1}
-      {...{ [LOCAL_ZOOM_SHORTCUTS_ATTR]: "true" }}
-      className="min-h-0 flex-1 overflow-auto outline-none"
-      style={{ cursor: captureMode ? "crosshair" : undefined }}
-      onMouseDownCapture={() => containerRef.current?.focus()}
-      onMouseDown={handleCaptureMouseDown}
-      onMouseMove={handleCaptureMouseMove}
-      onMouseUp={handleCaptureMouseUp}
-    >
-      <div
-        ref={contentRef}
-        className="flex min-w-fit flex-col items-center gap-4 p-4"
-        onClick={handleTextLayerClick}
-      >
-        {loading && numPages === 0 && (
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <LoaderIcon className="size-4 animate-spin" />
-            Loading PDF...
-          </div>
-        )}
-        {pageSizes.map((size, i) => (
-          <MupdfPage
-            key={i}
-            docId={docIdRef.current}
-            pageIndex={i}
-            scale={scale}
-            pageWidth={size.width}
-            pageHeight={size.height}
-            isVisible={visiblePages.has(i + 1)}
-          />
-        ))}
-      </div>
-      {selRect && (
-        <div
-          className="pointer-events-none fixed border-2 border-primary bg-primary/10"
-          style={selRect}
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {showSearch && (
+        <PdfFindBar
+          docId={docIdRef.current}
+          onResults={(hits, active) => {
+            setSearchHits(hits);
+            setActiveHit(active);
+          }}
+          onJump={(hit) => {
+            const container = containerRef.current;
+            if (!container) return;
+            scrollToPage(container, hit.page);
+            const box = hit.boxes[0];
+            if (box)
+              container.scrollTop += Math.max(
+                0,
+                box.y * scale - container.clientHeight / 3,
+              );
+          }}
+          onClose={closeSearch}
         />
       )}
+      <div className="flex min-h-0 min-w-0 flex-1">
+        {showPages && (
+          <PdfPageRail
+            docId={docIdRef.current}
+            sizes={pageSizes}
+            current={visiblePage}
+            onPage={(page) => {
+              if (containerRef.current)
+                scrollToPage(containerRef.current, page);
+            }}
+          />
+        )}
+        <div
+          ref={containerRef}
+          tabIndex={-1}
+          {...{ [LOCAL_ZOOM_SHORTCUTS_ATTR]: "true" }}
+          className="min-h-0 flex-1 overflow-auto outline-none"
+          style={{ cursor: captureMode ? "crosshair" : undefined }}
+          onMouseDownCapture={(event) => {
+            if (!(event.target as HTMLElement).closest("input,button,a"))
+              containerRef.current?.focus();
+          }}
+          onMouseDown={handleCaptureMouseDown}
+          onMouseMove={handleCaptureMouseMove}
+          onMouseUp={handleCaptureMouseUp}
+        >
+          <div
+            ref={contentRef}
+            className="flex min-w-fit flex-col items-center gap-4 p-4"
+            onClick={handleTextLayerClick}
+          >
+            {loading && numPages === 0 && (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <LoaderIcon className="size-4 animate-spin" />
+                Loading PDF...
+              </div>
+            )}
+            {pageSizes.map((size, i) => (
+              <MupdfPage
+                key={i}
+                docId={docIdRef.current}
+                pageIndex={i}
+                scale={scale}
+                pageWidth={size.width}
+                pageHeight={size.height}
+                isVisible={visiblePages.has(i + 1)}
+                searchHits={searchHits.filter((hit) => hit.page === i + 1)}
+                activeSearchHit={
+                  searchHits[activeHit]?.page === i + 1
+                    ? searchHits[activeHit]
+                    : undefined
+                }
+              />
+            ))}
+          </div>
+          {selRect && (
+            <div
+              className="pointer-events-none fixed border-2 border-primary bg-primary/10"
+              style={selRect}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

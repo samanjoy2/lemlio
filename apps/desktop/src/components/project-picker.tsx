@@ -1,5 +1,7 @@
 import { AppSettings } from "@/components/app-settings";
 import { DriveStatus } from "@/components/drive-status";
+import { Select as PanelSelect } from "./panelui/select";
+import { DriveDiscoveryNotice } from "./drive-discovery-notice";
 import { DriveBackupOverview } from "@/components/drive-backup-overview";
 import { requestDriveRestore } from "@/components/drive-restore-dialog";
 import { VoiceStatus } from "@/components/voice-status";
@@ -368,19 +370,30 @@ export function ProjectPicker() {
             </button>
             <VoiceStatus />
           </section>
-          <label className="home-compiler">
+          <div className="home-compiler">
             <span>Compiler</span>
-            <select
-              aria-label="LaTeX compiler"
+            <PanelSelect
               value={compiler}
-              onChange={(event) =>
-                setCompiler(event.target.value as "texlive" | "tectonic")
-              }
+              onValueChange={(value) => {
+                if (value === "tectonic" || value === "texlive")
+                  setCompiler(value);
+              }}
+              items={[
+                { value: "tectonic", label: "Tectonic" },
+                { value: "texlive", label: "MiKTeX / TeX Live" },
+              ]}
             >
-              <option value="texlive">MiKTeX / TeX Live</option>
-              <option value="tectonic">Tectonic</option>
-            </select>
-          </label>
+              <PanelSelect.Trigger aria-label="LaTeX compiler" size="sm">
+                <PanelSelect.Value />
+              </PanelSelect.Trigger>
+              <PanelSelect.Content>
+                <PanelSelect.Item value="tectonic">Tectonic</PanelSelect.Item>
+                <PanelSelect.Item value="texlive">
+                  MiKTeX / TeX Live
+                </PanelSelect.Item>
+              </PanelSelect.Content>
+            </PanelSelect>
+          </div>
           <div className="home-footer-controls">
             <AppSettings />
             <button
@@ -433,6 +446,7 @@ export function ProjectPicker() {
               <CodexSetup />
             </div>
           )}
+          <DriveDiscoveryNotice />
           <DriveBackupOverview projects={projects} />
           <div className="home-toolbar">
             <div className="home-project-tabs">

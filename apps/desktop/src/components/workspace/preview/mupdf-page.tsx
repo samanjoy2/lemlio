@@ -2,7 +2,11 @@ import { useEffect, useRef, useState, useCallback, memo } from "react";
 import { getMupdfClient } from "@/lib/mupdf/mupdf-client";
 import { createLogger } from "@/lib/debug/logger";
 import { APP_VISIBILITY_RESTORED } from "@/lib/debug/log-store";
-import type { StructuredTextData, LinkData } from "@/lib/mupdf/types";
+import type {
+  StructuredTextData,
+  LinkData,
+  PdfSearchHit,
+} from "@/lib/mupdf/types";
 import { pageRenderDpi } from "@/lib/mupdf/render-resolution";
 
 const log = createLogger("mupdf-page");
@@ -14,6 +18,8 @@ interface MupdfPageProps {
   pageWidth: number;
   pageHeight: number;
   isVisible: boolean;
+  searchHits?: PdfSearchHit[];
+  activeSearchHit?: PdfSearchHit;
 }
 
 /** Check if a canvas appears blank (GPU context was silently invalidated).
@@ -40,6 +46,8 @@ export const MupdfPage = memo(function MupdfPage({
   pageWidth,
   pageHeight,
   isVisible,
+  searchHits = [],
+  activeSearchHit,
 }: MupdfPageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [textData, setTextData] = useState<StructuredTextData | null>(null);
@@ -164,6 +172,22 @@ export const MupdfPage = memo(function MupdfPage({
         style={{ width: cssW, height: cssH, display: "block" }}
       />
 
+      <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+        {searchHits.flatMap((hit, index) =>
+          hit.boxes.map((box, part) => (
+            <div
+              key={`${index}-${part}`}
+              className={`absolute ${hit === activeSearchHit ? "bg-amber-400/55 outline-1 outline-amber-600" : "bg-yellow-300/40"}`}
+              style={{
+                left: box.x * scale,
+                top: box.y * scale,
+                width: box.w * scale,
+                height: box.h * scale,
+              }}
+            />
+          )),
+        )}
+      </div>
       {/* Text layer for selection */}
       {textData && (
         <svg

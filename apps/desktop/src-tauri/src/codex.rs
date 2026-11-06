@@ -27,6 +27,7 @@ struct Rpc {
     pending: Mutex<HashMap<u64, oneshot::Sender<Reply>>>,
     requests: Mutex<HashMap<String, Value>>,
     routes: Mutex<HashMap<String, String>>,
+    projects: Mutex<HashMap<String, String>>,
     active: Mutex<HashMap<String, String>>,
     text: Mutex<HashMap<String, String>>,
     cancelled: Mutex<HashSet<String>>,
@@ -162,7 +163,24 @@ impl Rpc {
             .map_err(|_| "Codex disconnected before responding".to_string())?
     }
     async fn start(window: WebviewWindow) -> Result<Arc<Self>, String> {
-        let mut child = command(&find_codex_binary()?)
+        let mut launch = command(&find_codex_binary()?);
+        if let Ok(app) = std::env::current_exe() {
+            launch.env("LEMLIO_APP", app);
+        }
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        if let Ok(binary) = crate::latex::tectonic_binary() {
+            launch.env("LEMLIO_TECTONIC", &binary);
+            if let Some(parent) = binary.parent() {
+                let mut paths = vec![parent.to_path_buf()];
+                if let Some(existing) = std::env::var_os("PATH") {
+                    paths.extend(std::env::split_paths(&existing));
+                }
+                if let Ok(path) = std::env::join_paths(paths) {
+                    launch.env("PATH", path);
+                }
+            }
+        }
+        let mut child = launch
             .args(["app-server", "--listen", "stdio://"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -178,6 +196,7 @@ impl Rpc {
             pending: Mutex::new(HashMap::new()),
             requests: Mutex::new(HashMap::new()),
             routes: Mutex::new(HashMap::new()),
+            projects: Mutex::new(HashMap::new()),
             active: Mutex::new(HashMap::new()),
             text: Mutex::new(HashMap::new()),
             cancelled: Mutex::new(HashSet::new()),
@@ -228,7 +247,7 @@ impl Rpc {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(_)) = lines.next_line().await {}
         });
-        if let Err(error)=rpc.call("initialize",json!({"clientInfo":{"name":"prismpro","title":"Lemlio","version":env!("CARGO_PKG_VERSION")}})).await {
+        if let Err(error)=rpc.call("initialize",json!({"clientInfo":{"name":"prismpro","title":"Lemlio","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}})).await {
             let _=rpc.child.lock().await.kill().await; return Err(error);
         }
         rpc.send(json!({"method":"initialized","params":{}}))
@@ -246,11 +265,29 @@ impl Rpc {
         let tab = self.routes.lock().await.get(thread).cloned();
         if msg.get("id").is_some() {
             if let Some(tab) = tab {
+                if method == "item/tool/call"
+                    && (!matches!(
+                        p["tool"].as_str(),
+                        Some("lemlio_compile" | "lemlio_view_pdf_page")
+                    ) || self.cancelled.lock().await.contains(&tab))
+                {
+                    let _ = self.send(json!({"id":msg["id"],"result":{"success":false,"contentItems":[{"type":"inputText","text":"Unknown tool or cancelled turn"}]}})).await;
+                    return;
+                }
                 self.requests
                     .lock()
                     .await
                     .insert(msg["id"].to_string(), msg.clone());
                 let mut params = p.clone();
+                if method == "item/tool/call" {
+                    params["projectPath"] = self
+                        .projects
+                        .lock()
+                        .await
+                        .get(thread)
+                        .map(|p| json!(p))
+                        .unwrap_or(Value::Null);
+                }
                 if let Some(item) = self
                     .items
                     .lock()
@@ -364,7 +401,7 @@ fn complete(window: &WebviewWindow, tab: &str, success: bool) {
 fn item_messages(item: &Value, completed: bool) -> Vec<Value> {
     let id = item["id"].as_str().unwrap_or("");
     let assistant = |id: String, block: Value| json!({"type":"assistant","id":id,"message":{"content":[block]}});
-    let result = |id: String, content: Value| json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":id,"content":content,"is_error":matches!(item["status"].as_str(),Some("failed"|"declined"))}]}});
+    let result = |id: String, content: Value| json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":id,"content":content,"is_error":matches!(item["status"].as_str(),Some("failed"|"declined")) || item["success"] == false}]}});
     match item["type"].as_str().unwrap_or(""){
         "agentMessage" if completed=>vec![assistant(id.into(),json!({"type":"text","text":item["text"]}))],
         "userMessage" if completed=>{
@@ -377,6 +414,10 @@ fn item_messages(item: &Value, completed: bool) -> Vec<Value> {
             let id=format!("{id}-{i}"); if completed{result(id,json!("File updated"))}
             else{assistant(id.clone(),json!({"type":"tool_use","id":id,"name":"Edit","input":{"file_path":c["path"],"diff":c["diff"]}}))}
         }).collect(),
+        "dynamicToolCall"=>if completed {
+            let summary = item["contentItems"].as_array().into_iter().flatten().filter_map(|c|c["text"].as_str()).collect::<Vec<_>>().join("\n");
+            vec![result(id.into(),json!(summary))]
+        } else { vec![assistant(id.into(),json!({"type":"tool_use","id":id,"name":item["tool"],"input":item["arguments"]}))] },
         "mcpToolCall"=>if completed{vec![result(id.into(),item["result"].clone())]}
             else{vec![assistant(id.into(),json!({"type":"tool_use","id":id,"name":item["tool"],"input":item["arguments"]}))]},
         "reasoning" if completed=>{
@@ -468,7 +509,33 @@ pub async fn list_codex_models(window: WebviewWindow) -> Result<Vec<Value>, Stri
     Ok(models)
 }
 
-const INSTRUCTIONS:&str="You are Codex inside Lemlio, a local scientific writing workspace. Read the project AGENTS.md. Preserve the existing LaTeX preamble, bibliography, and structure. Read files before editing; make small targeted edits. Explain your plan for substantial changes. Use citations and cross-references correctly; do not invent sources or research findings. Prefer project .venv Python or uv run for analysis. Save publication-quality figures in figures/. The editor compiles LaTeX automatically. Do not modify .prism, .prismpro, or .venv internals. Follow relevant skills from .agents/skills or ~/.agents/skills.";
+const INSTRUCTIONS:&str="You are Codex inside Lemlio, a local scientific writing workspace. Read the project AGENTS.md. Preserve the existing LaTeX preamble, bibliography, and structure. Read files before editing; make small targeted edits. Explain your plan for substantial changes. Use citations and cross-references correctly; do not invent sources or research findings. Prefer project .venv Python or uv run for analysis. Save publication-quality figures in figures/. Use lemlio_compile after LaTeX edits to actually verify compilation with the editor's selected main file and compiler. Read its diagnostics and fix errors before claiming success. Use lemlio_view_pdf_page after a successful compile when checking layout, figures, or formatting; it returns an image of the compiled page. Never claim a compile or visual check you have not performed. Do not assume tectonic is unavailable merely because it is not on the system PATH. If this older chat does not expose the Lemlio tools, use the terminal fallback described below or explain that a new chat is needed for the integrated tools. Compiler-generated .prism output and terminal-fallback logs are allowed. Do not manually edit .prism, .prismpro, or .venv internals. Follow relevant skills from .agents/skills or ~/.agents/skills.";
+
+fn compiler_tools() -> Value {
+    serde_json::from_str(include_str!("../../src/lib/codex-compiler-tools.json"))
+        .expect("Lemlio compiler tool definitions are valid JSON")
+}
+
+fn compiler_instructions(main_file: Option<&str>, use_texlive: bool) -> String {
+    let app = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    #[cfg(target_os = "windows")]
+    let fallback = format!(
+        r#"Windows terminal fallback for older chats: Lemlio executable is {app:?}. In PowerShell, create .prism/agent-check, then use Start-Process -FilePath '<Lemlio executable>' -ArgumentList @('--compile-project', ('"'+(Get-Location).Path+'"'), '<main.tex>', '--tectonic') -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput '.prism/agent-check/stdout.log' -RedirectStandardError '.prism/agent-check/stderr.log'. Read both logs and the process ExitCode. Replace placeholders with the provided executable and actual root file; use the project directory as cwd. Omit --tectonic only when deliberately testing the optional system compiler. This uses the same bundled fonts, asset staging and package fixes as the editor. Raw tectonic is also on this process PATH, but prefer the Lemlio tools/pipeline."#
+    );
+    #[cfg(not(target_os="windows"))]
+    let fallback = format!("Terminal fallback for older chats: execute the Lemlio binary at {app:?} with arguments --compile-project <absolute-project-directory> <relative-main.tex> --tectonic. Quote paths with spaces. Check the exit code and compiler output; omit --tectonic only for the optional system compiler. This uses the same bundled fonts and project staging as the editor.");
+    format!(
+        "{INSTRUCTIONS}\nSelected main file: {}. Selected compiler: {}.\n{fallback}",
+        main_file.unwrap_or("not selected"),
+        if use_texlive {
+            "optional system LaTeX"
+        } else {
+            "bundled Tectonic"
+        }
+    )
+}
 
 async fn start_turn(
     window: WebviewWindow,
@@ -478,6 +545,8 @@ async fn start_turn(
     session_id: Option<String>,
     model: Option<String>,
     effort_level: Option<String>,
+    main_file: Option<String>,
+    use_texlive: Option<bool>,
 ) -> Result<(), String> {
     let path =
         std::fs::canonicalize(&project_path).map_err(|e| format!("Cannot open project: {e}"))?;
@@ -497,7 +566,7 @@ async fn start_turn(
             return Err("This chat already has a running Codex turn".into());
         }
     }
-    let mut params = json!({"cwd":project_path,"developerInstructions":INSTRUCTIONS,"approvalPolicy":"on-request","sandbox":"workspace-write"});
+    let mut params = json!({"cwd":project_path,"developerInstructions":compiler_instructions(main_file.as_deref(), use_texlive.unwrap_or(false)),"approvalPolicy":"on-request","sandbox":"workspace-write"});
     if let Some(m) = model.as_ref().filter(|m| !m.is_empty()) {
         params["model"] = json!(m);
     }
@@ -505,6 +574,7 @@ async fn start_turn(
         params["threadId"] = json!(id);
         rpc.call("thread/resume", params).await?
     } else {
+        params["dynamicTools"] = compiler_tools();
         rpc.call("thread/start", params).await?
     };
     let thread_id = thread["thread"]["id"]
@@ -515,6 +585,10 @@ async fn start_turn(
         .lock()
         .await
         .insert(thread_id.clone(), tab_id.clone());
+    rpc.projects
+        .lock()
+        .await
+        .insert(thread_id.clone(), path.to_string_lossy().to_string());
     output(
         &window,
         &tab_id,
@@ -549,6 +623,8 @@ pub async fn execute_codex_code(
     tab_id: String,
     model: Option<String>,
     effort_level: Option<String>,
+    main_file: Option<String>,
+    use_texlive: Option<bool>,
 ) -> Result<(), String> {
     start_turn(
         window,
@@ -558,6 +634,8 @@ pub async fn execute_codex_code(
         None,
         model,
         effort_level,
+        main_file,
+        use_texlive,
     )
     .await
 }
@@ -570,6 +648,8 @@ pub async fn resume_codex_code(
     tab_id: String,
     model: Option<String>,
     effort_level: Option<String>,
+    main_file: Option<String>,
+    use_texlive: Option<bool>,
 ) -> Result<(), String> {
     start_turn(
         window,
@@ -579,6 +659,8 @@ pub async fn resume_codex_code(
         Some(session_id),
         model,
         effort_level,
+        main_file,
+        use_texlive,
     )
     .await
 }
@@ -685,7 +767,7 @@ pub async fn load_session_history(
         for item in turn["items"].as_array().into_iter().flatten() {
             if matches!(
                 item["type"].as_str(),
-                Some("commandExecution" | "fileChange" | "mcpToolCall")
+                Some("commandExecution" | "fileChange" | "mcpToolCall" | "dynamicToolCall")
             ) {
                 messages.extend(item_messages(item, false));
             }
@@ -736,6 +818,27 @@ pub async fn run_shell_command(command: String, cwd: String) -> Result<ShellComm
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn compiler_tools_are_bounded_and_visible_in_chat_history() {
+        let tools = compiler_tools();
+        assert_eq!(tools.as_array().unwrap().len(), 2);
+        assert_eq!(tools[0]["name"], "lemlio_compile");
+        assert_eq!(tools[1]["name"], "lemlio_view_pdf_page");
+        assert!(tools[0]["inputSchema"]["properties"]
+            .get("projectPath")
+            .is_none());
+        let item = json!({"type":"dynamicToolCall","id":"compile","tool":"lemlio_compile","arguments":{},"status":"completed","success":false,"contentItems":[{"type":"inputText","text":"Missing image"},{"type":"inputImage","imageUrl":"do-not-copy-image-into-history"}]});
+        assert_eq!(
+            item_messages(&item, false)[0]["message"]["content"][0]["name"],
+            "lemlio_compile"
+        );
+        let result = item_messages(&item, true);
+        assert_eq!(
+            result[0]["message"]["content"][0]["content"],
+            "Missing image"
+        );
+        assert_eq!(result[0]["message"]["content"][0]["is_error"], true);
+    }
     #[test]
     fn normalizes_text_and_command_failures() {
         assert_eq!(

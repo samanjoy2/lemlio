@@ -14,6 +14,10 @@ import {
   setDriveSyncing,
   type ProjectDriveStatus,
 } from "@/lib/drive-backup-status";
+import {
+  publishDriveDiscoveries,
+  type DriveAvailableProject,
+} from "@/lib/drive-discovery";
 const KEY = "lemlio-drive-pending";
 type Pending = { path: string; version: string; rename?: boolean };
 export function useDriveBackup() {
@@ -36,6 +40,8 @@ export function useDriveBackup() {
     let sequence = 0;
     let warned = false;
     let disposed = false;
+    let lastRemoteCheck = -Infinity;
+    const remoteInterval = 5 * 60 * 1000;
     const persist = () =>
       localStorage.setItem(KEY, JSON.stringify([...queue.values()]));
     const failed = (error: unknown) => {
@@ -116,7 +122,7 @@ export function useDriveBackup() {
       clearTimeout(timer);
       timer = setTimeout(() => void pump(), 15000);
     };
-    const discover = async () => {
+    const discover = async (forceRemote = false) => {
       if (!useSettingsStore.getState().autoDriveBackup || discovering) return;
       discovering = true;
       try {
@@ -155,6 +161,9 @@ export function useDriveBackup() {
           }
         }
         persist();
+        if (!forceRemote && Date.now() - lastRemoteCheck < remoteInterval)
+          return;
+        lastRemoteCheck = Date.now();
         const versions = new Map(
           [...queue].map(([key, item]) => [key, item.version]),
         );
@@ -166,6 +175,7 @@ export function useDriveBackup() {
         );
         const verification = await invoke<{
           connected: boolean;
+          availableProjects?: DriveAvailableProject[];
           projects: {
             path: string;
             status: string;
@@ -177,6 +187,8 @@ export function useDriveBackup() {
           () => undefined,
         );
         if (disposed) return;
+        if (verification?.connected && verification.availableProjects)
+          publishDriveDiscoveries(verification.availableProjects);
         if (verification?.connected)
           for (const row of verification.projects || []) {
             const current = projectDriveStatus(row.path);
@@ -207,6 +219,8 @@ export function useDriveBackup() {
                   expectedRemoteHash: row.conflict.remoteHash,
                 });
                 queue.delete(key);
+                if (!queue.size)
+                  localStorage.removeItem("lemlio-drive-backup-error");
                 updateDriveBackup(row.path, "saved", result);
                 window.dispatchEvent(new Event("project-library-changed"));
               } catch (error) {
@@ -249,6 +263,9 @@ export function useDriveBackup() {
       }
     };
     const connected = () => {
+      void discover(true);
+    };
+    const libraryChanged = () => {
       void discover();
     };
     const deleted = (event: Event) => {
@@ -283,10 +300,9 @@ export function useDriveBackup() {
     window.addEventListener("lemlio-project-saved", saved);
     window.addEventListener("lemlio-project-renamed", saved);
     window.addEventListener("lemlio-drive-connected", connected);
-    window.addEventListener("project-library-changed", connected);
+    window.addEventListener("project-library-changed", libraryChanged);
     window.addEventListener("lemlio-project-deleted", deleted);
     window.addEventListener("lemlio-drive-confirmed", confirmed);
-    window.addEventListener("focus", connected);
     void discover();
     return () => {
       disposed = true;
@@ -295,10 +311,9 @@ export function useDriveBackup() {
       window.removeEventListener("lemlio-project-saved", saved);
       window.removeEventListener("lemlio-project-renamed", saved);
       window.removeEventListener("lemlio-drive-connected", connected);
-      window.removeEventListener("project-library-changed", connected);
+      window.removeEventListener("project-library-changed", libraryChanged);
       window.removeEventListener("lemlio-project-deleted", deleted);
       window.removeEventListener("lemlio-drive-confirmed", confirmed);
-      window.removeEventListener("focus", connected);
     };
   }, []);
 }

@@ -13,6 +13,7 @@ import { updateDriveBackup } from "@/lib/drive-backup-status";
 
 type Backup = {
   id: string;
+  projectId?: string;
   name: string;
   modifiedTime?: string;
   size?: string;
@@ -78,7 +79,9 @@ export function DriveRestoreDialog() {
               variant="outline"
               onClick={() =>
                 setSelected(
-                  projects.filter((p) => !p.localPath).map((p) => p.id),
+                  projects
+                    .filter((p) => !p.localPath && (p.branches || 0) <= 1)
+                    .map((p) => p.id),
                 )
               }
             >
@@ -96,7 +99,15 @@ export function DriveRestoreDialog() {
                       onChange={(e) =>
                         setSelected((current) =>
                           e.target.checked
-                            ? [...current, p.id]
+                            ? [
+                                ...current.filter(
+                                  (id) =>
+                                    !p.projectId ||
+                                    projects.find((other) => other.id === id)
+                                      ?.projectId !== p.projectId,
+                                ),
+                                p.id,
+                              ]
                             : current.filter((id) => id !== p.id),
                         )
                       }

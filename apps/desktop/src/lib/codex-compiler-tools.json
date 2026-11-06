@@ -1,0 +1,31 @@
+[
+  {
+    "name": "lemlio_compile",
+    "description": "Compile the open LaTeX project through Lemlio's actual compiler pipeline (bundled Tectonic by default, or the user's selected system compiler). Returns real success or errors and updates the PDF preview. Use after LaTeX edits, before claiming compilation was verified.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "main_file": {
+          "type": "string",
+          "description": "Optional project-relative .tex/.ltx root. Omit to use the main file selected in the editor."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "lemlio_view_pdf_page",
+    "description": "View a rendered image of a PDF page from the last successful lemlio_compile call. Compile first, and recompile after edits. Use this for visual layout verification.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "page": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "One-based page number; defaults to 1."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+]

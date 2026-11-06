@@ -25,7 +25,7 @@ pub fn project_titles() -> Value {
 #[tauri::command]
 pub fn rename_project(project_path: String, name: String) -> Result<(), String> {
     let name = name.trim();
-    if name.is_empty() || name.len() > 200 {
+    if name.is_empty() || name.chars().count() > 200 {
         return Err("Enter a project name of 1–200 characters".into());
     }
     let _guard = IMPORT_LOCK.lock().map_err(|e| e.to_string())?;
@@ -226,6 +226,46 @@ pub async fn list_imported_projects() -> Result<Value, String> {
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+/// Copy only transferable project files. Compiler caches, environments, Git
+/// internals and Drive identities are deliberately absent from a fresh clone.
+fn clone_into(root: &Path, source: &Path, name: &str) -> Result<ImportResult, String> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 200 {
+        return Err("Enter a project name of 1–200 characters".into());
+    }
+    let source = fs::canonicalize(source).map_err(|e| e.to_string())?;
+    if !source.is_dir() || source.parent().is_none() {
+        return Err("Choose a project folder".into());
+    }
+    if fs::canonicalize(root)
+        .ok()
+        .is_some_and(|library| library.starts_with(&source))
+    {
+        return Err("Choose an individual project, not the whole project library".into());
+    }
+    let before = crate::drive::local_revision(&source)?;
+    let temporary = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let archive = temporary
+        .path()
+        .join(format!("{}.zip", safe_folder_name(name)));
+    export_to(&source, &archive)?;
+    if crate::drive::local_revision(&source)? != before {
+        return Err(
+            "The source changed while copying. Wait for saving to finish and try again.".into(),
+        );
+    }
+    restore_snapshot_in(root, &archive)
+}
+
+#[tauri::command]
+pub async fn clone_project(project_path: String, name: String) -> Result<Value, String> {
+    tokio::task::spawn_blocking(move || {
+        let copied = clone_into(&library_root()?, Path::new(&project_path), &name)?;
+        let warning = rename_project(copied.storage_path.clone(), name.trim().to_string()).err();
+        Ok(json!({"path":copied.storage_path,"name":name.trim(),"projects":copied.projects,"warning":warning}))
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -748,6 +788,48 @@ pub async fn export_project_zip(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn clones_are_independent_and_copy_assets_without_identity_or_caches() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("Original");
+        let library = temp.path().join("Library");
+        fs::create_dir_all(source.join("figs")).unwrap();
+        fs::create_dir_all(source.join(".prism")).unwrap();
+        fs::create_dir_all(source.join(".git")).unwrap();
+        fs::create_dir_all(&library).unwrap();
+        fs::write(source.join("main.tex"), "\\documentclass{article} source").unwrap();
+        fs::write(source.join("refs.bib"), "references").unwrap();
+        fs::write(source.join("figs/figure.png"), [0, 1, 2, 255]).unwrap();
+        fs::write(source.join(".prism/cache"), "cache").unwrap();
+        fs::write(source.join(".git/config"), "original repo").unwrap();
+        fs::write(
+            source.join(crate::drive_sync::MANIFEST),
+            "original Drive identity",
+        )
+        .unwrap();
+        let first = clone_into(&library, &source, "Copied paper").unwrap();
+        let target = Path::new(&first.storage_path);
+        assert_eq!(
+            fs::read(target.join("figs/figure.png")).unwrap(),
+            [0, 1, 2, 255]
+        );
+        assert!(target.join("refs.bib").exists());
+        assert!(!target.join(".prism").exists());
+        assert!(!target.join(".git").exists());
+        assert!(!target.join(crate::drive_sync::MANIFEST).exists());
+        fs::write(target.join("main.tex"), "clone edit").unwrap();
+        assert!(fs::read_to_string(source.join("main.tex"))
+            .unwrap()
+            .contains("source"));
+        assert_ne!(
+            first.storage_path,
+            clone_into(&library, &source, "Copied paper")
+                .unwrap()
+                .storage_path
+        );
+        assert!(clone_into(&library, &source, "").is_err());
+        assert!(clone_into(&library, &library, "Nested library").is_err());
+    }
     #[test]
     fn restore_keeps_one_snapshot_and_never_overwrites_an_existing_folder() {
         use std::io::Write;

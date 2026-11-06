@@ -1,3 +1,5 @@
+import { normalizeStructuredText } from "./text-data";
+import type { PdfSearchHit } from "./types";
 import type { PDFDocument } from "mupdf";
 
 type MupdfModule = typeof import("mupdf");
@@ -46,6 +48,7 @@ methods.closeDocument = (docId: number): void => {
   const doc = documentMap.get(docId);
   if (doc) {
     documentMap.delete(docId);
+    doc.destroy();
   }
 };
 
@@ -61,6 +64,7 @@ methods.getPageSize = (
   const doc = documentMap.get(docId)!;
   const page = doc.loadPage(pageIndex);
   const bounds = page.getBounds();
+  page.destroy();
   return {
     width: bounds[2] - bounds[0],
     height: bounds[3] - bounds[1],
@@ -80,6 +84,7 @@ methods.getAllPageSizes = (
       width: bounds[2] - bounds[0],
       height: bounds[3] - bounds[1],
     });
+    page.destroy();
   }
   return sizes;
 };
@@ -98,7 +103,6 @@ methods.drawPage = (
   const w = pixmap.getWidth();
   const h = pixmap.getHeight();
   const rgb = pixmap.getPixels();
-  pixmap.destroy();
   // Convert RGB (3 bytes/pixel) → RGBA (4 bytes/pixel) for ImageData
   const rgba = new Uint8ClampedArray(w * h * 4);
   for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
@@ -107,6 +111,8 @@ methods.drawPage = (
     rgba[j + 2] = rgb[i + 2];
     rgba[j + 3] = 255; // fully opaque
   }
+  pixmap.destroy();
+  page.destroy();
   return new ImageData(rgba, w, h);
 };
 
@@ -116,68 +122,46 @@ methods.getPageText = (docId: number, pageIndex: number): unknown => {
   const stext = page.toStructuredText("preserve-whitespace");
   const raw = JSON.parse(stext.asJSON());
 
-  // Transform mupdf's nested spans format to our flat line format
-  const blocks = (raw.blocks || []).map((block: any) => {
-    if (block.type !== "text") return block;
-    return {
-      type: "text",
-      bbox: block.bbox,
-      lines: (block.lines || []).map((line: any) => {
-        let text = "";
-        let font = {
-          name: "",
-          family: "",
-          size: 12,
-          weight: "normal",
-          style: "normal",
-        };
-        let baselineY = 0;
+  const result = normalizeStructuredText(raw);
+  stext.destroy();
+  page.destroy();
+  return result;
+};
 
-        const spans = line.spans || [];
-        if (spans.length > 0) {
-          text = spans
-            .map((span: any) =>
-              (span.chars || []).map((ch: any) => ch.c).join(""),
-            )
-            .join("");
-
-          const firstSpan = spans[0];
-          font = {
-            name: firstSpan.font?.name || "",
-            family: firstSpan.font?.family || "",
-            size: firstSpan.size || 12,
-            weight: firstSpan.font?.weight || "normal",
-            style: firstSpan.font?.style || "normal",
-          };
-
-          // Use first char origin as baseline
-          if (firstSpan.chars?.[0]?.origin) {
-            baselineY = firstSpan.chars[0].origin.y;
-          } else {
-            baselineY = (line.bbox?.y || 0) + (line.bbox?.h || 0);
-          }
-        }
-
-        return {
-          bbox: line.bbox || { x: 0, y: 0, w: 0, h: 0 },
-          wmode: line.wmode || 0,
-          x: line.bbox?.x || 0,
-          y: baselineY,
-          text,
-          font,
-        };
-      }),
-    };
-  });
-
-  return { blocks };
+methods.searchDocument = (docId: number, query: string): PdfSearchHit[] => {
+  const doc = documentMap.get(docId)!;
+  const hits: PdfSearchHit[] = [];
+  if (!query.trim()) return hits;
+  for (let index = 0; index < doc.countPages() && hits.length < 2000; index++) {
+    const page = doc.loadPage(index);
+    try {
+      for (const quads of page.search(query, 2000 - hits.length)) {
+        hits.push({
+          page: index + 1,
+          boxes: quads.map((q) => {
+            const xs = [q[0], q[2], q[4], q[6]],
+              ys = [q[1], q[3], q[5], q[7]];
+            return {
+              x: Math.min(...xs),
+              y: Math.min(...ys),
+              w: Math.max(...xs) - Math.min(...xs),
+              h: Math.max(...ys) - Math.min(...ys),
+            };
+          }),
+        });
+      }
+    } finally {
+      page.destroy();
+    }
+  }
+  return hits;
 };
 
 methods.getPageLinks = (docId: number, pageIndex: number): unknown[] => {
   const doc = documentMap.get(docId)!;
   const page = doc.loadPage(pageIndex);
   const links = page.getLinks();
-  return links.map((link: any) => {
+  const result = links.map((link: any) => {
     const bounds = link.getBounds();
     const uri: string = link.getURI() || "";
     const isExternal: boolean = link.isExternal?.() ?? uri.startsWith("http");
@@ -207,6 +191,9 @@ methods.getPageLinks = (docId: number, pageIndex: number): unknown[] => {
       isExternal,
     };
   });
+  for (const link of links) link.destroy();
+  page.destroy();
+  return result;
 };
 
 methods.renderThumbnail = (
@@ -222,8 +209,9 @@ methods.renderThumbnail = (
   const scale = (targetWidth * retinaScale) / pageWidth;
   const matrix = mupdf.Matrix.scale(scale, scale);
   const pixmap = page.toPixmap(matrix, mupdf.ColorSpace.DeviceRGB, false, true);
-  const png = pixmap.asPNG();
+  const png = new Uint8Array(pixmap.asPNG());
   pixmap.destroy();
+  page.destroy();
   return png.buffer as ArrayBuffer;
 };
 

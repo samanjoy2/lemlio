@@ -4,6 +4,8 @@ import { open as chooseFile } from "@tauri-apps/plugin-dialog";
 import { open } from "@tauri-apps/plugin-shell";
 import { Button } from "./ui/button";
 import { ActivityOrb } from "./activity-feedback";
+import { DriveDiscoveryNotice } from "./drive-discovery-notice";
+import { Switch } from "./panelui/switch";
 import { DriveBackupOverview } from "./drive-backup-overview";
 import { requestDriveRestore } from "./drive-restore-dialog";
 import {
@@ -227,21 +229,23 @@ export function DriveSettings() {
             Connect Google Drive
           </Button>
         )}
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
+        <label htmlFor="drive-auto-sync" className="flex items-center gap-2">
+          <Switch
+            size="sm"
+            id="drive-auto-sync"
             checked={auto}
-            onChange={(e) => setAuto(e.target.checked)}
+            onCheckedChange={setAuto}
+            label="Sync automatically"
           />
           Sync automatically
         </label>
         <p className="text-muted-foreground text-xs">
-          Saved changes upload after a short pause. Every minute, unchanged
-          closed projects receive newer revisions from your other devices. Open
-          projects wait for review. If both copies changed, choose a version
-          first. Each ZIP keeps its revision manifest and device details;
-          previous revisions remain in Drive and use storage. Update all devices
-          to Lemlio 1.3.0 or later and use the same OAuth project.
+          Saved changes upload after a short pause. Every five minutes,
+          unchanged closed projects receive newer revisions from your other
+          devices. Open projects wait for review. If both copies changed, choose
+          a version first. Each ZIP keeps its revision manifest and device
+          details; previous revisions remain in Drive and use storage. Update
+          all devices to Lemlio 1.3.0 or later and use the same OAuth project.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -268,6 +272,7 @@ export function DriveSettings() {
           </Button>
         )}
       </div>
+      <DriveDiscoveryNotice />
       <DriveBackupOverview />
       <Button
         variant="outline"

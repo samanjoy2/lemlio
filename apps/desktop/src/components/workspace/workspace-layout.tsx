@@ -3,6 +3,7 @@ import { Sidebar } from "./sidebar";
 import { LatexEditor } from "./editor/latex-editor";
 import { PdfPreview } from "./preview/pdf-preview";
 import { useDocumentStore } from "@/stores/document-store";
+import { Spinner } from "@/components/panelui/spinner";
 import { DriveStatus } from "@/components/drive-status";
 
 export function WorkspaceLayout() {
@@ -12,7 +13,10 @@ export function WorkspaceLayout() {
   if (!initialized) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-muted-foreground">Loading project...</div>
+        <div className="flex items-center gap-3 text-muted-foreground text-sm">
+          <Spinner />
+          Loading project…
+        </div>
       </div>
     );
   }

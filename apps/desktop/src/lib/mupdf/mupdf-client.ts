@@ -3,6 +3,7 @@ import type {
   LinkData,
   PageSize,
   WorkerResponse,
+  PdfSearchHit,
 } from "./types";
 import { createLogger } from "@/lib/debug/logger";
 
@@ -17,6 +18,7 @@ export interface MupdfClient {
   drawPage(docId: number, pageIndex: number, dpi: number): Promise<ImageData>;
   getPageText(docId: number, pageIndex: number): Promise<StructuredTextData>;
   getPageLinks(docId: number, pageIndex: number): Promise<LinkData[]>;
+  searchDocument(docId: number, query: string): Promise<PdfSearchHit[]>;
   renderThumbnail(
     docId: number,
     pageIndex: number,
@@ -124,6 +126,7 @@ function createClient(): MupdfClient {
       call("drawPage", docId, pageIndex, dpi),
     getPageText: (docId, pageIndex) => call("getPageText", docId, pageIndex),
     getPageLinks: (docId, pageIndex) => call("getPageLinks", docId, pageIndex),
+    searchDocument: (docId, query) => call("searchDocument", docId, query),
     renderThumbnail: (docId, pageIndex, targetWidth) =>
       call("renderThumbnail", docId, pageIndex, targetWidth),
     destroy: () => worker.terminate(),

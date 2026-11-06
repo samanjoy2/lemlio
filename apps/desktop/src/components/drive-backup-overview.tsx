@@ -6,6 +6,8 @@ import { CloudCheckIcon, CloudAlertIcon } from "lucide-react";
 
 import { toast } from "sonner";
 
+import { Card } from "./panelui/card";
+
 import { Button } from "./ui/button";
 
 import {
@@ -141,7 +143,8 @@ export function DriveBackupOverview({
   const Icon = complete ? CloudCheckIcon : CloudAlertIcon;
 
   return (
-    <section
+    <Card
+      as="section"
       className="drive-overview mb-6 rounded-xl border border-border bg-card p-4"
       aria-label="Google Drive backup overview"
     >
@@ -165,8 +168,8 @@ export function DriveBackupOverview({
             {oldest
               ? `Latest checked versions saved ${driveRelativeTime(oldest)}. `
               : ""}
-            Changes sync between your devices every minute while Lemlio is open.
-            If both copies change, you choose which to keep.
+            Changes sync between your devices every five minutes while Lemlio is
+            open. If both copies change, you choose which to keep.
           </p>
           <details className="mt-2 text-xs">
             <summary className="cursor-pointer text-muted-foreground">
@@ -511,6 +514,6 @@ export function DriveBackupOverview({
           )}
         </DialogContent>
       </Dialog>
-    </section>
+    </Card>
   );
 }

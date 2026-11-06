@@ -1366,6 +1366,9 @@ pub async fn drive_list_backups() -> Result<Value, String> {
         return Ok(json!({"projects":[]}));
     };
     let files = drive_children(&client, &token.access_token, &root).await?;
+    Ok(json!({"projects":backup_listing(&files)?}))
+}
+fn backup_listing(files: &[Value]) -> Result<Vec<Value>, String> {
     let mut projects = Vec::new();
     let keys: std::collections::BTreeSet<_> = files
         .iter()
@@ -1379,9 +1382,9 @@ pub async fn drive_list_backups() -> Result<Value, String> {
             .as_str()
             .ok_or("Invalid backup identity")?;
         let local = crate::drive_receipts::linked_project(key)?;
-        projects.push(json!({"id":file["id"],"name":display_archive_name(&file),"size":file["size"],"modifiedTime":file["modifiedTime"],"localPath":local,"deviceName":file["appProperties"]["lemlioDeviceName"],"branches":crate::drive_sync::heads(&files,key).len()}));
+        projects.push(json!({"id":file["id"],"projectId":key,"name":display_archive_name(&file),"size":file["size"],"modifiedTime":file["modifiedTime"],"localPath":local,"deviceName":file["appProperties"]["lemlioDeviceName"],"branches":crate::drive_sync::heads(&files,key).len()}));
     }
-    Ok(json!({"projects":projects}))
+    Ok(projects)
 }
 #[tauri::command]
 pub async fn drive_restore_project(
@@ -1658,9 +1661,7 @@ pub async fn backup_summary(
             .is_some_and(|r| receipt_unchanged(Path::new(&path), r).unwrap_or(false));
         rows.push(json!({"path":path,"status":if saved{"saved"}else{"pending"},"lastBackup":receipt.as_ref().map(|r|r.last_backup),"sourceRevision":receipt.as_ref().map(|r|&r.source_revision),"receipt":receipt}));
     }
-    if rows.is_empty() {
-        return Ok(json!({"allBackedUp":true,"projects":[],"connected":tokens()?.is_some()}));
-    }
+    let mut available_projects = Vec::new();
     let verified = async {
         let mut token = authorized_tokens().await?;
         let client = http_client()?;
@@ -1668,6 +1669,10 @@ pub async fn backup_summary(
             return Err("No Drive backup folder is available".to_string());
         };
         let remote = drive_children(&client, &token.access_token, &root).await?;
+        available_projects = backup_listing(&remote)?
+            .into_iter()
+            .filter(|p| p["localPath"].is_null())
+            .collect();
         for row in &mut rows {
             let receipt = row["receipt"].clone();
             let Some(key) = receipt["projectKey"].as_str() else {
@@ -1702,9 +1707,9 @@ pub async fn backup_summary(
             record.remove("receipt");
         }
     }
-    let all = verified.is_ok() && rows.iter().all(|r| r["status"] == "saved");
+    let all = rows.is_empty() || (verified.is_ok() && rows.iter().all(|r| r["status"] == "saved"));
     Ok(
-        json!({"allBackedUp":all,"projects":rows,"connected":verified.is_ok(),"error":verified.err()}),
+        json!({"allBackedUp":all,"projects":rows,"availableProjects":available_projects,"connected":verified.is_ok(),"error":verified.err()}),
     )
 }
 

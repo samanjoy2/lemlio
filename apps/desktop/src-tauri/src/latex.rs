@@ -378,6 +378,37 @@ fn compilation_directory(build_root: &Path, main_file: &str) -> Result<(PathBuf,
     ))
 }
 
+/// Open the existing compiled output with the platform PDF reader (including print tools).
+#[tauri::command]
+pub fn open_compiled_pdf(project_dir: String, main_file: String) -> Result<(), String> {
+    let root = Path::new(&project_dir)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let (dir, filename) = compilation_directory(&persistent_build_dir(&project_dir), &main_file)?;
+    if !matches!(
+        Path::new(&filename).extension().and_then(|s| s.to_str()),
+        Some("tex" | "ltx")
+    ) {
+        return Err("Select a TeX file first".to_string());
+    }
+    let pdf = dir.join(Path::new(&filename).with_extension("pdf"));
+    let pdf = pdf
+        .canonicalize()
+        .map_err(|_| "Compile this document before opening its PDF".to_string())?;
+    if !pdf.starts_with(&root) {
+        return Err("The compiled PDF must be inside this project".to_string());
+    }
+    let mut command = std::process::Command::new(if cfg!(target_os = "windows") {
+        "explorer.exe"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    });
+    command.arg(pdf).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Convert engine-relative SyncTeX filenames back to editor project-relative IDs.
 fn synctex_project_file(build_root: &Path, work_dir: &Path, file: &str) -> String {
     let file = file.replace('\\', "/");
@@ -470,7 +501,7 @@ pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<
 
 /// Use the packaged Tectonic CLI on Windows to avoid a system vcpkg requirement.
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<(), String> {
+pub(crate) fn tectonic_binary() -> Result<PathBuf, String> {
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     let parent = executable.parent().ok_or("Cannot locate Lemlio")?;
     #[cfg(target_os = "windows")]
@@ -491,6 +522,11 @@ pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<
             "Tectonic is missing. Run scripts/prepare-windows.ps1 or install Tectonic.".to_string()
         })?
     };
+    Ok(binary)
+}
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<(), String> {
+    let binary = tectonic_binary()?;
     let mut command = std::process::Command::new(&binary);
     #[cfg(target_os = "windows")]
     let _font_config = crate::fonts::configure(&mut command, &binary)?;

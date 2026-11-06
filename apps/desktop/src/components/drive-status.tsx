@@ -12,6 +12,11 @@ import {
 
 import { useSettingsStore } from "@/stores/settings-store";
 
+import {
+  useDriveDiscoveries,
+  reviewDriveProjects,
+} from "@/lib/drive-discovery";
+
 import { useDocumentStore } from "@/stores/document-store";
 
 export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
@@ -24,6 +29,8 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
   }>();
 
   const [, redraw] = useState(0);
+
+  const discoveries = useDriveDiscoveries();
 
   const auto = useSettingsStore((s) => s.autoDriveBackup);
 
@@ -63,8 +70,6 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
 
     window.addEventListener(DRIVE_UPDATED, refresh);
 
-    window.addEventListener("focus", refresh);
-
     window.addEventListener("lemlio-drive-connected", refresh);
 
     return () => {
@@ -73,8 +78,6 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
       clearInterval(timer);
 
       window.removeEventListener(DRIVE_UPDATED, refresh);
-
-      window.removeEventListener("focus", refresh);
 
       window.removeEventListener("lemlio-drive-connected", refresh);
     };
@@ -120,9 +123,13 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
       }
       title={`${detail}${project?.error || "Open Google Drive settings"}`}
       onClick={() =>
-        window.dispatchEvent(
-          new CustomEvent("lemlio-open-settings", { detail: "Google Drive" }),
-        )
+        discoveries.length && connection?.connected
+          ? reviewDriveProjects()
+          : window.dispatchEvent(
+              new CustomEvent("lemlio-open-settings", {
+                detail: "Google Drive",
+              }),
+            )
       }
     >
       {projectPath ? (
@@ -132,7 +139,12 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
             className={project?.uploading ? "animate-spin" : undefined}
           />
 
-          <span aria-live="polite">{label}</span>
+          <span aria-live="polite">
+            {label}
+            {discoveries.length && connection?.connected
+              ? ` · ${discoveries.length} new projects`
+              : ""}
+          </span>
         </>
       ) : (
         <>
@@ -151,7 +163,9 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
             }
           >
             {connection?.connected
-              ? "Connected"
+              ? discoveries.length
+                ? `${discoveries.length} new`
+                : "Connected"
               : connection?.pending
                 ? "Signing in"
                 : "Connect"}
