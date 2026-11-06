@@ -1,3 +1,4 @@
+import { backupProject } from "@/lib/collaboration/runtime";
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
@@ -9,6 +10,7 @@ import { useDocumentStore } from "@/stores/document-store";
 import { useCodexChatStore } from "@/stores/codex-chat-store";
 import {
   updateDriveBackup,
+  markDriveSharedPending,
   projectDriveStatus,
   markDriveIncoming,
   setDriveSyncing,
@@ -74,12 +76,20 @@ export function useDriveBackup() {
           const previous = projectDriveStatus(item.path);
           if (previous.paused || previous.conflict || previous.incoming)
             continue;
+          const doc = useDocumentStore.getState();
+          if (
+            doc.projectRoot &&
+            projectPathKey(doc.projectRoot) === key &&
+            (doc.isCompiling ||
+              useCodexChatStore.getState().tabs.some((t) => t.isStreaming))
+          )
+            continue;
           try {
             updateDriveBackup(item.path, "uploading");
-            const result = await invoke<{
+            const result = await backupProject<{
               lastBackup?: number;
               sourceRevision?: string;
-            }>("drive_backup_project", {
+            }>({
               projectPath: item.path,
               ...(item.rename ? { renameBackup: true } : {}),
             });
@@ -179,6 +189,7 @@ export function useDriveBackup() {
           projects: {
             path: string;
             status: string;
+            collaboration?: boolean;
             lastBackup?: number;
             sourceRevision?: string;
             conflict?: ProjectDriveStatus["conflict"];
@@ -199,6 +210,17 @@ export function useDriveBackup() {
               JSON.stringify(current) !== observedStatuses.get(key)
             )
               continue;
+            if (
+              row.collaboration &&
+              (row.status === "incoming" || row.status === "conflict")
+            ) {
+              queue.set(key, {
+                path: row.path,
+                version: `${Date.now()}-${++sequence}`,
+              });
+              markDriveSharedPending(row.path);
+              continue;
+            }
             if (row.status === "incoming" && row.conflict?.remoteHash) {
               markDriveIncoming(row.path, row.conflict);
               // Never replace files beneath an editor, compiler or active agent.

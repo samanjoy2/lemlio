@@ -1,3 +1,4 @@
+import { activeCollaboration } from "@/lib/collaboration/runtime";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -85,6 +86,11 @@ export function DeleteProjectDialog() {
                     throw new Error(
                       "Save your changes before deleting this project.",
                     );
+                }
+                const shared = activeCollaboration();
+                if (shared?.path === project.path) {
+                  await shared.flush();
+                  await shared.disconnect();
                 }
                 await invoke("delete_project", { projectPath: project.path });
                 if (useDocumentStore.getState().projectRoot === project.path)

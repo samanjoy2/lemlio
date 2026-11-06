@@ -164,3 +164,18 @@ export function driveRelativeTime(timestamp: number, now = Date.now()) {
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} hr ago`;
   return `${Math.floor(seconds / 86400)} days ago`;
 }
+
+/** Only shared projects use this: the history merge validates every Drive head. */
+export function markDriveSharedPending(path: string) {
+  const statuses = read(),
+    key = projectPathKey(path);
+  statuses[key] = {
+    ...statuses[key],
+    pending: true,
+    incoming: undefined,
+    conflict: undefined,
+    error: undefined,
+  };
+  localStorage.setItem(KEY, JSON.stringify(statuses));
+  window.dispatchEvent(new Event(DRIVE_UPDATED));
+}

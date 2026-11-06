@@ -1,3 +1,8 @@
+import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
+import {
+  activeCollaboration,
+  useCollaborationStore,
+} from "@/lib/collaboration/runtime";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { Compartment, EditorState, Prec, Transaction } from "@codemirror/state";
 import {
@@ -104,6 +109,8 @@ export function clearEditorStateCache(): void {
 export function LatexEditor() {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const collaborationGeneration = useCollaborationStore((s) => s.generation);
+  const collaborationCompartment = useRef(new Compartment());
 
   const files = useDocumentStore((s) => s.files);
   const activeFileId = useDocumentStore((s) => s.activeFileId);
@@ -625,6 +632,7 @@ export function LatexEditor() {
         highlightActiveLine(),
         highlightActiveLineGutter(),
         history(),
+        collaborationCompartment.current.of([]),
         keymap.of([
           { key: "Tab", run: indentMore, shift: indentLess },
           ...defaultKeymap,
@@ -806,6 +814,7 @@ export function LatexEditor() {
     };
   }, [
     activeFileId,
+    projectRoot,
     isTextFile,
     setContent,
     setCursorPosition,
@@ -836,6 +845,41 @@ export function LatexEditor() {
       });
     }
   }, [activeFileContent, isTextFile]);
+
+  // The binding transforms remote edits and selections without replacing the whole document.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const replica = activeCollaboration();
+    const file =
+      replica?.path === projectRoot
+        ? replica.project.fileAt(activeFileId)
+        : undefined;
+    if (
+      !replica ||
+      !file ||
+      activeFileChange ||
+      replica.project.heads(file)[0]?.kind !== "text"
+    ) {
+      view.dispatch({
+        effects: collaborationCompartment.current.reconfigure([]),
+      });
+      return;
+    }
+    const text = replica.project.text(file);
+    const content = text.toString();
+    if (content !== view.state.doc.toString())
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: content },
+        annotations: Transaction.addToHistory.of(false),
+      });
+    view.dispatch({
+      effects: collaborationCompartment.current.reconfigure([
+        yCollab(text, replica.awareness),
+        Prec.highest(keymap.of(yUndoManagerKeymap)),
+      ]),
+    });
+  }, [activeFileId, projectRoot, collaborationGeneration, activeFileChange]);
 
   // Watch for proposed changes → activate/deactivate/update merge view
   useEffect(() => {

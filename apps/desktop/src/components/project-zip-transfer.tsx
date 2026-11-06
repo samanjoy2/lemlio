@@ -1,3 +1,4 @@
+import { flushCollaboration } from "@/lib/collaboration/runtime";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -277,6 +278,7 @@ export function useProjectZipExport() {
             "Some changes could not be saved. Save your files before exporting.",
           );
       }
+      await flushCollaboration(projectPath);
       const fileCount = await invoke<number>("export_project_zip", {
         projectPath,
         destination,

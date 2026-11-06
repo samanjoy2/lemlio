@@ -1,3 +1,4 @@
+import { flushCollaboration } from "@/lib/collaboration/runtime";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
@@ -52,6 +53,7 @@ export function CloneProjectDialog() {
         if (useDocumentStore.getState().files.some((f) => f.isDirty))
           throw new Error("Save your changes before cloning");
       }
+      await flushCollaboration(source.path);
       const result = await invoke<{
         path: string;
         name: string;

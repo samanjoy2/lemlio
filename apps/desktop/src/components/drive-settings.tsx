@@ -1,3 +1,4 @@
+import { backupProject } from "@/lib/collaboration/runtime";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as chooseFile } from "@tauri-apps/plugin-dialog";
@@ -116,10 +117,10 @@ export function DriveSettings() {
         setMessage(`Backing up project ${i + 1} of ${paths.length}…`);
         updateDriveBackup(paths[i], "uploading");
         try {
-          const result = await invoke<{
+          const result = await backupProject<{
             lastBackup?: number;
             sourceRevision?: string;
-          }>("drive_backup_project", { projectPath: paths[i] });
+          }>({ projectPath: paths[i] });
           updateDriveBackup(paths[i], "saved", result);
         } catch (error) {
           updateDriveBackup(paths[i], "failed", { error: String(error) });

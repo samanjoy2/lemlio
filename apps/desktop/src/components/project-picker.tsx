@@ -1,3 +1,4 @@
+import { openCollaboration } from "./collaboration-dialog";
 import { AppSettings } from "@/components/app-settings";
 import { DriveStatus } from "@/components/drive-status";
 import { Select as PanelSelect } from "./panelui/select";
@@ -30,6 +31,7 @@ import {
   FlaskConicalIcon,
   XIcon,
   UploadIcon,
+  UsersIcon,
 } from "lucide-react";
 import { useProjectStore } from "@/stores/project-store";
 import { useDocumentStore } from "@/stores/document-store";
@@ -294,6 +296,10 @@ export function ProjectPicker() {
             </button>
           ))}
           <p className="home-nav-label">Workspace</p>
+          <button type="button" onClick={() => openCollaboration(true)}>
+            <UsersIcon size={16} />
+            <span>Join shared project</span>
+          </button>
           <button type="button" onClick={() => setSkillsOpen(true)}>
             <BookOpenIcon size={16} />
             <span>Skills</span>

@@ -1,3 +1,5 @@
+import { useCollaboration } from "@/hooks/use-collaboration";
+import { CollaborationDialog } from "@/components/collaboration-dialog";
 import { ThemeProvider } from "next-themes";
 import { WindowHeader } from "@/components/window-header";
 import { AppContextMenu } from "@/components/app-context-menu";
@@ -76,6 +78,7 @@ function WorkspaceWithCodex() {
 
 export function App({ onReady }: { onReady?: () => void }) {
   useDriveBackup();
+  useCollaboration();
   const projectRoot = useDocumentStore((s) => s.projectRoot);
   const [showDebug, setShowDebug] = useState(false);
 
@@ -112,6 +115,7 @@ export function App({ onReady }: { onReady?: () => void }) {
           </AppContextMenu>
           <DeleteProjectDialog />
           <CloneProjectDialog />
+          <CollaborationDialog />
           <CloseConfirmation />
           <DriveRestoreDialog />
           {showDebug && (

@@ -1,3 +1,4 @@
+import { planSharedFileOperation } from "@/lib/collaboration/runtime";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -453,9 +454,14 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     const file = state.files.find((f) => f.id === id);
     if (file) {
       try {
+        const commit = state.projectRoot
+          ? planSharedFileOperation(state.projectRoot, file.relativePath)
+          : () => {};
         await deleteFileFromDisk(file.absolutePath);
+        commit();
       } catch (e) {
         log.error("Failed to delete file from disk", { error: String(e) });
+        return;
       }
     }
     const newFiles = state.files.filter((f) => f.id !== id);
@@ -503,10 +509,18 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
     // Delete folder from disk (recursive)
     try {
+      const commit = planSharedFileOperation(
+        state.projectRoot,
+        folderPath,
+        undefined,
+        true,
+      );
       const absPath = await join(state.projectRoot, folderPath);
       await deleteFolderFromDisk(absPath);
+      commit();
     } catch (e) {
       log.error("Failed to delete folder from disk", { error: String(e) });
+      return;
     }
 
     // Clean caches
@@ -562,7 +576,13 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
     const newAbsPath = await join(state.projectRoot, newRelativePath);
     try {
+      const commit = planSharedFileOperation(
+        state.projectRoot,
+        file.relativePath,
+        newRelativePath,
+      );
       await renameFileOnDisk(file.absolutePath, newAbsPath);
+      commit();
     } catch (e) {
       log.error("Failed to rename file on disk", { error: String(e) });
       return;
@@ -845,6 +865,9 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       ],
       activeFileId: relativePath,
     }));
+    window.dispatchEvent(
+      new CustomEvent("lemlio-project-saved", { detail: state.projectRoot }),
+    );
   },
 
   createFolder: async (name, parentFolder) => {
@@ -879,6 +902,9 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       importedPaths.push(actualName);
     }
     await state.refreshFiles();
+    window.dispatchEvent(
+      new CustomEvent("lemlio-project-saved", { detail: state.projectRoot }),
+    );
     return importedPaths;
   },
 
@@ -898,7 +924,13 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       desiredPath,
     );
     const newAbsPath = await join(state.projectRoot, newRelativePath);
+    const commit = planSharedFileOperation(
+      state.projectRoot,
+      file.relativePath,
+      newRelativePath,
+    );
     await renameFileOnDisk(file.absolutePath, newAbsPath);
+    commit();
 
     const newName = newRelativePath.split(/[/\\]/).pop() || file.name;
     migratePdfBytesKey(fileId, newRelativePath);
@@ -948,7 +980,14 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
     const oldAbsPath = await join(state.projectRoot, folderPath);
     const newAbsPath = await join(state.projectRoot, newFolderPath);
+    const commit = planSharedFileOperation(
+      state.projectRoot,
+      folderPath,
+      newFolderPath,
+      true,
+    );
     await renameFileOnDisk(oldAbsPath, newAbsPath);
+    commit();
 
     // Reload project to pick up all new paths
     if (state.mainFileId.startsWith(`${folderPath}/`))

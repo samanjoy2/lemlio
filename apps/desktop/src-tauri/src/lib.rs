@@ -1,4 +1,5 @@
 mod codex;
+mod collaboration;
 mod drive;
 mod drive_receipts;
 mod drive_sync;
@@ -420,6 +421,7 @@ pub fn run() {
         .manage(latex::LatexCompilerState::default())
         .manage(drive::DriveState::default())
         .manage(speech::SpeechState::default())
+        .manage(collaboration::CollaborationNetwork::default())
         .setup(|app| {
             projects::initialize_project_storage().map_err(std::io::Error::other)?;
             // Safety net: force-show the main window after a timeout if the
@@ -450,6 +452,22 @@ pub fn run() {
             open_project_folder,
             js_log,
             read_clipboard_file_paths,
+            collaboration::collaboration_authenticate,
+            collaboration::collaboration_encrypt,
+            collaboration::collaboration_decrypt,
+            collaboration::collaboration_load,
+            collaboration::collaboration_enable,
+            collaboration::collaboration_configure,
+            collaboration::collaboration_create,
+            collaboration::collaboration_inventory,
+            collaboration::collaboration_persist,
+            collaboration::collaboration_materialize,
+            collaboration::collaboration_accept_disk,
+            collaboration::collaboration_host,
+            collaboration::collaboration_stop_host,
+            collaboration::collaboration_connect,
+            collaboration::collaboration_disconnect,
+            collaboration::collaboration_send,
             latex::compile_latex,
             latex::open_compiled_pdf,
             latex::synctex_edit,
@@ -471,6 +489,7 @@ pub fn run() {
             drive::drive_cancel,
             drive::drive_disconnect,
             drive::drive_backup_project,
+            drive::drive_collaboration_updates,
             drive::drive_reset_backups,
             drive::drive_project_revision,
             drive::drive_list_backups,

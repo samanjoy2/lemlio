@@ -1,3 +1,4 @@
+import { useCollaborationStore } from "@/lib/collaboration/runtime";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { useDocumentStore } from "./document-store";
@@ -268,6 +269,18 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
   ) => {
     const state = get();
     const { activeTabId } = state;
+    if (
+      useCollaborationStore.getState().connected ||
+      useCollaborationStore.getState().connecting
+    ) {
+      set((s) =>
+        applyTabUpdate(s, activeTabId, {
+          error:
+            "Choose Work offline in Collaboration before running an agent. Reconnect afterward to merge its edits with your collaborators.",
+        }),
+      );
+      return;
+    }
     const activeTab = state.tabs.find((t) => t.id === activeTabId);
     // Guard: prevent sending from a tab that's already streaming
     if (activeTab?.isStreaming) return;

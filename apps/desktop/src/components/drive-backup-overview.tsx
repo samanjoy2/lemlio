@@ -1,3 +1,4 @@
+import { backupProject } from "@/lib/collaboration/runtime";
 import { useEffect, useState } from "react";
 
 import { invoke } from "@tauri-apps/api/core";
@@ -377,11 +378,11 @@ export function DriveBackupOverview({
                   try {
                     updateDriveBackup(review.path, "uploading");
 
-                    const result = await invoke<{
+                    const result = await backupProject<{
                       lastBackup: number;
 
                       sourceRevision: string;
-                    }>("drive_backup_project", {
+                    }>({
                       projectPath: review.path,
 
                       expectedRemoteHash:

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.3.1"><img alt="Release 1.3.1" src="https://img.shields.io/badge/release-1.3.1-5fb7a5?style=flat-square" /></a>
+  <a href="https://github.com/samanjoy2/lemlio/releases/tag/lemlio-v1.4.0"><img alt="Release 1.4.0" src="https://img.shields.io/badge/release-1.4.0-5fb7a5?style=flat-square" /></a>
   <a href="https://github.com/samanjoy2/lemlio/releases/latest"><img alt="Download Windows x64 installer" src="https://img.shields.io/badge/download-Windows_x64-5fb7a5?style=flat-square&amp;logo=windows" /></a>
   <a href="https://github.com/samanjoy2/lemlio/releases/latest"><img alt="Download macOS Apple Silicon and Intel" src="https://img.shields.io/badge/download-macOS-5fb7a5?style=flat-square&amp;logo=apple" /></a>
   <img alt="Built with Tauri and React" src="https://img.shields.io/badge/Tauri-React-273e43?style=flat-square&amp;logo=tauri" />
@@ -21,6 +21,7 @@
   <a href="#download-and-install"><strong>Download Lemlio</strong></a>
   · <a href="#what-you-can-do">Features</a>
   · <a href="#a-look-inside">Screenshots</a>
+  · <a href="#collaboration">Collaboration</a>
   · <a href="#google-drive-backup">Google Drive</a>
   · <a href="#build-from-source">Build from source</a>
 </p>
@@ -42,25 +43,26 @@ Lemlio brings your LaTeX projects into a searchable library with PDF covers, an 
 | **See what is happening** | A centered orb for first compilation and a compact indicator on recompilation, a breathing **Agent thinking…** pill, colorful chat borders, and an explicit **Stop agent** button. |
 | **Choose when to compile** | Switch between **Auto** and **Manual**. Use bundled Tectonic or select an optional MiKTeX / TeX Live installation. |
 | **Move projects easily** | Import and export ZIPs with nested source folders, figures, and bibliography files. Keep the original ZIP or choose to move it. |
+| **Write together** | Live shared text, colored cursors, local offline history, encrypted offline change files, and hosting from either collaborator’s computer. |
 | **Sync between devices** | Connect Google Drive once. Five-minute checks, notifications for projects found only in Drive, automatic incoming revisions for closed unchanged projects, and protected conflict review. |
 | **Check your backup status** | See Codex, Google Drive, and Voice status on the home page, and this project's confirmed backup age in the editor. |
 | **Use your existing tools** | Open the project folder, continue in an installed VS Code editor, and browse your installed Codex research skills. |
 
 ## Download and install
 
-Lemlio **1.3.1** includes a **Windows x64 installer** and **macOS disk images for Apple Silicon and Intel**.
+Lemlio **1.4.0** includes a **Windows x64 installer** and **macOS disk images for Apple Silicon and Intel**.
 
 1. Open the [latest GitHub release](https://github.com/samanjoy2/lemlio/releases/latest).
-2. Under **Assets**, download `Lemlio_1.3.1_x64-setup.exe`. GitHub's source-code ZIP is for development.
+2. Under **Assets**, download `Lemlio_1.4.0_x64-setup.exe`. GitHub's source-code ZIP is for development.
 3. Close an older running copy of Lemlio or PrismPro, then run the installer.
 4. Open Lemlio and create a project, open a folder, or select **Import ZIP**.
 
 On macOS, choose the **AppleSilicon** image for an M-series Mac or **Intel** for an Intel Mac. Open the DMG and drag Lemlio into Applications. Tectonic and Latin Modern fonts are included; Homebrew is not required. The Mac app is ad hoc signed and is **not Apple notarized**. macOS may require approval in **System Settings → Privacy & Security** after an initial launch attempt.
 
-The release also includes `Lemlio-1.3.1-SHA256SUMS.txt`. To compare your download with its published checksum:
+The release also includes `Lemlio-1.4.0-SHA256SUMS.txt`. To compare your download with its published checksum:
 
 ```powershell
-Get-FileHash .\Lemlio_1.3.1_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Lemlio_1.4.0_x64-setup.exe -Algorithm SHA256
 ```
 
 The installer is currently unsigned, so Windows may identify its publisher as unknown. Releases and installers are available publicly on GitHub.
@@ -115,7 +117,7 @@ One compact indicator shows agent activity. The microphone inserts editable prom
 
 </details>
 
-Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.3.1.md) for checks and practical limits.
+Screenshots show the current interface with generated demonstration documents and simulated connection/agent states. See the [verification report](docs/VERIFICATION-1.4.0.md) for checks and practical limits.
 
 ## Import, export, and local files
 
@@ -149,6 +151,18 @@ The default compiler is bundled Tectonic, including Lemlio's fonts, project stag
 
 **After upgrading, start a new chat once to get the direct tools.** Existing chats that already have the tools retain them on resume. Older chats receive an explicit terminal fallback to the installed Lemlio executable; the bundled Tectonic directory is also included in the Codex process PATH. No separate OpenAI API key or Tectonic installation is needed for these tools. A successful compile verifies compilation, while visual layout claims require viewing the rendered PDF.
 
+## Collaboration
+
+Open a project → **Collaborate → Enable collaboration → Host on this device**. Copy its invitation and send it privately. The other person chooses **Join shared project** on the home page and pastes it. Both people keep a local copy and can edit or host. Everyone needs Lemlio **1.4.0 or later**.
+
+![Collaboration dialog in dark mode with fictional Alex and Jordan demo clients](assets/screenshots/collaboration-dark.png)
+
+No paid hosting service or Node installation is required. On the same network, use the host’s LAN address. Across the internet, connect the computers through a reachable private network such as [Tailscale](https://tailscale.com/pricing), then put the host’s private address into the invitation. Tailscale currently offers a free Personal plan; its usage terms apply. Lemlio does not provide a public collaboration server or automatic internet routing.
+
+Text changes merge through [Yjs](https://docs.yjs.dev/). A collaborator can keep editing without internet or Drive, then reconnect or send an encrypted `.lemlio-changes` file. Upload time does not choose a winning document. Concurrent file replacements, renames, and deletion-versus-edit conflicts require review. Either person can host the next session; closing the host ends the live connection, while local editing continues.
+
+See the [collaboration guide](docs/COLLABORATION.md) for host handoff, offline exchange, Drive backup behavior, privacy, and limits. This first version supports 16 MB of shared source/assets, 96 MB of history, and 12 connections per host. Everyone with an invitation is an editor. Use **Work offline** before running Codex on a shared project.
+
 ## Google Drive backup
 
 The home page shows **Google Drive connected** or a connection prompt beside the Codex status. Click it to open setup. Inside a project, the editor shows **Saved to Drive … ago**, **Drive backup pending**, **Saving to Drive…**, or a failure that will retry. The timestamp belongs to that project and is recorded after Google confirms its upload.
@@ -170,7 +184,7 @@ Each installation uses the OAuth JSON you choose. Lemlio copies it into local ap
 - **Retries:** pending jobs are checked every minute while Lemlio is open. The queue survives app restarts, so failed uploads can be retried later.
 - **Versioned ZIP snapshots:** changed projects create immutable ZIP revisions inside **Lemlio Backups**. Every ZIP includes `.lemlio-sync.json` with the project identity, parent revisions, content hash, device identity, saved title, and save time. The revision graph detects simultaneous saves without overwriting either upload. Unchanged content is skipped. Older revisions remain in Drive and use your storage; there is no automatic history pruning.
 - **Incoming changes:** if another updated device saves a project and this device has not edited its last synced source, a closed project downloads and verifies the newer revision automatically. An open project shows **Update from [device] · Review**. **Get latest revision** checks for unsaved edits, compilation, and active agents before closing/reopening that editor. The previous local source is kept in a hidden `.lemlio-recovery-*` sibling folder; local Git repositories, environments, and app caches stay with the working project.
-- **Conflicts:** if both devices edited, an uploaded ZIP was modified externally, or two devices saved competing revisions, neither version silently wins. Review device and time details, choose a Drive revision if several exist, then choose the PC source or download the selected Drive source into a new folder. **Pause uploads only** does not download anything. This is project-level conflict resolution, not line-by-line Git merging.
+- **Conflicts:** if both devices edited, an uploaded ZIP was modified externally, or two devices saved competing revisions, neither version silently wins. Review device and time details, choose a Drive revision if several exist, then choose the PC source or download the selected Drive source into a new folder. **Pause uploads only** does not download anything. For ordinary projects, this is project-level conflict resolution. Shared projects instead merge their verified collaboration histories before backup and ask you to review file conflicts.
 - **Renaming:** saving a project title in Lemlio queues an update to its Drive ZIP name, even if the document files are unchanged. Renaming the ZIP directly in Drive keeps its identity and is preserved by ordinary backups. Lemlio title changes travel with incoming revisions. A filename edited directly in Drive is separate from the saved project title.
 - **Status:** the home page summarizes every project's backup, including pending, failed, and conflicting projects. The editor shows the open project's confirmed backup age.
 - **Reset:** Settings → Google Drive can move the old backup folder to Trash and start fresh. If Google blocks a reset because the folder contains items outside the app's access, move the folder to Trash through Drive's own page, then retry Reset.
@@ -184,7 +198,7 @@ Install Lemlio, choose your Desktop OAuth JSON, and connect the **same Google ac
 
 When you close Lemlio, it saves open edits and checks every project against Drive. The dialog shows confirmed backups, pending uploads, or conflicts and offers **Back up and close**. **Do not ask again when everything is backed up** skips the dialog only after all projects are verified and no compilation or agent is active. You can change this preference in Settings → General. Pending, disconnected, conflicting, or unsaved work still requires attention.
 
-Automatic backup is enabled by default, but requires a connected Google account and Lemlio to be running. This is a desktop backup workflow; there is no live browser collaboration or background upload service after the app closes. Changes that have not reached Drive are not protected against loss of the PC.
+Automatic backup is enabled by default, but requires a connected Google account and Lemlio to be running. This is a desktop backup workflow; live collaboration uses the desktop app, and there is no background upload service after the app closes. Changes that have not reached Drive are not protected against loss of the PC.
 
 Standard Drive API use has [no additional API charge](https://developers.google.com/workspace/drive/api/guides/limits); backup files use your Google storage. OAuth apps in Testing may require reconnection. Google Drive for desktop folder syncing is an alternative to the direct account connection.
 
@@ -264,7 +278,7 @@ For a bug report, include your Lemlio version, compiler choice, and steps to rep
 
 Lemlio builds on [Claude Prism by delibae](https://github.com/delibae/claude-prism), with substantial changes to Codex integration, project management, compilation, ZIP transfers, and the interface. Original MIT copyright notices are retained in [LICENSE](LICENSE).
 
-Loading animations use [thinking-orbs](https://libraries.dev/orbs); chat effects use [Border Beam](https://libraries.dev/beam) and [Voice Glow](https://libraries.dev/voice). The VS Code icon comes from [Microsoft's VS Code repository](https://github.com/microsoft/vscode). Third-party projects retain their own licenses.
+Loading animations use [thinking-orbs](https://libraries.dev/orbs); chat effects use [Border Beam](https://libraries.dev/beam) and [Voice Glow](https://libraries.dev/voice). The VS Code icon comes from [Microsoft's VS Code repository](https://github.com/microsoft/vscode). Collaboration uses Yjs, y-protocols, and y-codemirror.next (MIT). Third-party projects retain their own licenses.
 
 Interface refinement follows the [unslop](https://heydamir.design/unslop) craft guidelines by Damir Sokolovsky ([@heydamir](https://x.com/heydamir)), licensed CC BY 4.0.
 

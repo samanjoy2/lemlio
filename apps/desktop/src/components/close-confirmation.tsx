@@ -1,3 +1,8 @@
+import {
+  backupProject,
+  flushCollaboration,
+  useCollaborationStore,
+} from "@/lib/collaboration/runtime";
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -44,6 +49,7 @@ export function CloseConfirmation() {
   const streaming = useCodexChatStore(
     (s) => s.isStreaming || s.tabs.some((t) => t.isStreaming),
   );
+  const collaboration = useCollaborationStore();
   const dirty = useDocumentStore((s) => s.files.some((f) => f.isDirty));
   const close = async () => {
     allowed.current = true;
@@ -56,6 +62,7 @@ export function CloseConfirmation() {
   };
   const check = async () => {
     await useDocumentStore.getState().saveAllFiles();
+    await flushCollaboration(useDocumentStore.getState().projectRoot);
     if (useDocumentStore.getState().files.some((f) => f.isDirty))
       throw Error(
         "Some edits could not be saved on this PC. Keep Lemlio open and save them before closing.",
@@ -187,6 +194,13 @@ export function CloseConfirmation() {
                   : "PDF compilation is still running."}
               </p>
             )}
+            {collaboration.hosting && (
+              <p className="text-muted-foreground text-xs">
+                Closing stops this collaboration host. Other people keep their
+                local work and can host their own copy; they will need to
+                reconnect to exchange new edits.
+              </p>
+            )}
             {complete && (
               <label className="flex items-start gap-2">
                 <input
@@ -224,10 +238,10 @@ export function CloseConfirmation() {
                     setMessage(`Backing up project ${index + 1}…`);
                     updateDriveBackup(p.path, "uploading");
                     try {
-                      const result = await invoke<{
+                      const result = await backupProject<{
                         lastBackup: number;
                         sourceRevision: string;
-                      }>("drive_backup_project", { projectPath: p.path });
+                      }>({ projectPath: p.path });
                       updateDriveBackup(p.path, "saved", result);
                     } catch (e) {
                       updateDriveBackup(p.path, "failed", { error: String(e) });

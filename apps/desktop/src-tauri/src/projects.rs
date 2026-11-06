@@ -256,7 +256,21 @@ fn clone_into(root: &Path, source: &Path, name: &str) -> Result<ImportResult, St
             "The source changed while copying. Wait for saving to finish and try again.".into(),
         );
     }
-    restore_snapshot_in(root, &archive)
+    let copied = restore_snapshot_in(root, &archive)?;
+    let identity = Path::new(&copied.storage_path).join(crate::collaboration::FOLDER);
+    if identity.exists() {
+        let identity = identity.canonicalize().map_err(|e| e.to_string())?;
+        let owned = Path::new(&copied.storage_path)
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        if !identity.starts_with(&owned)
+            || !owned.starts_with(root.canonicalize().map_err(|e| e.to_string())?)
+        {
+            return Err("Invalid cloned collaboration path".into());
+        }
+        fs::remove_dir_all(identity).map_err(|e| e.to_string())?;
+    }
+    Ok(copied)
 }
 
 #[tauri::command]

@@ -1,5 +1,8 @@
 //! User-authorized Google Drive backups. Tokens stay in the OS credential store.
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    Engine,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -904,7 +907,29 @@ async fn backup_project_with_choice(
     expected_remote_hash: Option<&str>,
     rename_backup: bool,
 ) -> Result<Value, String> {
+    backup_project_with_collaboration(
+        state,
+        project_path,
+        expected_remote_hash,
+        rename_backup,
+        None,
+    )
+    .await
+}
+async fn backup_project_with_collaboration(
+    state: &DriveState,
+    project_path: String,
+    expected_remote_hash: Option<&str>,
+    rename_backup: bool,
+    collaboration_heads: Option<Vec<CollaborationHead>>,
+) -> Result<Value, String> {
     let _upload = state.upload.lock().await;
+    let shared = crate::collaboration::manifest(Path::new(&project_path))?;
+    if shared.is_some() && collaboration_heads.is_none() {
+        return Err(
+            "Open Lemlio to merge the shared history before backing up this project".into(),
+        );
+    }
     let mut token = authorized_tokens().await?;
     let client = http_client()?;
     let snapshot = tokio::task::spawn_blocking(move || {
@@ -929,6 +954,7 @@ async fn backup_project_with_choice(
         let key = receipt
             .as_ref()
             .map(|r| r.project_key.clone())
+            .or(crate::collaboration::manifest(&source)?.map(|m| m.drive_project_id))
             .unwrap_or_else(|| format!("{:x}", Sha256::digest(normalized.as_bytes())));
         let name = crate::projects::project_details(project_path)
             .ok()
@@ -991,6 +1017,29 @@ async fn backup_project_with_choice(
                 .into(),
         );
     }
+    if let Some(reviewed) = &collaboration_heads {
+        let actual: std::collections::BTreeSet<_> = heads
+            .iter()
+            .map(|f| {
+                (
+                    f["id"].as_str().unwrap_or_default().to_string(),
+                    f["sha256Checksum"].as_str().unwrap_or_default().to_string(),
+                )
+            })
+            .collect();
+        let reviewed: std::collections::BTreeSet<_> = reviewed
+            .iter()
+            .map(|h| (h.id.clone(), h.hash.clone()))
+            .collect();
+        if actual != reviewed {
+            return Err("Shared Drive history changed during merging; backup will retry".into());
+        }
+    } else if heads
+        .iter()
+        .any(|f| f["appProperties"]["lemlioCollaboration"].is_string())
+    {
+        return Err("This project now has a shared history. Join the shared version before replacing its Drive backup.".into());
+    }
     let existing = heads
         .iter()
         .copied()
@@ -1003,7 +1052,7 @@ async fn backup_project_with_choice(
                 .unwrap_or("Drive revision was removed; refresh first".into()));
         }
     }
-    if heads.len() > 1 && expected_remote_hash.is_none() {
+    if heads.len() > 1 && expected_remote_hash.is_none() && collaboration_heads.is_none() {
         let mut conflict = conflict_details(existing.unwrap(), heads.len());
         conflict["versions"] = revision_choices(&heads);
         return Err(format!("DRIVE_CONFLICT:{conflict}"));
@@ -1019,7 +1068,7 @@ async fn backup_project_with_choice(
             .map(|r| r.archive_hash.as_str());
         let same_content = remote["appProperties"]["lemlioContent"] == content
             && remote["sha256Checksum"] == remote["appProperties"]["lemlioArchiveHash"];
-        if !same_content {
+        if !same_content && collaboration_heads.is_none() {
             check_archive_conflict(remote, expected_remote_hash, baseline, &old_hash)?;
         }
     }
@@ -1045,6 +1094,9 @@ async fn backup_project_with_choice(
         "parents":parents,"contentHash":content,"title":snapshot.3,"device":device,"savedAt":now()});
     let mut properties = json!({"lemlioSync":"1","lemlioContent":content,
         "lemlioDevice":device["id"],"lemlioDeviceName":device["name"],"lemlioSavedAt":now().to_string()});
+    if let Some(shared) = shared {
+        properties["lemlioCollaboration"] = json!(shared.id);
+    }
     for (i, parent) in parents.iter().enumerate() {
         properties[format!("lemlioParent{i}")] = json!(parent);
     }
@@ -1102,18 +1154,135 @@ async fn backup_project_with_choice(
         json!({"name":snapshot.3,"format":"zip","sourceFiles":snapshot.1,"sourceRevision":snapshot.4,"uploadedFiles":if reused {0} else {1},"unchangedFiles":if reused {1} else {0},"deviceName":device["name"],"lastBackup":token.last_backup,"archiveUrl":format!("https://drive.google.com/file/d/{archive_id}/view"),"folderUrl":format!("https://drive.google.com/drive/folders/{root}")}),
     )
 }
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+pub struct CollaborationHead {
+    pub id: String,
+    pub hash: String,
+}
+
+/// Read and verify CRDT history only. Never extract a remote ZIP over a local replica.
+#[tauri::command]
+pub async fn drive_collaboration_updates(
+    state: tauri::State<'_, DriveState>,
+    project_path: String,
+) -> Result<Value, String> {
+    let _lock = state.upload.lock().await;
+    let shared = crate::collaboration::manifest(Path::new(&project_path))?
+        .ok_or("This is not a shared project")?;
+    let receipt = crate::drive_receipts::load(&project_path)?;
+    let mut token = authorized_tokens().await?;
+    let client = http_client()?;
+    let Some(root) = existing_backup_root(&client, &mut token).await? else {
+        return Ok(json!({"heads":[]}));
+    };
+    let children = drive_children(&client, &token.access_token, &root).await?;
+    let heads = crate::drive_sync::heads(&children, &shared.drive_project_id);
+    if heads.len() > 16 {
+        return Err("Too many shared backup branches; export a recovery copy first".into());
+    }
+    let mut result = Vec::new();
+    let mut total = 0usize;
+    for head in heads {
+        let id = head["id"].as_str().ok_or("Missing shared revision ID")?;
+        let hash = head["sha256Checksum"]
+            .as_str()
+            .ok_or("Shared backup checksum is not ready")?;
+        if head["appProperties"]["lemlioArchiveHash"] != hash {
+            return Err(conflict_error(head, 1));
+        }
+        let mut response = client
+            .get(format!("https://www.googleapis.com/drive/v3/files/{id}"))
+            .bearer_auth(&token.access_token)
+            .query(&[("alt", "media")])
+            .send()
+            .await
+            .map_err(|_| "Cannot reach the shared backup")?;
+        if !response.status().is_success() {
+            google_json(response).await?;
+            return Err("Cannot download shared history".into());
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| "Shared history download was interrupted")?
+        {
+            if bytes.len() + chunk.len() > 160 * 1024 * 1024 {
+                return Err("Shared backup ZIP exceeds 160 MB".into());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if format!("{:x}", Sha256::digest(&bytes)) != hash {
+            return Err("Shared backup checksum failed; local edits were kept".into());
+        }
+        let mut archive =
+            zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+        let has_history = archive.by_name(".lemlio-collab/project.json").is_ok();
+        if !has_history {
+            if receipt
+                .as_ref()
+                .is_some_and(|r| r.archive_id == id && r.archive_hash == hash)
+            {
+                result.push(json!({"id":id,"hash":hash}));
+                continue;
+            }
+            return Err("A Drive revision has no collaboration history. Restore it into a separate folder for review.".into());
+        }
+        let mut metadata = Vec::new();
+        std::io::Read::read_to_end(
+            &mut std::io::Read::take(
+                archive
+                    .by_name(".lemlio-collab/project.json")
+                    .map_err(|e| e.to_string())?,
+                8192,
+            ),
+            &mut metadata,
+        )
+        .map_err(|e| e.to_string())?;
+        let m: crate::collaboration::Manifest =
+            serde_json::from_slice(&metadata).map_err(|_| "Invalid shared backup identity")?;
+        if m.id != shared.id || m.schema != 1 {
+            return Err("Drive contains history from a different shared project".into());
+        }
+        let source = crate::collaboration::files_from_archive(&mut archive)?;
+        if m.source_hash.as_deref() != Some(crate::collaboration::source_hash(&source)?.as_str()) {
+            return Err("Drive source files changed outside the shared history. Restore that ZIP separately for review; local edits were kept.".into());
+        }
+
+        let mut update = Vec::new();
+        std::io::Read::read_to_end(
+            &mut std::io::Read::take(
+                archive
+                    .by_name(".lemlio-collab/state.bin")
+                    .map_err(|_| "Shared backup history is missing")?,
+                (crate::collaboration::LIMIT + 1) as u64,
+            ),
+            &mut update,
+        )
+        .map_err(|e| e.to_string())?;
+        total += update.len();
+        if update.len() > crate::collaboration::LIMIT || total > 192 * 1024 * 1024 {
+            return Err("Shared history exceeds the merge limit; export a recovery copy".into());
+        }
+        result.push(json!({"id":id,"hash":hash,"state":STANDARD.encode(update)}));
+    }
+    Ok(json!({"heads":result}))
+}
+
 #[tauri::command]
 pub async fn drive_backup_project(
     state: tauri::State<'_, DriveState>,
     project_path: String,
     expected_remote_hash: Option<String>,
     rename_backup: Option<bool>,
+    collaboration_heads: Option<Vec<CollaborationHead>>,
 ) -> Result<Value, String> {
-    backup_project_with_choice(
+    backup_project_with_collaboration(
         &state,
         project_path,
         expected_remote_hash.as_deref(),
         rename_backup.unwrap_or(false),
+        collaboration_heads,
     )
     .await
 }
@@ -1449,6 +1618,14 @@ async fn restore_snapshot_with_target(
     sync_target: Option<(String, String)>,
 ) -> Result<Value, String> {
     let _upload = state.upload.lock().await;
+    if let Some((path, _)) = &sync_target {
+        if Path::new(path).join(crate::collaboration::FOLDER).exists() {
+            return Err(
+                "Shared projects merge collaboration history instead of replacing local files"
+                    .into(),
+            );
+        }
+    }
     let mut token = authorized_tokens().await?;
     let client = http_client()?;
     let root = existing_backup_root(&client, &mut token)
@@ -1659,7 +1836,8 @@ pub async fn backup_summary(
         let saved = receipt
             .as_ref()
             .is_some_and(|r| receipt_unchanged(Path::new(&path), r).unwrap_or(false));
-        rows.push(json!({"path":path,"status":if saved{"saved"}else{"pending"},"lastBackup":receipt.as_ref().map(|r|r.last_backup),"sourceRevision":receipt.as_ref().map(|r|&r.source_revision),"receipt":receipt}));
+        let collaboration = Path::new(&path).join(crate::collaboration::FOLDER).exists();
+        rows.push(json!({"collaboration":collaboration,"path":path,"status":if saved{"saved"}else{"pending"},"lastBackup":receipt.as_ref().map(|r|r.last_backup),"sourceRevision":receipt.as_ref().map(|r|&r.source_revision),"receipt":receipt}));
     }
     let mut available_projects = Vec::new();
     let verified = async {
