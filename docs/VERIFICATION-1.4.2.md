@@ -1,0 +1,15 @@
+# Lemlio 1.4.2 local workspace update
+
+Groups now open in a dedicated full-height workspace rather than an agent form inside a narrow modal. The overview displays existing cached PDF covers, project tabs open the normal editor and PDF reader, and a separate review view compares the grouped projects. Group definitions and memberships are preserved. Editing a tab affects that version; group changes run only after the user sends a request. Covers load from the existing cache and refresh on compilation events, without generating all previews again.
+
+The group manager now handles membership only, with saved groups at the left, searchable project names, no long paths crowding rows, and an explicit Open workspace action. It saves the current editor and opens the group's first project before entering. Project-tab navigation saves first, rejects failed saves, and blocks changes while a compiler or agent is running. Background chat remains mounted when browsing the overview; its duplicate composer is hidden.
+
+Group prompts reuse the actual ChatComposer component, BorderBeam, VoiceBeam, microphone/dictation, attachments, model/effort selection, and send/stop controls. Optional submit/stop overrides preserve ordinary chat behavior while routing group requests through checkpoints and selected project roots. The editor becomes visible before the agent starts so the chat drawer measures correctly. Stop targets the running group chat even when another chat tab was selected. Failed submission restores the draft and pinned context. Context pinned in another variant is labeled with that original project path.
+
+## Verification
+
+229 frontend tests passed across 43 test files. TypeScript/production build and repository-wide Biome CI passed. Coverage includes combined review, save-before-switch ordering, failed-save protection, compile-time switching guard, correct group cancellation, and reuse of the normal composer with group-specific submit/stop handlers. Native runtime code is unchanged from 1.4.1 apart from the version number.
+
+An isolated browser with fictional documents verified three cached PDF covers, three project tabs, a working normal editor and PDF view, an 896px-wide membership manager without horizontal overflow at a 1440px viewport, and exactly one shared composer in both overview and editor modes. No React error was reported. The browser used simulated filesystem/connection data and real React/CodeMirror/MuPDF UI. Three layouts were visually inspected; a later DOM check verified the requested shared composer. No real project or live agent request was used. New Mac installers were not built for this local update. The public GitHub release remains 1.4.0.
+
+Windows NSIS packaging passed. The exact built executable compiled a generated Latin Modern Sans document with bundled Tectonic to a 3,423-byte PDF. The installer on the desktop has SHA-256 `00bb86035bf074a5842af16fbf52a18b6fcfe8163e61ea4d2081ec128450d2ce`. It is the local Windows 1.4.2 installer; existing projects, groups and account settings are retained by an in-place update.

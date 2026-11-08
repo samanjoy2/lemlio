@@ -1,3 +1,4 @@
+import { useProjectGroups } from "@/stores/project-groups-store";
 import { useRef, useState, useCallback, useEffect } from "react";
 import {
   ChevronDownIcon,
@@ -19,6 +20,7 @@ const MIN_HEIGHT = 150;
 const DEFAULT_HEIGHT = 360;
 
 export function CodexChatDrawer() {
+  const grouped = useProjectGroups((s) => !!s.activeGroupId);
   // Initialize event listeners for Codex streaming
   useCodexEvents();
 
@@ -220,7 +222,7 @@ export function CodexChatDrawer() {
         </div>
 
         {/* Composer */}
-        <ChatComposer isOpen={isOpen} />
+        {!grouped && <ChatComposer isOpen={isOpen} />}
       </div>
     </div>
   );

@@ -1,10 +1,12 @@
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { it, expect, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { ProjectGroups } from "@/components/project-groups";
+import { ProjectGroupWorkspace } from "@/components/project-group-workspace";
 import { useProjectGroups } from "@/stores/project-groups-store";
 import { useDocumentStore } from "@/stores/document-store";
+vi.mock("border-beam", () => ({ BorderBeam: ({ children }: any) => children }));
 vi.mock("@/hooks/use-project-catalog", () => ({
   useProjectCatalog: () => ({
     projects: [
@@ -17,6 +19,8 @@ it("reviews both chosen projects together without starting an agent", async () =
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   useDocumentStore.setState({ files: [] });
   useProjectGroups.setState({
+    activeGroupId: "cv",
+    groups: [{ id: "cv", name: "My CVs", paths: ["C:/A", "C:/B"] }],
     review: [
       { path: "C:/A", snapshot: "before-a" },
       { path: "C:/B", snapshot: "before-b" },
@@ -40,18 +44,23 @@ it("reviews both chosen projects together without starting an agent", async () =
   document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<ProjectGroups />));
     await act(async () =>
-      (host.querySelector("button") as HTMLButtonElement).click(),
+      root.render(
+        <TooltipProvider>
+          <ProjectGroupWorkspace>
+            <div>Project editor</div>
+          </ProjectGroupWorkspace>
+        </TooltipProvider>,
+      ),
     );
     const review = [...document.querySelectorAll("button")].find(
-      (b) => b.textContent === "Review last group run",
+      (b) => b.textContent === "Review changes",
     )!;
     expect(review).toBeTruthy();
     await act(async () => review.click());
-    expect(document.body.textContent).toContain("C:/A");
-    expect(document.body.textContent).toContain("C:/B");
-    expect(document.body.textContent).toContain("BEFORE");
+    expect(document.body.textContent).toContain("CV A");
+    expect(document.body.textContent).toContain("CV B");
+    expect(document.body.textContent).toContain("Before");
     expect(document.body.textContent).toContain("New number");
     expect(
       vi.mocked(invoke).mock.calls.filter((c) => c[0] === "history_diff"),

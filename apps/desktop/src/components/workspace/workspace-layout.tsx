@@ -1,3 +1,4 @@
+import { useProjectGroups } from "@/stores/project-groups-store";
 import { ProjectGroups } from "@/components/project-groups";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useCollaborationStore } from "@/lib/collaboration/runtime";
@@ -10,6 +11,7 @@ import { Spinner } from "@/components/panelui/spinner";
 import { DriveStatus } from "@/components/drive-status";
 
 export function WorkspaceLayout() {
+  const grouped = useProjectGroups((s) => !!s.activeGroupId);
   const initialized = useDocumentStore((s) => s.initialized);
   const projectRoot = useDocumentStore((s) => s.projectRoot);
 
@@ -30,7 +32,7 @@ export function WorkspaceLayout() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <CollaborationBar />
-      <ProjectGroups />
+      {!grouped && <ProjectGroups />}
       <PanelGroup direction="horizontal" className="min-h-0 flex-1">
         <Panel defaultSize={15} minSize={10} maxSize={25}>
           <Sidebar />

@@ -6,6 +6,7 @@ export interface ProjectGroup {
   paths: string[];
 }
 interface GroupsState {
+  activeGroupId: string | null;
   groups: ProjectGroup[];
   review: { path: string; snapshot: string }[];
   scope: { tabId: string; paths: string[] } | null;
@@ -15,6 +16,7 @@ interface GroupsState {
 export const useProjectGroups = create<GroupsState>()(
   persist(
     (set) => ({
+      activeGroupId: null,
       groups: [],
       review: [],
       scope: null,

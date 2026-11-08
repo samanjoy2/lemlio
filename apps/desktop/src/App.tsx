@@ -1,3 +1,5 @@
+import { ProjectGroupWorkspace } from "@/components/project-group-workspace";
+import { useProjectGroups } from "@/stores/project-groups-store";
 import { useCollaboration } from "@/hooks/use-collaboration";
 import { CollaborationDialog } from "@/components/collaboration-dialog";
 import { ThemeProvider } from "next-themes";
@@ -80,6 +82,7 @@ export function App({ onReady }: { onReady?: () => void }) {
   useDriveBackup();
   useCollaboration();
   const projectRoot = useDocumentStore((s) => s.projectRoot);
+  const activeGroupId = useProjectGroups((s) => s.activeGroupId);
   const [showDebug, setShowDebug] = useState(false);
 
   // Register global keyboard shortcuts (Cmd+S, Cmd+N) at the app level
@@ -109,7 +112,15 @@ export function App({ onReady }: { onReady?: () => void }) {
             <div className="flex h-full min-h-0 flex-col">
               <WindowHeader />
               <div className="min-h-0 flex-1">
-                {projectRoot ? <WorkspaceWithCodex /> : <ProjectPicker />}
+                {activeGroupId ? (
+                  <ProjectGroupWorkspace>
+                    {projectRoot ? <WorkspaceWithCodex /> : null}
+                  </ProjectGroupWorkspace>
+                ) : projectRoot ? (
+                  <WorkspaceWithCodex />
+                ) : (
+                  <ProjectPicker />
+                )}
               </div>
             </div>
           </AppContextMenu>

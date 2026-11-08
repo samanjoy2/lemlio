@@ -101,10 +101,28 @@ function getFileIcon(file: ProjectFile) {
   return <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />;
 }
 
-export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
-  const sendPrompt = useCodexChatStore((s) => s.sendPrompt);
-
-  const isStreaming = useCodexChatStore((s) => s.isStreaming);
+export const ChatComposer: FC<{
+  isOpen?: boolean;
+  onSubmit?: (
+    prompt: string,
+    context?: { label: string; filePath: string; selectedText: string },
+  ) => void | Promise<void>;
+  placeholder?: string;
+  submissionDisabled?: boolean;
+  streamingOverride?: boolean;
+  stopOverride?: () => void | Promise<void>;
+}> = ({
+  isOpen,
+  onSubmit,
+  placeholder,
+  submissionDisabled = false,
+  streamingOverride,
+  stopOverride,
+}) => {
+  const defaultSendPrompt = useCodexChatStore((s) => s.sendPrompt);
+  const sendPrompt = onSubmit ?? defaultSendPrompt;
+  const activeStreaming = useCodexChatStore((s) => s.isStreaming);
+  const isStreaming = streamingOverride ?? activeStreaming;
 
   const [models, setModels] = useState<CodexModel[]>([]);
 
@@ -158,7 +176,7 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
         (previous) =>
           `${previous}${previous && !previous.endsWith(" ") ? " " : ""}${text}`,
       ),
-    isOpen !== false,
+    isOpen !== false && !submissionDisabled,
   );
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -735,7 +753,7 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
 
-    if (!trimmed || isStreaming) return;
+    if (!trimmed || isStreaming || submissionDisabled) return;
 
     // Resolve slash commands: if input starts with /command, find the command and substitute $ARGUMENTS
 
@@ -784,15 +802,23 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
 
         .join("\n\n---\n\n");
 
-      sendPrompt(finalPrompt, {
-        label: combinedLabel,
+      Promise.resolve(
+        sendPrompt(finalPrompt, {
+          label: combinedLabel,
 
-        filePath: pinnedContexts[0].filePath,
+          filePath: pinnedContexts[0].filePath,
 
-        selectedText: combinedText,
+          selectedText: combinedText,
+        }),
+      ).catch(() => {
+        setInput(trimmed);
+        setPinnedContexts(pinnedContexts);
       });
     } else {
-      sendPrompt(finalPrompt);
+      Promise.resolve(sendPrompt(finalPrompt)).catch(() => {
+        setInput(trimmed);
+        setPinnedContexts(pinnedContexts);
+      });
     }
 
     // Reset textarea height
@@ -804,7 +830,14 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
     // Clear pinned contexts after send
 
     setPinnedContexts([]);
-  }, [input, isStreaming, sendPrompt, pinnedContexts, slashCommands]);
+  }, [
+    input,
+    isStreaming,
+    submissionDisabled,
+    sendPrompt,
+    pinnedContexts,
+    slashCommands,
+  ]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1244,7 +1277,11 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
                 onChange={handleInput}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
-                placeholder="Ask me anything (/ for commands, @ to mention)"
+                placeholder={
+                  placeholder ??
+                  "Ask me anything (/ for commands, @ to mention)"
+                }
+                disabled={submissionDisabled}
                 className="max-h-40 min-h-10 w-full resize-none bg-transparent px-4 py-2 text-sm outline-none placeholder:text-muted-foreground"
                 rows={1}
               />
@@ -1315,7 +1352,10 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
                   )}
                 </TooltipIconButton>
                 {isStreaming ? (
-                  <AgentStopButton />
+                  <AgentStopButton
+                    runningOverride={streamingOverride}
+                    cancelOverride={stopOverride}
+                  />
                 ) : (
                   <TooltipIconButton
                     tooltip="Send"
@@ -1324,7 +1364,7 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
                     size="icon"
                     className="size-8 rounded-full"
                     onClick={handleSend}
-                    disabled={!input.trim()}
+                    disabled={!input.trim() || submissionDisabled}
                   >
                     <ArrowUpIcon className="size-4" />
                   </TooltipIconButton>
