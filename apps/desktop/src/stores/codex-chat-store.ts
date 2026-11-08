@@ -401,7 +401,7 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
       prompt = `${ctx}\n\n${userPrompt}`;
     }
     if (relatedProjects.length)
-      prompt = `Manually selected project group. Work only on the requested common change in these project directories: ${JSON.stringify([projectPath, ...relatedProjects])}. Read each version first. Preserve version-specific content, formatting, and emphasis; do not make all versions identical. Check each affected project separately. Integrated compiler tools target only the open project; use the provided Lemlio terminal fallback for other projects. Summarize changes per project and any skipped items.\n\n${prompt}`;
+      prompt = `Manually selected project group. ${groupScope?.mainPath ? `The main/reference version is ${JSON.stringify(groupScope.mainPath)}. Use it as the reference for common content while preserving intentional variant differences. ` : ""}Work only on the requested common change in these project directories: ${JSON.stringify([projectPath, ...relatedProjects])}. Read each version first. Preserve version-specific content, formatting, and emphasis; do not make all versions identical. Check each affected project separately. Integrated compiler tools target only the open project; use the provided Lemlio terminal fallback for other projects. Summarize changes per project and any skipped items.\n\n${prompt}`;
     log.info("invoking CLI", {
       promptLength: prompt.length,
       mode: sessionId ? "resume" : "new",

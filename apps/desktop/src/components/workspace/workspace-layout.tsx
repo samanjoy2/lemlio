@@ -1,3 +1,5 @@
+import { useContext } from "react";
+import { GroupComposerContext } from "@/lib/group-composer-context";
 import { useProjectGroups } from "@/stores/project-groups-store";
 import { ProjectGroups } from "@/components/project-groups";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
@@ -11,6 +13,7 @@ import { Spinner } from "@/components/panelui/spinner";
 import { DriveStatus } from "@/components/drive-status";
 
 export function WorkspaceLayout() {
+  const composer = useContext(GroupComposerContext);
   const grouped = useProjectGroups((s) => !!s.activeGroupId);
   const initialized = useDocumentStore((s) => s.initialized);
   const projectRoot = useDocumentStore((s) => s.projectRoot);
@@ -40,19 +43,26 @@ export function WorkspaceLayout() {
 
         <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-ring" />
 
-        <Panel defaultSize={42.5} minSize={25}>
-          <div className="flex h-full flex-col">
-            <div className="min-h-0 flex-1">
-              <LatexEditor />
-            </div>
-            <DriveStatus projectPath={projectRoot} />
+        <Panel defaultSize={85} minSize={50}>
+          <div className="flex h-full min-h-0 flex-col">
+            <PanelGroup direction="horizontal" className="min-h-0 flex-1">
+              <Panel defaultSize={50} minSize={30}>
+                <div className="flex h-full flex-col">
+                  <div className="min-h-0 flex-1">
+                    <LatexEditor />
+                  </div>
+                  <DriveStatus projectPath={projectRoot} />
+                </div>
+              </Panel>
+
+              <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-ring" />
+
+              <Panel defaultSize={50} minSize={30}>
+                <PdfPreview />
+              </Panel>
+            </PanelGroup>
+            {composer}
           </div>
-        </Panel>
-
-        <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-ring" />
-
-        <Panel defaultSize={42.5} minSize={25}>
-          <PdfPreview />
         </Panel>
       </PanelGroup>
     </div>

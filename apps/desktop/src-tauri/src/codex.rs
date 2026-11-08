@@ -564,21 +564,13 @@ async fn start_turn(
         if !root.is_dir() {
             return Err("Grouped project must be a directory".into());
         }
-        if crate::collaboration::manifest(&root)?.is_some() {
-            return Err(
-                "Group agent runs currently require ordinary, non-collaborative projects".into(),
-            );
-        }
+        crate::collaboration::manifest(&root)?;
         let value = root.to_string_lossy().to_string();
         if !roots.contains(&value) {
             roots.push(value);
         }
     }
-    if roots.len() > 1 && crate::collaboration::manifest(&path)?.is_some() {
-        return Err(
-            "Group agent runs currently require ordinary, non-collaborative projects".into(),
-        );
-    }
+    crate::collaboration::manifest(&path)?;
     let rpc = server(&window).await?;
     rpc.cancelled.lock().await.remove(&tab_id);
     let previous = rpc

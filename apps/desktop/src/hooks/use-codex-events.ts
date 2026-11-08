@@ -1,3 +1,4 @@
+import { finalizeGroupEdit } from "@/lib/project-group-actions";
 import { useEffect, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
@@ -45,6 +46,7 @@ interface CodexErrorPayload {
 export function useCodexEvents() {
   // Per-tab mutable state stored in refs so the long-lived listeners
   // always read the latest values without needing to be re-created.
+  const finishing = useRef(new Set<string>());
   const pendingToolUsesRef = useRef(
     new Map<string, Map<string, { name: string; input: any }>>(),
   );
@@ -297,6 +299,7 @@ export function useCodexEvents() {
 
       // Guard against duplicate complete events
       const tab = chatStore.tabs.find((t) => t.id === tabId);
+      if (finishing.current.has(tabId)) return;
       if (!tab?.isStreaming) {
         log.warn(
           `[${tabId}] ignoring duplicate complete event (not streaming)`,
@@ -323,12 +326,19 @@ export function useCodexEvents() {
         }
       }
 
+      finishing.current.add(tabId);
       // Clean up per-tab state
       pendingToolUsesRef.current.delete(tabId);
       hasTexChangesRef.current.delete(tabId);
       cancelledForAskRef.current.delete(tabId);
 
+      try {
+        await finalizeGroupEdit(tabId);
+      } catch (error) {
+        chatStore._setError(tabId, String(error));
+      }
       chatStore._setStreaming(tabId, false);
+      finishing.current.delete(tabId);
 
       // Snapshot after Codex edit
       const projectPath = useDocumentStore.getState().projectRoot;

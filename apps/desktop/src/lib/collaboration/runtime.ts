@@ -760,3 +760,22 @@ export async function backupProject<T>(options: {
     }
   }
 }
+
+/** Fold ordinary agent filesystem edits into shared history without consulting Drive. */
+export async function reconcileCollaborationSource(path: string) {
+  const replica = await getReplica(path);
+  if (!replica) return;
+  try {
+    await replica.reconcileDisk();
+    if (replica.hasConflicts())
+      throw Error(
+        "Review shared-file conflicts in Collaboration before continuing: " +
+          path,
+      );
+  } finally {
+    if (replica !== active) {
+      await replica.dispose();
+      replicas.delete(keyPath(path));
+    }
+  }
+}

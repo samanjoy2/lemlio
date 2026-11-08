@@ -93,13 +93,14 @@ Thumbs.db
 # Lemlio internal
 .prismpro/
 .prism/
+.lemlio-collab/
 "#;
     if !excludes_path.exists() {
         let _ = fs::write(&excludes_path, content);
     } else {
         // Migrate: add .prism/ if missing from existing excludes file
         if let Ok(existing) = fs::read_to_string(&excludes_path) {
-            if !existing.contains(".prism/") {
+            if !existing.contains(".prism/") || !existing.contains(".lemlio-collab/") {
                 let _ = fs::write(&excludes_path, content);
             }
         }
@@ -150,6 +151,7 @@ pub fn history_init(project_root: String) -> Result<(), String> {
     index
         .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
         .map_err(|e| format!("Failed to add files: {}", e))?;
+    let _ = index.remove_dir(Path::new(".lemlio-collab"), 0);
     index
         .write()
         .map_err(|e| format!("Failed to write index: {}", e))?;
@@ -181,6 +183,7 @@ pub fn history_snapshot(
     message: String,
 ) -> Result<Option<SnapshotInfo>, String> {
     let repo = open_repo(&project_root)?;
+    ensure_excludes(&project_root, &repo);
 
     let mut index = repo
         .index()
@@ -202,6 +205,7 @@ pub fn history_snapshot(
         }
     }
 
+    let _ = index.remove_dir(Path::new(".lemlio-collab"), 0);
     index
         .write()
         .map_err(|e| format!("Failed to write index: {}", e))?;
@@ -448,24 +452,61 @@ pub fn history_file_at(
 #[tauri::command]
 pub fn history_restore(project_root: String, snapshot_id: String) -> Result<SnapshotInfo, String> {
     let repo = open_repo(&project_root)?;
+    ensure_excludes(&project_root, &repo);
     let oid = Oid::from_str(&snapshot_id).map_err(|e| format!("Invalid snapshot_id: {}", e))?;
     let commit = repo
         .find_commit(oid)
         .map_err(|e| format!("Commit not found: {}", e))?;
     let tree = commit.tree().map_err(|e| format!("Tree error: {}", e))?;
 
-    // Checkout the tree to working directory
-    repo.checkout_tree(
-        tree.as_object(),
-        Some(git2::build::CheckoutBuilder::new().force()),
-    )
-    .map_err(|e| format!("Checkout failed: {}", e))?;
+    // Source restoration must never rewind shared CRDT history or identity,
+    // including legacy snapshots created before collaboration was excluded.
+    let mut filtered = git2::Index::new().map_err(|e| e.to_string())?;
+    filtered.read_tree(&tree).map_err(|e| e.to_string())?;
+    let _ = filtered.remove_dir(Path::new(".lemlio-collab"), 0);
+    let filtered_oid = filtered.write_tree_to(&repo).map_err(|e| e.to_string())?;
+    let tree = repo.find_tree(filtered_oid).map_err(|e| e.to_string())?;
+    let mut current = repo.index().map_err(|e| e.to_string())?;
+    let _ = current.remove_dir(Path::new(".lemlio-collab"), 0);
+    current.write().map_err(|e| e.to_string())?;
+
+    // Bound checkout to source paths explicitly: libgit2's HEAD baseline can
+    // otherwise remove ignored shared files from a legacy commit.
+    let mut source_paths = std::collections::BTreeSet::new();
+    let mut collect = |parent: &str, entry: &git2::TreeEntry<'_>| {
+        if let Some(name) = entry.name() {
+            let relative = format!("{parent}{name}");
+            if relative == ".lemlio-collab" || relative.starts_with(".lemlio-collab/") {
+                return git2::TreeWalkResult::Skip;
+            }
+            if entry.kind() == Some(git2::ObjectType::Blob) {
+                source_paths.insert(relative);
+            }
+        }
+        git2::TreeWalkResult::Ok
+    };
+    tree.walk(git2::TreeWalkMode::PreOrder, &mut collect)
+        .map_err(|e| e.to_string())?;
+    if let Ok(head) = repo.head().and_then(|h| h.peel_to_tree()) {
+        head.walk(git2::TreeWalkMode::PreOrder, &mut collect)
+            .map_err(|e| e.to_string())?;
+    }
+    if !source_paths.is_empty() {
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.force().disable_pathspec_match(true);
+        for source in source_paths {
+            checkout.path(source);
+        }
+        repo.checkout_tree(tree.as_object(), Some(&mut checkout))
+            .map_err(|e| format!("Checkout failed: {e}"))?;
+    }
 
     // Create a new "restore" commit on HEAD (not moving HEAD to old commit)
     let mut index = repo.index().map_err(|e| format!("Index error: {}", e))?;
     index
         .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
         .map_err(|e| format!("Add error: {}", e))?;
+    let _ = index.remove_dir(Path::new(".lemlio-collab"), 0);
     index.write().map_err(|e| format!("Write error: {}", e))?;
 
     let new_tree_oid = index
@@ -525,6 +566,70 @@ pub fn history_remove_label(project_root: String, label: String) -> Result<(), S
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn restoring_legacy_source_preserves_current_shared_identity_and_history() {
+        let dir = setup_project(&[
+            ("main.tex", "v1"),
+            (".lemlio-collab/project.json", "old identity"),
+            (".lemlio-collab/state.bin", "old history"),
+        ]);
+        let r = root(&dir);
+        history_init(r.clone()).unwrap();
+        let repo = open_repo(&r).unwrap();
+        assert!(repo
+            .head()
+            .unwrap()
+            .peel_to_tree()
+            .unwrap()
+            .get_path(Path::new(".lemlio-collab"))
+            .is_err());
+        // Simulate a snapshot written by an older version of the app.
+        let mut index = repo.index().unwrap();
+        index
+            .add_path(Path::new(".lemlio-collab/project.json"))
+            .unwrap();
+        index
+            .add_path(Path::new(".lemlio-collab/state.bin"))
+            .unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let parent = repo.head().unwrap().peel_to_commit().unwrap();
+        let sig = default_signature().unwrap();
+        let legacy = repo
+            .commit(Some("HEAD"), &sig, &sig, "legacy", &tree, &[&parent])
+            .unwrap();
+        fs::write(dir.path().join("main.tex"), "v2").unwrap();
+        fs::write(
+            dir.path().join(".lemlio-collab/project.json"),
+            "current identity",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join(".lemlio-collab/state.bin"),
+            "current history",
+        )
+        .unwrap();
+        history_restore(r.clone(), legacy.to_string()).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.path().join(".lemlio-collab/state.bin")).unwrap(),
+            "current history"
+        );
+        fs::write(dir.path().join("main.tex"), "v2 again").unwrap();
+        history_snapshot(r.clone(), "new snapshot".into()).unwrap();
+        history_restore(r, legacy.to_string()).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.path().join("main.tex")).unwrap(),
+            "v1"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join(".lemlio-collab/project.json")).unwrap(),
+            "current identity"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join(".lemlio-collab/state.bin")).unwrap(),
+            "current history"
+        );
+    }
+
     use super::*;
     use std::fs;
     use tempfile::TempDir;

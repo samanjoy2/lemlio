@@ -245,6 +245,16 @@ export const ChatComposer: FC<{
 
   pinnedContextsRef.current = pinnedContexts;
 
+  useEffect(
+    () => () => {
+      useCodexChatStore.getState().saveDraft(prevTabIdRef.current, {
+        input: inputRef.current,
+        pinnedContexts: pinnedContextsRef.current,
+      });
+    },
+    [],
+  );
+
   // Save draft to previous tab, restore draft from new tab
 
   const prevTabIdRef = useRef(activeTabId);
@@ -372,7 +382,10 @@ export const ChatComposer: FC<{
 
     setPinnedContexts((prev) => {
       const filtered = prev.filter(
-        (c) => !c.label.includes(":") || c.label.startsWith("@attachments/"),
+        (c) =>
+          !c.label.includes(":") ||
+          c.label.startsWith("@attachments/") ||
+          c.label.startsWith("@project "),
       );
 
       return [

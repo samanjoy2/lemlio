@@ -1,3 +1,5 @@
+import { useProjectGroups } from "@/stores/project-groups-store";
+import { useCodexChatStore } from "@/stores/codex-chat-store";
 import { invoke } from "@tauri-apps/api/core";
 import { useLayoutEffect } from "react";
 import { toast } from "sonner";
@@ -81,7 +83,19 @@ export function useCollaboration() {
           .refreshFiles()
           .catch(() => {});
     };
+    const groupAgentRunning = () => {
+      const scope = useProjectGroups.getState().scope;
+      return (
+        scope?.paths.some(
+          (path) => projectPathKey(path) === projectPathKey(root),
+        ) &&
+        useCodexChatStore
+          .getState()
+          .tabs.some((tab) => tab.id === scope.tabId && tab.isStreaming)
+      );
+    };
     const saved = (event: Event) => {
+      if (groupAgentRunning()) return;
       if ((event as CustomEvent<string>).detail === root && !disposed)
         void activeCollaboration()
           ?.reconcileDisk()
@@ -101,6 +115,7 @@ export function useCollaboration() {
     const scan = setInterval(() => {
       if (
         !disposed &&
+        !groupAgentRunning() &&
         !useDocumentStore.getState().files.some((f) => f.isDirty)
       )
         void activeCollaboration()

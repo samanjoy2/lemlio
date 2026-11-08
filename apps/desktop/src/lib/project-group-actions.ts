@@ -1,3 +1,11 @@
+import { toast } from "sonner";
+import {
+  activeCollaboration,
+  activateCollaboration,
+  reconcileCollaborationSource,
+  useCollaborationStore,
+} from "@/lib/collaboration/runtime";
+import { projectPathKey } from "@/lib/project-catalog";
 import { invoke } from "@tauri-apps/api/core";
 import { useProjectGroups } from "@/stores/project-groups-store";
 import { useDocumentStore } from "@/stores/document-store";
@@ -30,6 +38,7 @@ export async function runGroupEdit(
   prompt: string,
   onReady?: () => void,
   context?: { label: string; filePath: string; selectedText: string },
+  mainPath?: string,
 ) {
   const doc = useDocumentStore.getState();
   if (
@@ -42,15 +51,25 @@ export async function runGroupEdit(
     throw Error("Save your changes first.");
   if (paths.length < 2 || paths.length > 20)
     throw Error("Choose between 2 and 20 projects.");
+  const replica = activeCollaboration();
+  if (
+    replica &&
+    paths.some((path) => projectPathKey(path) === projectPathKey(replica.path))
+  ) {
+    const wasLive =
+      useCollaborationStore.getState().connected ||
+      useCollaborationStore.getState().connecting ||
+      useCollaborationStore.getState().hosting;
+    await replica.disconnect();
+    if (wasLive)
+      toast.info("Live sharing paused for this group edit", {
+        description:
+          "Your shared history is kept. Reconnect after reviewing the agent's changes.",
+      });
+  }
   const review: { path: string; snapshot: string }[] = [];
   for (const path of paths) {
-    const shared = await invoke<{ enabled: boolean }>("collaboration_load", {
-      projectPath: path,
-    });
-    if (shared.enabled)
-      throw Error(
-        "Group runs currently support non-collaborative projects only.",
-      );
+    await reconcileCollaborationSource(path);
     await invoke("history_init", { projectRoot: path });
     await invoke("history_snapshot", {
       projectRoot: path,
@@ -66,10 +85,11 @@ export async function runGroupEdit(
   }
   useProjectGroups.setState({ review });
   await switchGroupProject(paths[0]);
+  await activateCollaboration(paths[0]);
   onReady?.();
   const chat = useCodexChatStore.getState();
   const tabId = chat.createTab();
-  useProjectGroups.setState({ scope: { tabId, paths: [...paths] } });
+  useProjectGroups.setState({ scope: { tabId, paths: [...paths], mainPath } });
   await useCodexChatStore
     .getState()
     .sendPrompt(
@@ -117,4 +137,25 @@ export async function stopGroupAgent() {
     chat.setActiveTab(running.id);
     await useCodexChatStore.getState().cancelExecution();
   }
+}
+
+export async function finalizeGroupEdit(tabId: string) {
+  const scope = useProjectGroups.getState().scope;
+  if (scope?.tabId !== tabId) return;
+  const errors: string[] = [];
+  for (const path of scope.paths) {
+    try {
+      await reconcileCollaborationSource(path);
+      window.dispatchEvent(
+        new CustomEvent("lemlio-project-saved", { detail: path }),
+      );
+    } catch (error) {
+      errors.push(`${path}: ${String(error)}`);
+    }
+  }
+  if (errors.length)
+    throw Error(
+      "Group files were kept, but shared history needs attention. " +
+        errors.join("; "),
+    );
 }

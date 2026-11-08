@@ -2,7 +2,10 @@ import { switchGroupProject } from "@/lib/project-group-actions";
 import { useState } from "react";
 import { LayersIcon, PlusIcon, FolderOpenIcon } from "lucide-react";
 import { useProjectCatalog } from "@/hooks/use-project-catalog";
-import { useProjectGroups } from "@/stores/project-groups-store";
+import {
+  groupProjectPaths,
+  useProjectGroups,
+} from "@/stores/project-groups-store";
 import { useCodexChatStore } from "@/stores/codex-chat-store";
 import { Dialog } from "./panelui/dialog";
 import { Button } from "./ui/button";
@@ -31,7 +34,16 @@ export function ProjectGroups({ disabled = false }: { disabled?: boolean }) {
   };
   const save = () => {
     const key = id || crypto.randomUUID();
-    useProjectGroups.getState().save({ id: key, name: name.trim(), paths });
+    const previous = groups.find((g) => g.id === key);
+    useProjectGroups.getState().save({
+      id: key,
+      name: name.trim(),
+      paths,
+      mainPath:
+        previous?.mainPath && paths.includes(previous.mainPath)
+          ? previous.mainPath
+          : undefined,
+    });
     setId(key);
     return key;
   };
@@ -205,7 +217,10 @@ export function ProjectGroups({ disabled = false }: { disabled?: boolean }) {
                   setError("");
                   try {
                     const key = save();
-                    await switchGroupProject(paths[0]);
+                    const saved = useProjectGroups
+                      .getState()
+                      .groups.find((g) => g.id === key)!;
+                    await switchGroupProject(groupProjectPaths(saved)[0]);
                     useProjectGroups.setState({ activeGroupId: key });
                     setOpen(false);
                   } catch (error) {
