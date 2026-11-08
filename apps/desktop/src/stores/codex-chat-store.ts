@@ -1,3 +1,4 @@
+import { useProjectGroups } from "./project-groups-store";
 import { useCollaborationStore } from "@/lib/collaboration/runtime";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
@@ -301,6 +302,11 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
       return;
     }
 
+    const groupScope = useProjectGroups.getState().scope;
+    const relatedProjects =
+      groupScope?.tabId === activeTabId && groupScope.paths[0] === projectPath
+        ? groupScope.paths.slice(1)
+        : [];
     // Compute context label for display in chat history
     const activeFile = docState.files.find(
       (f) => f.id === docState.activeFileId,
@@ -394,6 +400,8 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
       }
       prompt = `${ctx}\n\n${userPrompt}`;
     }
+    if (relatedProjects.length)
+      prompt = `Manually selected project group. Work only on the requested common change in these project directories: ${JSON.stringify([projectPath, ...relatedProjects])}. Read each version first. Preserve version-specific content, formatting, and emphasis; do not make all versions identical. Check each affected project separately. Integrated compiler tools target only the open project; use the provided Lemlio terminal fallback for other projects. Summarize changes per project and any skipped items.\n\n${prompt}`;
     log.info("invoking CLI", {
       promptLength: prompt.length,
       mode: sessionId ? "resume" : "new",
@@ -404,6 +412,7 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
         // Resume existing session
         await invoke("resume_codex_code", {
           projectPath,
+          relatedProjects,
           sessionId,
           prompt,
           tabId: activeTabId,
@@ -416,6 +425,7 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
         // New session
         await invoke("execute_codex_code", {
           projectPath,
+          relatedProjects,
           prompt,
           tabId: activeTabId,
           model: selectedModel,

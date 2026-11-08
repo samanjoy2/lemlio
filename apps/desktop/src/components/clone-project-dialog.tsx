@@ -1,3 +1,4 @@
+import { useProjectStore } from "@/stores/project-store";
 import { flushCollaboration } from "@/lib/collaboration/runtime";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -63,6 +64,10 @@ export function CloneProjectDialog() {
         ? doc.mainFileId
         : localStorage.getItem(`lemlio-main:${source.path}`);
       if (main) localStorage.setItem(`lemlio-main:${result.path}`, main);
+      useProjectStore.getState().addRecentProject(result.path);
+      window.dispatchEvent(
+        new CustomEvent("lemlio-project-cloned", { detail: result.path }),
+      );
       window.dispatchEvent(new Event("project-library-changed"));
       window.dispatchEvent(
         new CustomEvent("lemlio-project-saved", { detail: result.path }),

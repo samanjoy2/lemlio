@@ -547,11 +547,37 @@ async fn start_turn(
     effort_level: Option<String>,
     main_file: Option<String>,
     use_texlive: Option<bool>,
+    related_projects: Option<Vec<String>>,
 ) -> Result<(), String> {
     let path =
         std::fs::canonicalize(&project_path).map_err(|e| format!("Cannot open project: {e}"))?;
     if !path.is_dir() {
         return Err("Project path must be a directory".into());
+    }
+    let mut roots = vec![path.to_string_lossy().to_string()];
+    for selected in related_projects.unwrap_or_default() {
+        if roots.len() >= 20 {
+            return Err("A group run supports at most 20 projects".into());
+        }
+        let root = std::fs::canonicalize(&selected)
+            .map_err(|e| format!("Cannot open grouped project: {e}"))?;
+        if !root.is_dir() {
+            return Err("Grouped project must be a directory".into());
+        }
+        if crate::collaboration::manifest(&root)?.is_some() {
+            return Err(
+                "Group agent runs currently require ordinary, non-collaborative projects".into(),
+            );
+        }
+        let value = root.to_string_lossy().to_string();
+        if !roots.contains(&value) {
+            roots.push(value);
+        }
+    }
+    if roots.len() > 1 && crate::collaboration::manifest(&path)?.is_some() {
+        return Err(
+            "Group agent runs currently require ordinary, non-collaborative projects".into(),
+        );
     }
     let rpc = server(&window).await?;
     rpc.cancelled.lock().await.remove(&tab_id);
@@ -605,6 +631,8 @@ async fn start_turn(
     if let Some(e) = effort_level.filter(|e| !e.is_empty()) {
         params["effort"] = json!(e);
     }
+    params["sandboxPolicy"] =
+        json!({"type":"workspaceWrite","writableRoots":roots,"networkAccess":false});
     let turn = rpc.call("turn/start", params).await?;
     if rpc.cancelled.lock().await.contains(&tab_id) {
         rpc.call(
@@ -625,6 +653,7 @@ pub async fn execute_codex_code(
     effort_level: Option<String>,
     main_file: Option<String>,
     use_texlive: Option<bool>,
+    related_projects: Option<Vec<String>>,
 ) -> Result<(), String> {
     start_turn(
         window,
@@ -636,6 +665,7 @@ pub async fn execute_codex_code(
         effort_level,
         main_file,
         use_texlive,
+        related_projects,
     )
     .await
 }
@@ -650,6 +680,7 @@ pub async fn resume_codex_code(
     effort_level: Option<String>,
     main_file: Option<String>,
     use_texlive: Option<bool>,
+    related_projects: Option<Vec<String>>,
 ) -> Result<(), String> {
     start_turn(
         window,
@@ -661,6 +692,7 @@ pub async fn resume_codex_code(
         effort_level,
         main_file,
         use_texlive,
+        related_projects,
     )
     .await
 }

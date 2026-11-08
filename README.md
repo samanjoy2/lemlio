@@ -151,6 +151,14 @@ The default compiler is bundled Tectonic, including Lemlio's fonts, project stag
 
 **After upgrading, start a new chat once to get the direct tools.** Existing chats that already have the tools retain them on resume. Older chats receive an explicit terminal fallback to the installed Lemlio executable; the bundled Tectonic directory is also included in the Codex process PATH. No separate OpenAI API key or Tectonic installation is needed for these tools. A successful compile verifies compilation, while visual layout claims require viewing the rendered PDF.
 
+## Related project versions (next update)
+
+**Project groups / Review changes** is available in the library and editor. Create a named group, tick the projects you want, and save it. Group definitions are stored on this device. Membership stays manual: clones are independent and are not silently added to groups. To update related CVs, enter one common request and choose **Run Codex on N projects**. The agent can edit those selected folders while preserving their individual differences; saving a group alone never modifies files.
+
+Each run creates per-project history checkpoints. After the agent finishes (or you stop it), use **Review last group run** to see changed files and before/after text for every project together. Binary files are listed without a visual diff. Older checkpoints remain in each project's History; a new run replaces the combined review baseline. Review includes all changes since the checkpoint, including any manual edits made afterward.
+
+Group runs support 2–20 ordinary local projects. Collaborative projects are excluded in this first version. Finish other editors' work first. The normal Codex approval flow still applies. Integrated compiler/PDF tools target the open project; Codex receives terminal compiler instructions for the other variants. This is a manual batch edit, not automatic shared-component synchronization. Newly cloned projects appear first and clear library filters.
+
 ## Collaboration
 
 Open a project → **Collaborate → Enable collaboration → Host on this device**. Copy its invitation and send it privately. The other person chooses **Join shared project** on the home page and pastes it. Both people keep a local copy and can edit or host. Everyone needs Lemlio **1.4.0 or later**.

@@ -1,3 +1,4 @@
+import { ProjectGroups } from "./project-groups";
 import { openCollaboration } from "./collaboration-dialog";
 import { AppSettings } from "@/components/app-settings";
 import { DriveStatus } from "@/components/drive-status";
@@ -129,6 +130,16 @@ export function ProjectPicker() {
     return () => window.removeEventListener("keydown", handler);
   }, [skillsOpen, importOpen, showModeDialog, wizardMode]);
 
+  useEffect(() => {
+    const cloned = () => {
+      setSort("recent");
+      setView("all");
+      setCategory(null);
+      setQuery("");
+    };
+    window.addEventListener("lemlio-project-cloned", cloned);
+    return () => window.removeEventListener("lemlio-project-cloned", cloned);
+  }, []);
   const recentKeys = useMemo(
     () => new Set(recent.map((project) => projectPathKey(project.path))),
     [recent],
@@ -452,6 +463,7 @@ export function ProjectPicker() {
               <CodexSetup />
             </div>
           )}
+          <ProjectGroups />
           <DriveDiscoveryNotice />
           <DriveBackupOverview projects={projects} />
           <div className="home-toolbar">

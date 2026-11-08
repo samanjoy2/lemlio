@@ -1,3 +1,4 @@
+import { useProjectGroups } from "@/stores/project-groups-store";
 import { backupProject } from "@/lib/collaboration/runtime";
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -73,6 +74,13 @@ export function useDriveBackup() {
         if (!status.connected) return;
         for (const [key, item] of [...queue]) {
           if (disposed || !useSettingsStore.getState().autoDriveBackup) break;
+          if (
+            useCodexChatStore.getState().tabs.some((t) => t.isStreaming) &&
+            useProjectGroups
+              .getState()
+              .scope?.paths.some((p) => projectPathKey(p) === key)
+          )
+            continue;
           const previous = projectDriveStatus(item.path);
           if (previous.paused || previous.conflict || previous.incoming)
             continue;
@@ -208,6 +216,13 @@ export function useDriveBackup() {
               current.paused ||
               current.uploading ||
               JSON.stringify(current) !== observedStatuses.get(key)
+            )
+              continue;
+            if (
+              useCodexChatStore.getState().tabs.some((t) => t.isStreaming) &&
+              useProjectGroups
+                .getState()
+                .scope?.paths.some((p) => projectPathKey(p) === key)
             )
               continue;
             if (

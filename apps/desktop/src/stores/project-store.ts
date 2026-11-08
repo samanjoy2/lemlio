@@ -44,7 +44,11 @@ export const useProjectStore = create<ProjectState>()(
           const filtered = state.recentProjects.filter(
             (p) => projectPathKey(p.path) !== key,
           );
-          const project = { path, name, lastOpened: Date.now() };
+          const lastOpened = Math.max(
+            Date.now(),
+            ...state.recentProjects.map((p) => p.lastOpened + 1),
+          );
+          const project = { path, name, lastOpened };
           return {
             knownProjects: [
               project,

@@ -1,3 +1,4 @@
+import { ProjectGroups } from "@/components/project-groups";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useCollaborationStore } from "@/lib/collaboration/runtime";
 import { CollaborationBar } from "@/components/collaboration-dialog";
@@ -29,6 +30,7 @@ export function WorkspaceLayout() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <CollaborationBar />
+      <ProjectGroups />
       <PanelGroup direction="horizontal" className="min-h-0 flex-1">
         <Panel defaultSize={15} minSize={10} maxSize={25}>
           <Sidebar />
