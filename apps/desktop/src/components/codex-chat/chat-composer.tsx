@@ -48,6 +48,8 @@ import { getUniqueTargetName } from "@/lib/tauri/fs";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 
 import { cn } from "@/lib/utils";
+import { agentCommand } from "@/lib/agent-provider";
+import { useSettingsStore } from "@/stores/settings-store";
 
 import { SlashCommandPicker, type SlashCommand } from "./slash-command-picker";
 
@@ -128,16 +130,21 @@ export const ChatComposer: FC<{
 
   const [modelError, setModelError] = useState<string | null>(null);
 
+  const provider = useSettingsStore((s) => s.agentProvider);
+
   useEffect(() => {
     let disposed = false;
 
-    invoke<CodexModel[]>("list_codex_models")
+    invoke<CodexModel[]>(agentCommand("listModels", provider))
 
       .then((result) => {
         if (!disposed) {
           setModels(result.filter((model) => !model.hidden));
 
-          if (!useCodexChatStore.getState().selectedModel) {
+          if (
+            provider === "codex" &&
+            !useCodexChatStore.getState().selectedModel
+          ) {
             const economical = ["gpt-6-luna", "gpt-5.6-luna", "gpt-5.4-mini"]
               .map((id) => result.find((m) => m.model === id && !m.hidden))
               .find(Boolean);
@@ -157,7 +164,7 @@ export const ChatComposer: FC<{
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [provider]);
 
   const selectedModel = useCodexChatStore((s) => s.selectedModel);
 

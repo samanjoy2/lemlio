@@ -9,10 +9,15 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCodexSetupStore } from "@/stores/codex-setup-store";
+import { useSettingsStore } from "@/stores/settings-store";
+import { AGENT_LABELS } from "@/lib/agent-provider";
 
 export function CodexSetup() {
   const { status, error, isLoggingIn, checkStatus, login, finishLogin } =
     useCodexSetupStore();
+  const provider = useSettingsStore((s) => s.agentProvider);
+  const name = AGENT_LABELS[provider];
+  const claude = provider === "claude";
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -38,35 +43,46 @@ export function CodexSetup() {
         )}
         <p className="font-medium text-sm">
           {isLoggingIn
-            ? "Complete your ChatGPT sign-in"
+            ? claude
+              ? "Complete your Claude sign-in"
+              : "Complete your ChatGPT sign-in"
             : status === "checking"
-              ? "Connecting to your Codex"
-              : "Connect Codex"}
+              ? `Connecting to your ${name}`
+              : `Connect ${name}`}
         </p>
       </div>
       <p className="text-muted-foreground text-xs">
-        Lemlio uses your local Codex and existing ChatGPT sign-in. Your
-        documents stay on this computer; AI requests are sent through Codex.
+        {claude
+          ? "Lemlio uses your local Claude Code and existing Claude sign-in. Your documents stay on this computer; AI requests are sent through Claude Code."
+          : "Lemlio uses your local Codex and existing ChatGPT sign-in. Your documents stay on this computer; AI requests are sent through Codex."}
       </p>
       {status === "not-installed" && (
         <>
-          <p className="text-xs">Install Codex in a terminal, then refresh:</p>
+          <p className="text-xs">Install {name} in a terminal, then refresh:</p>
           <code className="select-all rounded bg-muted px-3 py-2 text-xs">
-            npm install -g @openai/codex
+            {claude
+              ? "npm install -g @anthropic-ai/claude-code"
+              : "npm install -g @openai/codex"}
           </code>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => open("https://developers.openai.com/codex/cli")}
+            onClick={() =>
+              open(
+                claude
+                  ? "https://docs.claude.com/en/docs/claude-code/overview"
+                  : "https://developers.openai.com/codex/cli",
+              )
+            }
           >
-            Codex setup guide
+            {name} setup guide
           </Button>
         </>
       )}
       {status === "not-authenticated" && !isLoggingIn && (
         <Button size="sm" onClick={login}>
           <LogInIcon className="mr-2 size-4" />
-          Sign in with ChatGPT
+          {claude ? "Sign in with Claude" : "Sign in with ChatGPT"}
         </Button>
       )}
       {error && (
