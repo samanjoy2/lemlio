@@ -13,6 +13,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useTheme } from "next-themes";
 import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
+import { agentCommand, AGENT_LABELS } from "@/lib/agent-provider";
 import { useCodexChatStore } from "@/stores/codex-chat-store";
 export function AppSettings() {
   const [visible, setVisible] = useState(
@@ -43,7 +44,7 @@ export function AppSettings() {
       .catch(() => {});
   }, []);
   const [tab, setTab] = useState(() =>
-    localStorage.getItem("lemlio-setup-complete") ? "General" : "Codex",
+    localStorage.getItem("lemlio-setup-complete") ? "General" : "Assistant",
   );
   useEffect(() => {
     const show = (event: Event) => {
@@ -53,18 +54,18 @@ export function AppSettings() {
     window.addEventListener("lemlio-open-settings", show);
     return () => window.removeEventListener("lemlio-open-settings", show);
   }, []);
+  const settings = useSettingsStore();
   const selectedModel = useCodexChatStore((s) => s.selectedModel);
   const setSelectedModel = useCodexChatStore((s) => s.setSelectedModel);
   const [models, setModels] = useState<
     { model: string; displayName: string; hidden: boolean }[]
   >([]);
   useEffect(() => {
-    if (visible && tab === "Codex")
-      void invoke<typeof models>("list_codex_models")
+    if (visible && tab === "Assistant")
+      void invoke<typeof models>(agentCommand("listModels"))
         .then(setModels)
         .catch(() => {});
-  }, [visible, tab]);
-  const settings = useSettingsStore();
+  }, [visible, tab, settings.agentProvider]);
   const { theme, setTheme } = useTheme();
   return (
     <>
@@ -98,7 +99,7 @@ export function AppSettings() {
             <Tabs.List aria-label="Settings sections">
               {[
                 "General",
-                "Codex",
+                "Assistant",
                 "Compiler",
                 "Skills",
                 "Google Drive",
@@ -141,8 +142,23 @@ export function AppSettings() {
                   </label>
                 </div>
               )}
-              {tab === "Codex" && (
+              {tab === "Assistant" && (
                 <>
+                  <label className="block">
+                    AI assistant
+                    <select
+                      className="ml-3 rounded border p-2"
+                      value={settings.agentProvider}
+                      onChange={(e) =>
+                        settings.setAgentProvider(
+                          e.target.value as "codex" | "claude",
+                        )
+                      }
+                    >
+                      <option value="codex">Codex (OpenAI)</option>
+                      <option value="claude">Claude (Anthropic)</option>
+                    </select>
+                  </label>
                   <CodexSetup />
                   <label className="block">
                     Default model
@@ -157,7 +173,7 @@ export function AppSettings() {
                           .map((m) => (
                             <option key={m.model} value={m.model}>
                               {m.displayName}
-                              {m.model === "gpt-6-luna"
+                              {m.model === "gpt-6-luna" || m.model === "haiku"
                                 ? " · economical default"
                                 : ""}
                             </option>
@@ -168,19 +184,24 @@ export function AppSettings() {
                     </select>
                   </label>
                   <p>
-                    New chats use GPT-6 Luna when it is in your available model
-                    list. Choose another model in the chat model picker.
+                    {settings.agentProvider === "claude"
+                      ? "New chats use Claude Haiku, the most economical model. Choose another model in the chat model picker."
+                      : "New chats use GPT-6 Luna when it is in your available model list. Choose another model in the chat model picker."}
                   </p>
                   <Button
                     onClick={() =>
-                      open("https://developers.openai.com/codex/cli")
+                      open(
+                        settings.agentProvider === "claude"
+                          ? "https://docs.claude.com/en/docs/claude-code/overview"
+                          : "https://developers.openai.com/codex/cli",
+                      )
                     }
                   >
-                    Codex setup instructions
+                    {AGENT_LABELS[settings.agentProvider]} setup instructions
                   </Button>
                   <p>
-                    You can connect later. Editing and compilation work without
-                    Codex.
+                    You can connect later. Editing and compilation work without{" "}
+                    {AGENT_LABELS[settings.agentProvider]}.
                   </p>
                 </>
               )}

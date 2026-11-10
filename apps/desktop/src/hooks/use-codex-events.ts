@@ -16,6 +16,7 @@ import {
   resolveCompileTarget,
   formatCompileError,
 } from "@/lib/latex-compiler";
+import { agentCommand } from "@/lib/agent-provider";
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("codex-event");
@@ -283,7 +284,7 @@ export function useCodexEvents() {
             `[${tabId}] ${elapsed(tabId)} AskUserQuestion detected — cancelling process for user input`,
           );
           cancelledForAskRef.current.set(tabId, true);
-          invoke("cancel_codex_execution", { tabId }).catch(() => {});
+          invoke(agentCommand("cancel"), { tabId }).catch(() => {});
         }
       }
     }

@@ -1,3 +1,4 @@
+mod claude;
 mod codex;
 mod collaboration;
 mod drive;
@@ -418,6 +419,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .manage(codex::CodexProcessState::default())
+        .manage(claude::ClaudeProcessState::default())
         .manage(latex::LatexCompilerState::default())
         .manage(drive::DriveState::default())
         .manage(speech::SpeechState::default())
@@ -482,6 +484,14 @@ pub fn run() {
             codex::respond_codex_request,
             codex::list_codex_sessions,
             codex::load_session_history,
+            claude::check_claude_status,
+            claude::login_claude,
+            claude::list_claude_models,
+            claude::execute_claude_code,
+            claude::resume_claude_code,
+            claude::cancel_claude_execution,
+            claude::list_claude_sessions,
+            claude::load_claude_session_history,
             projects::list_imported_projects,
             drive::drive_configure,
             drive::drive_status,
@@ -596,10 +606,15 @@ pub fn run() {
                 let codex_state = app_handle.state::<codex::CodexProcessState>();
                 let label_clone = label.clone();
                 let state_clone = codex_state.inner().clone();
+                let claude_state = app_handle
+                    .state::<claude::ClaudeProcessState>()
+                    .inner()
+                    .clone();
                 let speech_state = app_handle.state::<speech::SpeechState>().inner().clone();
                 tauri::async_runtime::spawn(async move {
                     speech::stop_for_window(&speech_state, &label_clone).await;
                     codex::kill_process_for_window(&state_clone, &label_clone).await;
+                    claude::kill_process_for_window(&claude_state, &label_clone).await;
                 });
 
                 // Quit the app when the last window is closed
