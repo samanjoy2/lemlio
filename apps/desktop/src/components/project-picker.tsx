@@ -576,45 +576,45 @@ export function ProjectPicker() {
             </p>
           )}
           <MotionConfig reducedMotion="user">
-          <section
-            aria-label={heading}
-            className={`home-project-grid ${layout === "list" ? "is-list" : ""}`}
-          >
-            {!loading && !query && view === "all" && !category && (
-              <button
-                type="button"
-                className="home-new-project-card"
-                onClick={() => setShowModeDialog(true)}
-              >
-                <span>
-                  <PlusIcon size={22} strokeWidth={1.5} />
-                </span>
-                <strong>Create a project</strong>
-              </button>
-            )}
-            {visible.map((project) => (
-              <ProjectCard
-                key={projectPathKey(project.path)}
-                project={project}
-                starred={starred.includes(projectPathKey(project.path))}
-                busy={opening !== null || exportingPath !== null}
-                opening={opening === project.path}
-                onOpen={() => openProject(project)}
-                onStar={() => toggleStar(project.path)}
-                onExport={() => exportZip(project.path, project.name)}
-                exporting={exportingPath === project.path}
-                onRemoveRecent={
-                  view === "recent"
-                    ? () => removeRecent(project.path)
-                    : undefined
-                }
-              />
-            ))}
-            {loading &&
-              [0, 1, 2, 3, 4, 5].map((id) => (
-                <div key={id} className="home-project-skeleton" />
+            <section
+              aria-label={heading}
+              className={`home-project-grid ${layout === "list" ? "is-list" : ""}`}
+            >
+              {!loading && !query && view === "all" && !category && (
+                <button
+                  type="button"
+                  className="home-new-project-card"
+                  onClick={() => setShowModeDialog(true)}
+                >
+                  <span>
+                    <PlusIcon size={22} strokeWidth={1.5} />
+                  </span>
+                  <strong>Create a project</strong>
+                </button>
+              )}
+              {visible.map((project) => (
+                <ProjectCard
+                  key={projectPathKey(project.path)}
+                  project={project}
+                  starred={starred.includes(projectPathKey(project.path))}
+                  busy={opening !== null || exportingPath !== null}
+                  opening={opening === project.path}
+                  onOpen={() => openProject(project)}
+                  onStar={() => toggleStar(project.path)}
+                  onExport={() => exportZip(project.path, project.name)}
+                  exporting={exportingPath === project.path}
+                  onRemoveRecent={
+                    view === "recent"
+                      ? () => removeRecent(project.path)
+                      : undefined
+                  }
+                />
               ))}
-          </section>
+              {loading &&
+                [0, 1, 2, 3, 4, 5].map((id) => (
+                  <div key={id} className="home-project-skeleton" />
+                ))}
+            </section>
           </MotionConfig>
           {!loading && visible.length === 0 && (
             <div className="home-empty">

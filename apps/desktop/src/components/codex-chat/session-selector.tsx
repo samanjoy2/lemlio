@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useCodexChatStore } from "@/stores/codex-chat-store";
 import { useDocumentStore } from "@/stores/document-store";
+import { agentCommand } from "@/lib/agent-provider";
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("session-selector");
@@ -48,9 +49,12 @@ export function SessionSelector() {
     setIsLoading(true);
     log.debug(`loading sessions for projectRoot: ${projectRoot}`);
     try {
-      const result = await invoke<CodexSessionInfo[]>("list_codex_sessions", {
-        projectPath: projectRoot,
-      });
+      const result = await invoke<CodexSessionInfo[]>(
+        agentCommand("listSessions"),
+        {
+          projectPath: projectRoot,
+        },
+      );
       log.debug("loaded sessions", { count: result.length });
       setSessions(result);
     } catch (err) {

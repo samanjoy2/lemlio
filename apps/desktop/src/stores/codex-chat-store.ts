@@ -5,6 +5,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { useDocumentStore } from "./document-store";
 import { useHistoryStore } from "./history-store";
 import { useSettingsStore } from "./settings-store";
+import {
+  agentCommand,
+  DEFAULT_MODELS,
+  currentProvider,
+} from "@/lib/agent-provider";
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("codex");
@@ -215,6 +220,14 @@ interface CodexChatState {
 
 // ─── Store ───
 
+// Codex keeps the legacy key; other providers get a suffix.
+function modelKey(provider: string) {
+  return provider === "codex" ? "lemlio-model" : `lemlio-model-${provider}`;
+}
+function savedModel(provider: "codex" | "claude") {
+  return localStorage.getItem(modelKey(provider)) || DEFAULT_MODELS[provider];
+}
+
 export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
   // Projected fields (initialized from default tab)
   messages: [],
@@ -229,9 +242,9 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
   tabs: [makeDefaultTab(DEFAULT_TAB_ID)],
   activeTabId: DEFAULT_TAB_ID,
 
-  selectedModel: localStorage.getItem("lemlio-model") || "gpt-6-luna",
+  selectedModel: savedModel(currentProvider()),
   setSelectedModel: (model) => {
-    localStorage.setItem("lemlio-model", model);
+    localStorage.setItem(modelKey(currentProvider()), model);
     set({ selectedModel: model });
   },
 
@@ -410,7 +423,7 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
     try {
       if (sessionId) {
         // Resume existing session
-        await invoke("resume_codex_code", {
+        await invoke(agentCommand("resume"), {
           projectPath,
           relatedProjects,
           sessionId,
@@ -423,7 +436,7 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
         });
       } else {
         // New session
-        await invoke("execute_codex_code", {
+        await invoke(agentCommand("execute"), {
           projectPath,
           relatedProjects,
           prompt,
@@ -458,7 +471,7 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
     set({ _cancelledByUser: true });
     set((s) => applyTabUpdate(s, activeTabId, { cancelled: true }));
     try {
-      await invoke("cancel_codex_execution", { tabId: activeTabId });
+      await invoke(agentCommand("cancel"), { tabId: activeTabId });
     } catch (error) {
       set((s) =>
         applyTabUpdate(s, activeTabId, {
@@ -517,7 +530,7 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
     // Load session history from JSONL file
     if (projectPath) {
       try {
-        const history = await invoke<any[]>("load_session_history", {
+        const history = await invoke<any[]>(agentCommand("loadHistory"), {
           projectPath,
           sessionId,
         });
@@ -653,3 +666,12 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
     set((state) => applyTabUpdate(state, tabId, { error }));
   },
 }));
+
+// Each provider keeps its own model choice; switching provider swaps it in.
+useSettingsStore.subscribe((state, prev) => {
+  if (state.agentProvider === prev.agentProvider) return;
+  useCodexChatStore.setState({
+    selectedModel: savedModel(state.agentProvider),
+    effortLevel: "",
+  });
+});

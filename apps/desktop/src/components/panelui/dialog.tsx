@@ -166,7 +166,8 @@ const dialogVariants = tv({
           "gap-3 px-[10px] pt-2.5 pb-0.5 *:h-11 *:min-w-0 *:flex-1 *:rounded-full",
       },
       plain: {
-        shell: "overflow-hidden rounded-[22px] border border-border/70 bg-popover shadow-xl",
+        shell:
+          "overflow-hidden rounded-[22px] border border-border/70 bg-popover shadow-xl",
         header: "px-6 pt-6 pb-4",
         body: "first:pt-6",
         bodyContent: "px-6 pb-6",

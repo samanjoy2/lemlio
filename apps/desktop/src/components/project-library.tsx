@@ -147,7 +147,12 @@ export function ProjectCard({
           animate={{ opacity: 1, y: 0, scale: 1 }}
           whileHover={{ y: -3 }}
           whileTap={{ scale: 0.985 }}
-          transition={{ type: "spring", stiffness: 420, damping: 32, mass: 0.7 }}
+          transition={{
+            type: "spring",
+            stiffness: 420,
+            damping: 32,
+            mass: 0.7,
+          }}
         >
           <button
             type="button"

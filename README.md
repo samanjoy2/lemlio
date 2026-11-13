@@ -289,3 +289,13 @@ Loading animations use [thinking-orbs](https://libraries.dev/orbs); chat effects
 Interface refinement follows the [unslop](https://heydamir.design/unslop) craft guidelines by Damir Sokolovsky ([@heydamir](https://x.com/heydamir)), licensed CC BY 4.0.
 
 PanelUI web components are used for shared controls, settings tabs, cloning dialogs and project/Drive surfaces. See [third-party notices](THIRD_PARTY_NOTICES.md) for the MIT attribution.
+
+
+## Choosing your AI assistant: Codex or Claude
+
+Lemlio works with either local CLI. Open **Settings → Assistant** and pick **Codex (OpenAI)** or **Claude (Anthropic)**.
+
+- Codex: `npm install -g @openai/codex`, then sign in with ChatGPT.
+- Claude: `npm install -g @anthropic-ai/claude-code`, then sign in with `claude auth login` (or the button in Settings).
+
+Each provider remembers its own model. Defaults are the cheapest options: GPT-6 Luna for Codex and Claude Haiku for Claude. Set `CLAUDE_BINARY` / `CODEX_BINARY` if the executable is not on your PATH.

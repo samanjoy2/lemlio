@@ -725,7 +725,8 @@ export function LatexEditor() {
             boxShadow: "0 0 0 2px rgb(255 159 10 / 0.35)",
           },
           "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
-            backgroundColor: "color-mix(in srgb, var(--primary) 26%, transparent)",
+            backgroundColor:
+              "color-mix(in srgb, var(--primary) 26%, transparent)",
           },
           ".cm-changedLine": {
             backgroundColor: "rgba(34, 197, 94, 0.08) !important",

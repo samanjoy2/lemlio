@@ -133,7 +133,7 @@ function TabButton({
       className={cn(
         "group relative flex min-w-0 max-w-[160px] items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs transition-colors",
         isActive
-          ? "border-primary bg-primary/5 text-foreground font-medium"
+          ? "border-primary bg-primary/5 font-medium text-foreground"
           : "border-transparent text-muted-foreground hover:bg-muted/30 hover:text-foreground",
       )}
     >

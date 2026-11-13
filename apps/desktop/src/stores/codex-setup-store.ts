@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
+import { agentCommand, currentProvider } from "@/lib/agent-provider";
+import { useSettingsStore } from "./settings-store";
 
 interface CodexStatus {
   installed: boolean;
@@ -32,7 +34,7 @@ export const useCodexSetupStore = create<CodexSetupState>((set, get) => ({
   checkStatus: async () => {
     set({ status: "checking", error: null });
     try {
-      const result = await invoke<CodexStatus>("check_codex_status");
+      const result = await invoke<CodexStatus>(agentCommand("checkStatus"));
       set({
         status: !result.installed
           ? "not-installed"
@@ -49,8 +51,9 @@ export const useCodexSetupStore = create<CodexSetupState>((set, get) => ({
   login: async () => {
     set({ isLoggingIn: true, error: null });
     try {
-      const url = await invoke<string>("login_codex");
-      await open(url);
+      const url = await invoke<string>(agentCommand("login"));
+      // Claude Code opens the sign-in page in the browser itself.
+      if (currentProvider() === "codex") await open(url);
     } catch (error) {
       set({ isLoggingIn: false, error: String(error) });
     }
@@ -60,8 +63,16 @@ export const useCodexSetupStore = create<CodexSetupState>((set, get) => ({
       isLoggingIn: false,
       error: success
         ? null
-        : "Sign-in failed. Run codex login in a terminal, then refresh.",
+        : currentProvider() === "claude"
+          ? "Sign-in failed. Run claude auth login in a terminal, then refresh."
+          : "Sign-in failed. Run codex login in a terminal, then refresh.",
     });
     if (success) void get().checkStatus();
   },
 }));
+
+// The connection status belongs to one provider; re-check when it changes.
+useSettingsStore.subscribe((state, prev) => {
+  if (state.agentProvider !== prev.agentProvider)
+    void useCodexSetupStore.getState().checkStatus();
+});

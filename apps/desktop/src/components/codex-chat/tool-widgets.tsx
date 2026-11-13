@@ -170,7 +170,7 @@ const BashWidget: FC<{ input: any; result?: ContentBlock }> = ({
     typeof result?.content === "string" ? result.content : "";
 
   return (
-    <div className="my-1.5 rounded-xl border border-white/10 bg-[#1d1d1f] text-[#f5f5f7] shadow-sm text-sm">
+    <div className="my-1.5 rounded-xl border border-white/10 bg-[#1d1d1f] text-[#f5f5f7] text-sm shadow-sm">
       <button
         type="button"
         className="flex w-full items-center gap-2 px-3 py-2"

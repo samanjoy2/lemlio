@@ -33,9 +33,10 @@ const chrome = {
     color: "var(--foreground)",
     opacity: "1",
   },
-  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
-    backgroundColor: "color-mix(in srgb, var(--primary) 26%, transparent)",
-  },
+  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection":
+    {
+      backgroundColor: "color-mix(in srgb, var(--primary) 26%, transparent)",
+    },
   ".cm-matchingBracket, &.cm-focused .cm-matchingBracket": {
     backgroundColor: "color-mix(in srgb, var(--primary) 18%, transparent)",
     outline: "1px solid color-mix(in srgb, var(--primary) 45%, transparent)",
@@ -88,9 +89,20 @@ const palette = (c: {
     { tag: [t.keyword, t.operatorKeyword, t.modifier], color: c.keyword },
     { tag: [t.controlKeyword, t.moduleKeyword], color: c.keyword },
     { tag: [t.string, t.special(t.string), t.regexp], color: c.string },
-    { tag: [t.comment, t.lineComment, t.blockComment], color: c.comment, fontStyle: "italic" },
+    {
+      tag: [t.comment, t.lineComment, t.blockComment],
+      color: c.comment,
+      fontStyle: "italic",
+    },
     { tag: [t.number, t.bool, t.null, t.atom], color: c.number },
-    { tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName], color: c.fn },
+    {
+      tag: [
+        t.function(t.variableName),
+        t.function(t.propertyName),
+        t.macroName,
+      ],
+      color: c.fn,
+    },
     { tag: [t.typeName, t.className, t.namespace], color: c.type },
     { tag: [t.tagName, t.angleBracket], color: c.tag },
     { tag: [t.attributeName, t.propertyName], color: c.fn },

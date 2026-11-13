@@ -44,7 +44,7 @@ export function SearchPanel({
   };
 
   return (
-    <div className="flex h-9 items-center gap-2 border-border border-b bg-muted/60 backdrop-blur-xl px-2">
+    <div className="flex h-9 items-center gap-2 border-border border-b bg-muted/60 px-2 backdrop-blur-xl">
       <Input
         ref={inputRef}
         type="text"

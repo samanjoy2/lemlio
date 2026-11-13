@@ -2,8 +2,11 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 type CompilerBackend = "tectonic" | "texlive";
+export type AgentProvider = "codex" | "claude";
 
 interface SettingsState {
+  agentProvider: AgentProvider;
+  setAgentProvider: (provider: AgentProvider) => void;
   compilerBackend: CompilerBackend;
   autoCompile: boolean;
   autoDriveBackup: boolean;
@@ -17,6 +20,8 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
+      agentProvider: "codex",
+      setAgentProvider: (agentProvider) => set({ agentProvider }),
       autoCompile: true,
       autoDriveBackup: true,
       skipCloseWhenBackedUp: false,

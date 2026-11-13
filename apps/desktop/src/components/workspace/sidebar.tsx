@@ -187,9 +187,7 @@ function buildFileTree(files: ProjectFile[], folders: string[]): TreeNode[] {
 
 function getFileIcon(file: ProjectFile) {
   if (file.type === "tex")
-    return (
-      <FileTextIcon className="size-4 shrink-0 text-primary" />
-    );
+    return <FileTextIcon className="size-4 shrink-0 text-primary" />;
   if (file.type === "bib")
     return (
       <FileSpreadsheetIcon className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
