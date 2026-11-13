@@ -99,11 +99,11 @@ const tabsVariants = tv({
   variants: {
     variant: {
       segmented: {
-        list: "w-fit gap-0.5 rounded-xl bg-muted p-1",
-        trigger: "h-8 rounded-lg px-3",
+        list: "w-fit gap-0.5 rounded-[11px] bg-[rgb(120_120_128/0.12)] p-[3px]",
+        trigger: "h-7 rounded-lg px-3 text-[13px]",
         indicator: [
           "top-(--active-tab-top) left-(--active-tab-left) h-(--active-tab-height) w-(--active-tab-width) rounded-lg",
-          "bg-background shadow-sm ring-1 ring-foreground/[0.06] dark:bg-input dark:ring-foreground/10",
+          "bg-background shadow-[0_1px_3px_rgb(0_0_0/0.14),0_0_0_0.5px_rgb(0_0_0/0.05)] dark:bg-[#636366] dark:shadow-[0_1px_3px_rgb(0_0_0/0.4)]",
           `transition-[left,top,width,height] duration-300 ${EASE} motion-reduce:transition-none`,
         ],
       },
@@ -119,7 +119,7 @@ const tabsVariants = tv({
           "before:absolute before:inset-x-0.5 before:inset-y-1.5 before:-z-10 before:rounded-md before:transition-colors before:content-[''] hover:before:bg-muted/70",
         ],
         indicator: [
-          "bg-foreground",
+          "bg-primary",
           // The two ends move separately: the one going first is quick and the
           // other follows, so the line stretches on the way and settles.
           "data-[orientation=horizontal]:bottom-0 data-[orientation=horizontal]:h-0.5 data-[orientation=horizontal]:rounded-t-full",

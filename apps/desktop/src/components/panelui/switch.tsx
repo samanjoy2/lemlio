@@ -90,7 +90,7 @@ const switchVariants = tv({
       },
     },
   },
-  defaultVariants: { color: "primary" },
+  defaultVariants: { color: "success" },
 });
 
 export interface SwitchProps

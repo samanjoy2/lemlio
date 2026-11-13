@@ -33,7 +33,7 @@ export function AppSettings() {
     void invoke<string | null>("startup_settings_tab")
       .then((tab) => {
         if (tab) {
-          setTab(tab === "Backup" ? "Google Drive" : tab);
+          setTab(tab);
           setVisible(true);
         }
       })
@@ -101,7 +101,7 @@ export function AppSettings() {
                 "Codex",
                 "Compiler",
                 "Skills",
-                "Google Drive",
+                "Backup",
                 "Voice",
                 "About",
               ].map((name) => (
@@ -224,7 +224,7 @@ export function AppSettings() {
                 </>
               )}
               {tab === "Skills" && <SkillsLibrary />}
-              {tab === "Google Drive" && <DriveSettings />}
+              {tab === "Backup" && <DriveSettings />}
               {tab === "Voice" &&
                 (navigator.userAgent.includes("Mac") ? (
                   <div className="space-y-3">

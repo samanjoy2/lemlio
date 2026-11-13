@@ -66,7 +66,7 @@ const selectVariants = tv({
       "flex min-w-0 flex-1 items-center gap-2 truncate text-start data-placeholder:text-muted-foreground/80",
     positioner: "z-50 outline-none",
     popup: [
-      "min-w-(--anchor-width) origin-(--transform-origin) overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg outline-none",
+      "min-w-(--anchor-width) origin-(--transform-origin) overflow-hidden rounded-[14px] border border-border/70 bg-popover/95 text-popover-foreground shadow-lg backdrop-blur-xl outline-none",
       "transition-[opacity,scale] duration-150 ease-out",
       "data-ending-style:scale-95 data-starting-style:scale-95 data-ending-style:opacity-0 data-starting-style:opacity-0",
       // Placed over the trigger, it only fades: growing from a point inside
@@ -77,19 +77,19 @@ const selectVariants = tv({
     list: "max-h-(--available-height) scroll-py-1 overflow-y-auto p-1 [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin]",
     item: [
       "flex cursor-default select-none items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm outline-none",
-      "data-highlighted:bg-accent data-highlighted:text-accent-foreground",
+      "data-highlighted:bg-primary data-highlighted:text-primary-foreground",
       "data-disabled:pointer-events-none data-disabled:opacity-50",
       "in-data-[side=none]:min-w-[calc(var(--anchor-width)+0.5rem)]",
       "[&_svg:not([class*=size-])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
     ],
     itemIcon:
-      "flex size-4 shrink-0 items-center justify-center text-muted-foreground",
+      "flex size-4 shrink-0 items-center justify-center text-muted-foreground in-data-highlighted:text-primary-foreground",
     itemBody: "flex min-w-0 flex-1 flex-col",
     itemText: "truncate",
-    itemDescription: "truncate text-muted-foreground text-xs",
+    itemDescription: "truncate text-muted-foreground text-xs in-data-highlighted:text-primary-foreground/80",
     // The box is always there, so an option does not change width as it is chosen.
     indicator:
-      "flex size-4 shrink-0 items-center justify-center text-foreground",
+      "flex size-4 shrink-0 items-center justify-center text-foreground in-data-highlighted:text-primary-foreground",
     group: "flex flex-col",
     groupLabel: "px-2 pt-2 pb-1 font-medium text-muted-foreground text-xs",
     separator: "mx-2 my-1 h-px bg-border",

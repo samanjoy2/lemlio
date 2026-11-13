@@ -13,8 +13,20 @@ pub struct Receipt {
     pub folder_id: String,
     pub last_backup: u64,
 }
+#[cfg(test)]
+pub(crate) static TEST_CONFIG: Mutex<Option<PathBuf>> = Mutex::new(None);
+/// The per-user settings folder (replaceable in tests so they never touch real settings).
+pub(crate) fn config_dir() -> Option<PathBuf> {
+    #[cfg(test)]
+    {
+        if let Some(dir) = TEST_CONFIG.lock().ok().and_then(|dir| dir.clone()) {
+            return Some(dir);
+        }
+    }
+    dirs::config_dir()
+}
 fn path() -> Result<PathBuf, String> {
-    Ok(dirs::config_dir()
+    Ok(config_dir()
         .ok_or("Cannot locate backup records")?
         .join("Lemlio/drive-projects.json"))
 }

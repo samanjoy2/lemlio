@@ -22,8 +22,12 @@ import {
   toggleComment,
 } from "@codemirror/commands";
 import { syntaxHighlighting, syntaxTreeAvailable } from "@codemirror/language";
-import { oneDark, oneDarkHighlightStyle } from "@codemirror/theme-one-dark";
-import { defaultHighlightStyle } from "@codemirror/language";
+import {
+  appleDarkHighlight,
+  appleDarkTheme,
+  appleLightHighlight,
+  appleLightTheme,
+} from "./apple-editor-theme";
 import { useTheme } from "next-themes";
 import {
   search,
@@ -676,8 +680,8 @@ export function LatexEditor() {
           : []),
         themeCompartmentRef.current.of(
           resolvedTheme === "dark"
-            ? [oneDark, syntaxHighlighting(oneDarkHighlightStyle)]
-            : [syntaxHighlighting(defaultHighlightStyle)],
+            ? [appleDarkTheme, syntaxHighlighting(appleDarkHighlight)]
+            : [appleLightTheme, syntaxHighlighting(appleLightHighlight)],
         ),
         search(),
         highlightSelectionMatches(),
@@ -688,7 +692,7 @@ export function LatexEditor() {
         EditorView.theme({
           "&": {
             height: "100%",
-            fontSize: "14px",
+            fontSize: "13.5px",
             color: "var(--foreground)",
             backgroundColor: "var(--background)",
             WebkitBackfaceVisibility: "hidden",
@@ -709,19 +713,19 @@ export function LatexEditor() {
             paddingRight: "12px",
           },
           ".cm-searchMatch": {
-            backgroundColor: "#facc15 !important",
+            backgroundColor: "#ffd60a !important",
             color: "#000 !important",
-            borderRadius: "2px",
-            boxShadow: "0 0 0 1px #eab308",
+            borderRadius: "3px",
+            boxShadow: "0 0 0 1px rgb(0 0 0 / 0.12)",
           },
           ".cm-searchMatch-selected": {
-            backgroundColor: "#f97316 !important",
+            backgroundColor: "#ff9f0a !important",
             color: "#fff !important",
-            borderRadius: "2px",
-            boxShadow: "0 0 0 2px #ea580c",
+            borderRadius: "3px",
+            boxShadow: "0 0 0 2px rgb(255 159 10 / 0.35)",
           },
           "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
-            backgroundColor: "rgba(100, 150, 255, 0.3)",
+            backgroundColor: "color-mix(in srgb, var(--primary) 26%, transparent)",
           },
           ".cm-changedLine": {
             backgroundColor: "rgba(34, 197, 94, 0.08) !important",
@@ -751,20 +755,20 @@ export function LatexEditor() {
             cursor: "pointer",
             color: "white",
             margin: "0 2px",
-            borderRadius: "3px",
-            padding: "2px 8px",
+            borderRadius: "6px",
+            padding: "2px 10px",
             fontSize: "12px",
             lineHeight: "1.4",
           },
           ".cm-chunkButtons button[name=accept]": {
-            backgroundColor: "#22c55e",
+            backgroundColor: "#34c759",
           },
           ".cm-chunkButtons button[name=reject]": {
-            backgroundColor: "#ef4444",
+            backgroundColor: "#ff3b30",
           },
           ".cm-changeGutter": { width: "3px", minWidth: "3px" },
-          ".cm-changedLineGutter": { backgroundColor: "#22c55e" },
-          ".cm-deletedLineGutter": { backgroundColor: "#ef4444" },
+          ".cm-changedLineGutter": { backgroundColor: "#34c759" },
+          ".cm-deletedLineGutter": { backgroundColor: "#ff3b30" },
           ".cm-diagnostic": {
             padding: "8px 10px",
           },
@@ -827,8 +831,8 @@ export function LatexEditor() {
     if (!view) return;
     const extensions =
       resolvedTheme === "dark"
-        ? [oneDark, syntaxHighlighting(oneDarkHighlightStyle)]
-        : [syntaxHighlighting(defaultHighlightStyle)];
+        ? [appleDarkTheme, syntaxHighlighting(appleDarkHighlight)]
+        : [appleLightTheme, syntaxHighlighting(appleLightHighlight)];
     view.dispatch({
       effects: themeCompartmentRef.current.reconfigure(extensions),
     });

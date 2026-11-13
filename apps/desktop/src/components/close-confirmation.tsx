@@ -89,7 +89,7 @@ export function CloseConfirmation() {
     setChecking(true);
     setSummary(undefined);
     setError("");
-    setMessage("Saving files and checking Drive backups…");
+    setMessage("Saving files and checking backups…");
     try {
       const result = await check();
       if (
@@ -146,7 +146,7 @@ export function CloseConfirmation() {
               ? message
               : complete
                 ? summary?.projects.length
-                  ? `All ${summary.projects.length} PC project versions are confirmed in Drive.`
+                  ? `All ${summary.projects.length} PC project versions are confirmed in your backup folder.`
                   : "There are no local projects to back up."
                 : "Files saved on this PC stay here. Pending uploads stop when Lemlio closes and retry the next time you open it."}
           </DialogDescription>
@@ -165,7 +165,8 @@ export function CloseConfirmation() {
                 ) : (
                   <CloudAlertIcon className="size-5 text-amber-500" />
                 )}
-                {count} of {summary.projects.length} projects confirmed in Drive
+                {count} of {summary.projects.length} projects confirmed in your
+                backup
               </p>
             )}
             {(error || summary?.error) && (
@@ -181,7 +182,7 @@ export function CloseConfirmation() {
                     <li key={p.path}>
                       {p.path.split(/[/\\]/).pop()} ·{" "}
                       {p.status === "conflict"
-                        ? "Drive version changed; review in Settings"
+                        ? "Backup version changed; review in Settings"
                         : "Backup pending"}
                     </li>
                   ))}
@@ -253,7 +254,7 @@ export function CloseConfirmation() {
                 } catch (e) {
                   setError(
                     String(e).startsWith("DRIVE_CONFLICT:")
-                      ? "A Drive backup changed. Keep Lemlio open and review the conflict in Google Drive settings."
+                      ? "A backup changed. Keep Lemlio open and review the conflict in backup settings."
                       : String(e),
                   );
                 } finally {

@@ -1,3 +1,4 @@
+mod backup_store;
 mod codex;
 mod collaboration;
 mod drive;
@@ -32,8 +33,8 @@ pub fn system_tex_compile_subprocess(work_dir: &Path, main_file: &str) -> Result
     latex::compile_with_system_tex(work_dir, main_file)
 }
 
-pub fn configure_drive_client(path: &Path) -> Result<(), String> {
-    drive::configure_client(path)
+pub fn set_backup_folder(path: &Path) -> Result<String, String> {
+    drive::set_backup_folder(path)
 }
 pub fn clear_drive_setup() -> Result<(), String> {
     drive::clear_local_setup()
@@ -483,11 +484,12 @@ pub fn run() {
             codex::list_codex_sessions,
             codex::load_session_history,
             projects::list_imported_projects,
-            drive::drive_configure,
             drive::drive_status,
-            drive::drive_connect,
-            drive::drive_cancel,
+            drive::drive_detect_folders,
+            drive::drive_set_folder,
             drive::drive_disconnect,
+            drive::drive_use_cloud_version,
+            drive::drive_link_project,
             drive::drive_backup_project,
             drive::drive_collaboration_updates,
             drive::drive_reset_backups,

@@ -57,7 +57,7 @@ it("only claims all projects are backed up when every PC version is confirmed", 
       }),
     );
     expect(ui.element.textContent).toContain(
-      "All 2 projects up to date in Drive",
+      "All 2 projects up to date in your backup",
     );
     await act(async () => updateDriveBackup(projects[1].path, "pending"));
     expect(ui.element.textContent).not.toContain("All 2 projects backed up");
@@ -125,19 +125,18 @@ it("replacing a conflict requires the specific reviewed remote checksum", async 
   }
 });
 
-it("downloads the reviewed Drive version into a new project while pausing the old folder", async () => {
+it("choosing the backup version replaces the same project in place, never a new project", async () => {
   const ui = await mount();
   try {
     vi.mocked(invoke).mockImplementation(async (command) =>
       command === "drive_status"
         ? { connected: true }
         : {
-            path: "C:/Restored Paper",
+            path: "C:/Paper",
             lastBackup: 123,
-            sourceRevision: "drive-source",
+            sourceRevision: "backup-source",
           },
     );
-    useDocumentStore.setState({ content: "Unsaved PC edits" });
     updateDriveBackup("C:/Paper", "failed", {
       error: 'DRIVE_CONFLICT:{"name":"Paper.zip","remoteHash":"reviewed-edit"}',
     });
@@ -149,18 +148,19 @@ it("downloads the reviewed Drive version into a new project while pausing the ol
     );
     await act(async () =>
       [...document.querySelectorAll("button")]
-        .find((b) => b.textContent?.includes("Download Drive version"))!
+        .find((b) => b.textContent?.includes("Use backup version"))!
         .click(),
     );
-    expect(invoke).toHaveBeenCalledWith("drive_download_conflict", {
+    expect(invoke).toHaveBeenCalledWith("drive_use_cloud_version", {
       projectPath: "C:/Paper",
       expectedRemoteHash: "reviewed-edit",
     });
-    expect(projectDriveStatus("C:/Paper").paused).toBe(true);
-    expect(projectDriveStatus("C:/Restored Paper").sourceRevision).toBe(
-      "drive-source",
+    expect(invoke).not.toHaveBeenCalledWith(
+      "drive_download_conflict",
+      expect.anything(),
     );
-    expect(useDocumentStore.getState().content).toBe("Unsaved PC edits");
+    expect(projectDriveStatus("C:/Paper").sourceRevision).toBe("backup-source");
+    expect(projectDriveStatus("C:/Paper").conflict).toBeUndefined();
   } finally {
     await ui.close();
   }

@@ -6,7 +6,7 @@
 
 <p align="center">
   LaTeX projects, PDF previews, and Codex on your desktop.<br />
-  Write locally. Compile side by side. Back up to your Google Drive.
+  Write locally. Compile side by side. Back up to your Dropbox.
 </p>
 
 <p align="center">
@@ -22,15 +22,15 @@
   · <a href="#what-you-can-do">Features</a>
   · <a href="#a-look-inside">Screenshots</a>
   · <a href="#collaboration">Collaboration</a>
-  · <a href="#google-drive-backup">Google Drive</a>
+  · <a href="#dropbox-backup">Dropbox backup</a>
   · <a href="#build-from-source">Build from source</a>
 </p>
 
 ![Lemlio dark project library with PDF covers, connections, and project dates](assets/screenshots/projects-dark.png)
 
-Lemlio brings your LaTeX projects into a searchable library with PDF covers, an editor beside the compiled document, and Codex chat when you need help. Open an existing folder or import a project ZIP, keep working with ordinary local files, and optionally sync saved revisions through your own Google Drive.
+Lemlio brings your LaTeX projects into a searchable library with PDF covers, an editor beside the compiled document, and Codex chat when you need help. Open an existing folder or import a project ZIP, keep working with ordinary local files, and optionally back up and sync saved revisions through your own Dropbox folder.
 
-**A fresh installation starts empty.** Your documents, account connections, and Google OAuth JSON are not bundled with the app. Tectonic and Latin Modern fonts are included, with Tectonic selected by default; Codex, Google Drive, and MiKTeX can be configured later.
+**A fresh installation starts empty.** Your documents and account connections are not bundled with the app. Tectonic and Latin Modern fonts are included, with Tectonic selected by default; Codex, the Dropbox backup folder, and MiKTeX can be configured later.
 
 ## What you can do
 
@@ -44,8 +44,8 @@ Lemlio brings your LaTeX projects into a searchable library with PDF covers, an 
 | **Choose when to compile** | Switch between **Auto** and **Manual**. Use bundled Tectonic or select an optional MiKTeX / TeX Live installation. |
 | **Move projects easily** | Import and export ZIPs with nested source folders, figures, and bibliography files. Keep the original ZIP or choose to move it. |
 | **Write together** | Live shared text, colored cursors, local offline history, encrypted offline change files, and hosting from either collaborator’s computer. |
-| **Sync between devices** | Connect Google Drive once. Five-minute checks, notifications for projects found only in Drive, automatic incoming revisions for closed unchanged projects, and protected conflict review. |
-| **Check your backup status** | See Codex, Google Drive, and Voice status on the home page, and this project's confirmed backup age in the editor. |
+| **Sync between devices** | Choose your Dropbox folder once. Five-minute checks, notifications for projects found only in the backup, automatic incoming revisions for closed unchanged projects (the same project is updated in place, never duplicated), and protected conflict review. |
+| **Check your backup status** | See Codex, backup, and Voice status on the home page, and this project's confirmed backup age in the editor. |
 | **Use your existing tools** | Open the project folder, continue in an installed VS Code editor, and browse your installed Codex research skills. |
 
 ## Download and install
@@ -69,16 +69,16 @@ The installer is currently unsigned, so Windows may identify its publisher as un
 
 ### Updating
 
-Close Lemlio and run the newer Windows setup. The installer detects the existing installation; choose to continue without uninstalling to update in place. On macOS, replace the older copy in Applications. Projects, saved settings, and your Google Drive connection are retained. **Settings → About → Check for updates** shows the installed and latest versions, then offers the correct installer for your computer. Downloads open in the browser; run the installer or replace the Mac app after closing Lemlio. Earlier versions can use their **Download latest update** link.
+Close Lemlio and run the newer Windows setup. The installer detects the existing installation; choose to continue without uninstalling to update in place. On macOS, replace the older copy in Applications. Projects, saved settings, and your backup folder setting are retained. **Settings → About → Check for updates** shows the installed and latest versions, then offers the correct installer for your computer. Downloads open in the browser; run the installer or replace the Mac app after closing Lemlio. Earlier versions can use their **Download latest update** link.
 
 ### First launch
 
-The first-run **Settings & setup** screen can be closed and reopened later. Editing and compilation do not require an AI or Google account.
+The first-run **Settings & setup** screen can be closed and reopened later. Editing and compilation do not require an AI or cloud account.
 
 | Optional setup | Where to find it |
 | --- | --- |
 | **Codex** | **Settings → Codex**: connect your Codex account and choose a model. Available models depend on your account. |
-| **Google Drive** | Click the Drive status on the home page or editor, or open **Settings → Google Drive**. Choose your own Desktop OAuth JSON and connect your account. |
+| **Backup** | Click the backup status on the home page or editor, or open **Settings → Backup**. Pick your Dropbox folder (found automatically when the Dropbox app is installed) or any synced folder. No sign-in, token or account is needed inside Lemlio. |
 | **MiKTeX / TeX Live** | **Settings → Compiler**: install MiKTeX using the provided link, then select the system compiler. Tectonic remains the fresh-install default. |
 | **Appearance and skills** | **Settings → General** and **Settings → Skills**. Version and source information are under **About**. |
 
@@ -125,13 +125,13 @@ Screenshots show the current interface with generated demonstration documents an
 
 | Action | What happens |
 | --- | --- |
-| **Clone project** | Creates an independent library project from an existing project. Source, figures and bibliography are copied; caches, Git internals and Drive identity are excluded. |
+| **Clone project** | Creates an independent library project from an existing project. Source, figures and bibliography are copied; caches, Git internals and backup identity are excluded, so a clone is a separate project with its own backup history. |
 | **Copy project** | Extracts and registers the project while keeping the original ZIP in place. |
 | **Move ZIP** | Imports the project, verifies the saved archive, then moves the original ZIP into the app's `Projects/Archives` folder. A failed move keeps the original and reports the problem. |
 | **Open a folder** | Works with the folder you select. Your project files stay there. |
 | **Export project ZIP** | Saves open edits first, then includes source files, assets, and empty folders. App caches, Git metadata, app history, virtual environments, and `node_modules` are excluded. |
 
-You can also place a LaTeX project folder directly inside **Imports**. Each immediate subfolder containing LaTeX sources is discovered automatically, including nested main documents. Use **Imports folder** on the home page to open the location. The folder is created during installation and startup; the library refreshes every 10 seconds and when it regains focus. Discovered projects enter the automatic Drive backup queue when connected.
+You can also place a LaTeX project folder directly inside **Imports**. Each immediate subfolder containing LaTeX sources is discovered automatically, including nested main documents. Use **Imports folder** on the home page to open the location. The folder is created during installation and startup; the library refreshes every 10 seconds and when it regains focus. Discovered projects enter the automatic backup queue when a backup folder is chosen.
 
 Imported projects live under:
 
@@ -171,44 +171,42 @@ Text changes merge through [Yjs](https://docs.yjs.dev/). A collaborator can keep
 
 See the [collaboration guide](docs/COLLABORATION.md) for host handoff, offline exchange, Drive backup behavior, privacy, and limits. This first version supports 16 MB of shared source/assets, 96 MB of history, and 12 connections per host. Everyone with an invitation is an editor. Use **Work offline** before running Codex on a shared project.
 
-## Google Drive backup
+## Dropbox backup
 
-The home page shows **Google Drive connected** or a connection prompt beside the Codex status. Click it to open setup. Inside a project, the editor shows **Saved to Drive … ago**, **Drive backup pending**, **Saving to Drive…**, or a failure that will retry. The timestamp belongs to that project and is recorded after Google confirms its upload.
+The home page shows **Cloud backup** with a connection prompt beside the Codex status. Click it to open setup. Inside a project, the editor shows **Saved to backup … ago**, **Backup pending**, **Saving backup…**, or a failure that will retry. The timestamp belongs to that project and is recorded after the ZIP is written and verified in your backup folder.
 
-### Connect once
+### Choose your folder once
 
-1. In Google Cloud, create a project, enable **Google Drive API**, and configure the OAuth consent screen. Under **Google Auth Platform → Audience → Test users**, add the exact Google email you will sign in with and save. Google may show “Google hasn’t verified this app”; continue only for the OAuth project you created.
-2. Add the non-sensitive `https://www.googleapis.com/auth/drive.file` scope.
-3. Create an OAuth client with application type **Desktop app** and download its JSON.
-4. In **Settings → Google Drive**, select **Choose OAuth JSON**, then **Connect Google Drive** and approve Google's sign-in.
+1. Install the Dropbox app on every computer and sign in with the same Dropbox account.
+2. In **Settings → Backup**, choose **Use my Dropbox folder** (Lemlio finds it automatically) or **Choose another folder…** for any synced folder such as OneDrive or Google Drive for desktop.
 
-Each installation uses the OAuth JSON you choose. Lemlio copies it into local app settings, outside your projects. Access and refresh tokens are stored in Windows Credential Manager or macOS Keychain. No personal Google credentials are shipped in the installer.
+Lemlio creates a **Lemlio Backups** folder inside it and writes project ZIPs there; the Dropbox app does the syncing. Lemlio itself has no sign-in, API key, token or Google/Dropbox developer project, and nothing is stored in the system credential store. Your Dropbox plan provides the storage (the free plan includes 2 GB) and every backup adds a revision, so keep an eye on usage for large projects.
 
 ### What happens automatically
 
 - **Local saving:** edited files save after a two-second pause in typing.
-- **Drive backup:** with automatic backup enabled, saved changes queue for upload after about 15 seconds. Newly imported projects queue too.
-- **Discovery:** remote revision checks run every five minutes while Lemlio is open; minimizing and restoring the window do not trigger them. New projects found only in Drive produce a notice with **Review and download**. Nothing is pulled until you choose it.
-- **Retries:** pending jobs are checked every minute while Lemlio is open. The queue survives app restarts, so failed uploads can be retried later.
+- **Backup:** with automatic backup enabled, saved changes are written to your backup folder after about 15 seconds. Newly imported projects queue too.
+- **Discovery:** revision checks run every five minutes while Lemlio is open. New projects found only in the backup produce a notice with **Review and download**. Nothing is pulled until you choose it. A local project with the same title but no backup identity is never downloaded as a duplicate: you are offered **Link to my project** instead.
+- **Retries:** pending jobs are checked every minute while Lemlio is open. The queue survives app restarts, and a Dropbox folder that is temporarily unavailable simply retries later.
 - **Versioned ZIP snapshots:** changed projects create immutable ZIP revisions inside **Lemlio Backups**. Every ZIP includes `.lemlio-sync.json` with the project identity, parent revisions, content hash, device identity, saved title, and save time. The revision graph detects simultaneous saves without overwriting either upload. Unchanged content is skipped. Older revisions remain in Drive and use your storage; there is no automatic history pruning.
 - **Incoming changes:** if another updated device saves a project and this device has not edited its last synced source, a closed project downloads and verifies the newer revision automatically. An open project shows **Update from [device] · Review**. **Get latest revision** checks for unsaved edits, compilation, and active agents before closing/reopening that editor. The previous local source is kept in a hidden `.lemlio-recovery-*` sibling folder; local Git repositories, environments, and app caches stay with the working project.
 - **Conflicts:** if both devices edited, an uploaded ZIP was modified externally, or two devices saved competing revisions, neither version silently wins. Review device and time details, choose a Drive revision if several exist, then choose the PC source or download the selected Drive source into a new folder. **Pause uploads only** does not download anything. For ordinary projects, this is project-level conflict resolution. Shared projects instead merge their verified collaboration histories before backup and ask you to review file conflicts.
 - **Renaming:** saving a project title in Lemlio queues an update to its Drive ZIP name, even if the document files are unchanged. Renaming the ZIP directly in Drive keeps its identity and is preserved by ordinary backups. Lemlio title changes travel with incoming revisions. A filename edited directly in Drive is separate from the saved project title.
 - **Status:** the home page summarizes every project's backup, including pending, failed, and conflicting projects. The editor shows the open project's confirmed backup age.
-- **Reset:** Settings → Google Drive can move the old backup folder to Trash and start fresh. If Google blocks a reset because the folder contains items outside the app's access, move the folder to Trash through Drive's own page, then retry Reset.
-- **New device or recovery:** select **Restore from Google Drive** from the home-page Drive menu or Settings → Google Drive. Select backups and restore them into new local project folders. Restored projects keep their Drive identity, so their next backup continues the same project history. Existing local folders are never overwritten by restoration.
+- **Reset:** Settings → Backup can rename the old **Lemlio Backups** folder (for example to **Lemlio Backups (reset 20260101-120000)**) and start fresh. Nothing is deleted.
+- **New computer or recovery:** install Dropbox, choose the same folder in Settings → Backup and select **Restore projects from backup**. Select backups and restore them into new local project folders. Restored projects keep their backup identity, so their next backup continues the same history.
 
 ### Moving to a new computer
 
-Install Lemlio, choose your Desktop OAuth JSON, and connect the **same Google account and Google Cloud OAuth project** used for the backups. Select **Restore from Google Drive**, choose your projects, and restore. Nothing is downloaded merely by connecting. After restoration, edit the local copies normally; they become the source for future backups. On subsequent starts, unchanged closed projects receive newer revisions automatically. If both devices edited, review the versions first. **Update every device to 1.3.0 or later** before using two-device sync; earlier apps do not understand revision history.
+Install Lemlio and Dropbox, sign in to the **same Dropbox account**, and choose the same folder in **Settings → Backup**. Wait for Dropbox to finish syncing, then select **Restore projects from backup**, choose your projects, and restore. Nothing is downloaded merely by choosing the folder. If a project of the same title already exists on the new computer, use **Link to my project** instead of restoring: it becomes the same project, and newer backup revisions replace it in place with the previous files kept in a recovery folder. After restoration, edit the local copies normally; they become the source for future backups. On subsequent starts, unchanged closed projects receive newer revisions automatically. If both computers edited, review the versions first.
 
 ### Closing safely
 
 When you close Lemlio, it saves open edits and checks every project against Drive. The dialog shows confirmed backups, pending uploads, or conflicts and offers **Back up and close**. **Do not ask again when everything is backed up** skips the dialog only after all projects are verified and no compilation or agent is active. You can change this preference in Settings → General. Pending, disconnected, conflicting, or unsaved work still requires attention.
 
-Automatic backup is enabled by default, but requires a connected Google account and Lemlio to be running. This is a desktop backup workflow; live collaboration uses the desktop app, and there is no background upload service after the app closes. Changes that have not reached Drive are not protected against loss of the PC.
+Automatic backup is enabled by default, but requires a chosen backup folder and Lemlio to be running. This is a desktop backup workflow; live collaboration uses the desktop app, and there is no background upload service after the app closes. Changes that have not reached your backup folder are not protected against loss of the PC.
 
-Standard Drive API use has [no additional API charge](https://developers.google.com/workspace/drive/api/guides/limits); backup files use your Google storage. OAuth apps in Testing may require reconnection. Google Drive for desktop folder syncing is an alternative to the direct account connection.
+Your backup folder uses your Dropbox storage. The Dropbox app, not Lemlio, uploads and downloads the files, so a computer can keep editing offline and the backup syncs when it is back online.
 
 ### Fonts and EPS figures
 
@@ -220,12 +218,12 @@ The Windows and macOS releases include Latin Modern 2.005 under the GUST Font Li
 | --- | --- |
 | **Documents, figures, PDFs, and history** | Stay in local project folders and app-managed files. |
 | **Codex requests** | Prompts and files used by the agent are sent to the configured model provider. |
-| **Drive backups** | Project folders and files are uploaded to your connected Google account when you enable backup. |
-| **OAuth client JSON** | Copied into local app settings. Keep your original outside project folders or in `Keys/`. |
-| **Google sign-in tokens** | Stored in Windows Credential Manager or macOS Keychain. |
+| **Backups** | Project ZIPs are written to the backup folder you choose. If it is inside Dropbox (or another sync app), that app uploads them to your own account. Lemlio never contacts a cloud service for backups. |
+| **Backup folder setting** | The chosen path is saved in local app settings. It contains no password or token. |
+| **Project identity** | Each project folder holds a small `.lemlio-project.json` with a random id so every computer recognizes the same project. Clones and imported ZIPs get their own id. |
 | **Installer and source repository** | Exclude personal projects, local build tools, and saved credentials. |
 
-Project exports exclude `Keys/` and recognized OAuth-client configuration filenames. Keep other sensitive files outside projects you export or back up.
+Project exports exclude `Keys/` and recognized credential filenames. Keep other sensitive files outside projects you export or back up.
 
 ## Build from source
 
@@ -266,7 +264,7 @@ The internal workspace package remains `@prismpro/desktop`. Windows and macOS re
 
 ```text
 apps/desktop/src/             React editor, project library, settings, and chat
-apps/desktop/src-tauri/src/   Rust backend, compilation, ZIP transfers, Drive OAuth
+apps/desktop/src-tauri/src/   Rust backend, compilation, ZIP transfers, folder-based backups
 assets/                      Lemlio icon and demonstration screenshots
 scripts/                     Windows/macOS build preparation and development checks
 examples/                    Starter LaTeX project

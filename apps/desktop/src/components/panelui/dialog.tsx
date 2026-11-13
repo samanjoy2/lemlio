@@ -83,7 +83,7 @@ type RenderProp<Tag extends RenderElementType> = {
 const dialogVariants = tv({
   slots: {
     backdrop:
-      "fixed inset-0 z-50 bg-black/40 transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0 motion-reduce:transition-none",
+      "fixed inset-0 z-50 bg-black/30 backdrop-blur-[6px] transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0 motion-reduce:transition-none",
     viewport:
       "fixed inset-0 z-50 grid place-items-center overflow-hidden p-4 max-sm:items-end max-sm:p-2",
     shell: [
@@ -166,7 +166,7 @@ const dialogVariants = tv({
           "gap-3 px-[10px] pt-2.5 pb-0.5 *:h-11 *:min-w-0 *:flex-1 *:rounded-full",
       },
       plain: {
-        shell: "overflow-hidden rounded-[28px] border bg-popover shadow-xl",
+        shell: "overflow-hidden rounded-[22px] border border-border/70 bg-popover shadow-xl",
         header: "px-6 pt-6 pb-4",
         body: "first:pt-6",
         bodyContent: "px-6 pb-6",

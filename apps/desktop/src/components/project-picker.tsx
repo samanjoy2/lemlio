@@ -1,3 +1,4 @@
+import { MotionConfig } from "motion/react";
 import { ProjectGroups } from "./project-groups";
 import { openCollaboration } from "./collaboration-dialog";
 import { AppSettings } from "@/components/app-settings";
@@ -574,6 +575,7 @@ export function ProjectPicker() {
               {openError || error}
             </p>
           )}
+          <MotionConfig reducedMotion="user">
           <section
             aria-label={heading}
             className={`home-project-grid ${layout === "list" ? "is-list" : ""}`}
@@ -613,6 +615,7 @@ export function ProjectPicker() {
                 <div key={id} className="home-project-skeleton" />
               ))}
           </section>
+          </MotionConfig>
           {!loading && visible.length === 0 && (
             <div className="home-empty">
               <FolderOpenIcon size={30} strokeWidth={1.2} />

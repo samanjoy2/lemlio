@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { CatalogProject } from "@/lib/project-catalog";
 import { useEffect, useRef, useState } from "react";
+import { motion } from "motion/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -139,9 +140,14 @@ export function ProjectCard({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <article
+        <motion.article
           ref={card}
           className={`home-project-card home-category-${project.category.toLowerCase()}`}
+          initial={{ opacity: 0, y: 14, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          whileHover={{ y: -3 }}
+          whileTap={{ scale: 0.985 }}
+          transition={{ type: "spring", stiffness: 420, damping: 32, mass: 0.7 }}
         >
           <button
             type="button"
@@ -202,7 +208,7 @@ export function ProjectCard({
                   ? ` · ${project.mainFile.split(/[/\\]/).pop()}`
                   : ""}
               </p>
-              {(opening || project.lastOpened) && (
+              {(opening || !!project.lastOpened) && (
                 <div className="home-project-bottom">
                   <span>
                     {opening
@@ -358,7 +364,7 @@ export function ProjectCard({
               <DownloadIcon size={14} />
             )}
           </button>
-        </article>
+        </motion.article>
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem disabled={busy} onSelect={onOpen}>

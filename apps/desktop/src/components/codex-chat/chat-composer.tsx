@@ -1224,7 +1224,7 @@ export const ChatComposer: FC<{
         >
           <div
             className={cn(
-              "flex w-full flex-col rounded-2xl border border-input bg-muted/30 transition-colors focus-within:border-ring focus-within:bg-background",
+              "flex w-full flex-col rounded-[22px] border border-border bg-card shadow-sm transition-[border-color,box-shadow] duration-200 focus-within:border-primary/60 focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--primary)_16%,transparent),var(--shadow-md)]",
 
               isDragOver && "border-ring bg-accent/20",
             )}

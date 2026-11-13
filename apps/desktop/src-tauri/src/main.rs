@@ -39,10 +39,10 @@ fn main() {
             }
         }
     }
-    if args.len() >= 3 && args[1] == "--configure-drive" {
-        match prismpro_desktop_lib::configure_drive_client(std::path::Path::new(&args[2])) {
-            Ok(()) => {
-                eprintln!("Drive OAuth configuration saved locally");
+    if args.len() >= 3 && args[1] == "--set-backup-folder" {
+        match prismpro_desktop_lib::set_backup_folder(std::path::Path::new(&args[2])) {
+            Ok(folder) => {
+                eprintln!("Backup folder set to {folder}");
                 std::process::exit(0);
             }
             Err(error) => {

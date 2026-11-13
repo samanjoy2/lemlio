@@ -85,22 +85,21 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
 
   const project = projectPath ? projectDriveStatus(projectPath) : undefined;
 
-  let label = "Google Drive · Connect";
+  let label = "Backup · Choose a folder";
 
-  if (connection?.pending) label = "Google Drive · Signing in…";
-  else if (connection?.connected) {
-    if (!projectPath) label = "Google Drive connected";
-    else if (project?.uploading) label = "Saving to Drive…";
-    else if (project?.paused) label = "Drive backup paused · PC files kept";
+  if (connection?.connected) {
+    if (!projectPath) label = "Backup connected";
+    else if (project?.uploading) label = "Saving backup…";
+    else if (project?.paused) label = "Backup paused · PC files kept";
     else if (project?.incoming)
       label = `Update from ${project.deviceName || "another device"} · Review`;
-    else if (project?.conflict) label = "Drive conflict · Choose a version";
-    else if (project?.error) label = "Drive backup failed · Will retry";
-    else if (!auto) label = "Drive auto-backup paused";
-    else if (dirty || project?.pending) label = "Drive backup pending";
+    else if (project?.conflict) label = "Backup conflict · Choose a version";
+    else if (project?.error) label = "Backup failed · Will retry";
+    else if (!auto) label = "Auto-backup paused";
+    else if (dirty || project?.pending) label = "Backup pending";
     else if (project?.lastBackup)
-      label = `Saved to Drive ${driveRelativeTime(project.lastBackup)}${project.deviceName ? ` · ${project.deviceName}` : ""}`;
-    else label = "Drive connected · No backup yet";
+      label = `Saved to backup ${driveRelativeTime(project.lastBackup)}${project.deviceName ? ` · ${project.deviceName}` : ""}`;
+    else label = "Backup connected · No backup yet";
   }
 
   const Icon = project?.uploading
@@ -121,13 +120,13 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
           ? "flex w-full shrink-0 items-center gap-2 border-t px-3 py-1.5 text-left text-muted-foreground text-xs hover:bg-muted"
           : "home-connection-row"
       }
-      title={`${detail}${project?.error || "Open Google Drive settings"}`}
+      title={`${detail}${project?.error || "Open backup settings"}`}
       onClick={() =>
         discoveries.length && connection?.connected
           ? reviewDriveProjects()
           : window.dispatchEvent(
               new CustomEvent("lemlio-open-settings", {
-                detail: "Google Drive",
+                detail: "Backup",
               }),
             )
       }
@@ -152,7 +151,7 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
             <Icon size={15} />
           </span>
 
-          <span className="home-connection-name">Google Drive</span>
+          <span className="home-connection-name">Cloud backup</span>
 
           <span
             aria-live="polite"

@@ -1,45 +1,28 @@
-//! User-authorized Google Drive backups. Tokens stay in the OS credential store.
-use base64::{
-    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
-    Engine,
-};
+//! Folder-based project backups. The backup folder lives inside any synced
+//! folder (Dropbox, OneDrive, Google Drive for desktop), so Lemlio needs no
+//! cloud sign-in, API key or token of its own.
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
 };
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    sync::Mutex,
-};
+use tokio::sync::Mutex;
 
-const SCOPE: &str = "https://www.googleapis.com/auth/drive.file";
-const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+use crate::backup_store::{self, sha256_file, ROOT_NAME};
+
 #[derive(Clone, Default)]
 pub struct DriveState {
-    pending: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
-    login: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     upload: Arc<Mutex<()>>,
 }
-#[derive(Serialize, Deserialize, Clone)]
-struct ClientConfig {
-    client_id: String,
-    client_secret: String,
-}
-#[derive(Serialize, Deserialize, Clone)]
-struct Tokens {
-    access_token: String,
-    refresh_token: String,
-    expires_at: u64,
-    client_id: String,
-    folder_id: Option<String>,
+/// Which synced backup folder this computer uses. There is nothing secret here.
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct Link {
+    folder: Option<String>,
     last_backup: Option<u64>,
 }
 fn now() -> u64 {
@@ -48,97 +31,136 @@ fn now() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
-fn config_path() -> Result<PathBuf, String> {
+fn link_path() -> Result<PathBuf, String> {
     Ok(dirs::config_dir()
         .ok_or("Cannot locate app settings")?
         .join("Lemlio")
-        .join("drive-client.json"))
+        .join("backup-folder.json"))
 }
-fn config() -> Result<ClientConfig, String> {
-    serde_json::from_str(
-        &std::fs::read_to_string(config_path()?)
-            .map_err(|_| "Choose your Desktop OAuth client JSON first")?,
-    )
-    .map_err(|_| "Invalid Drive client configuration".into())
+#[cfg(test)]
+pub(crate) static TEST_FOLDER: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+#[cfg(test)]
+fn override_folder() -> Option<String> {
+    TEST_FOLDER
+        .lock()
+        .ok()
+        .and_then(|folder| folder.clone())
+        .map(|folder| folder.to_string_lossy().to_string())
 }
-
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-fn credential() -> Result<keyring::Entry, String> {
-    keyring::Entry::new("Lemlio.GoogleDrive", "oauth-tokens")
-        .map_err(|_| "Cannot access the system credential store".into())
+#[cfg(not(test))]
+fn override_folder() -> Option<String> {
+    None
 }
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-fn tokens() -> Result<Option<Tokens>, String> {
-    match credential()?.get_password() {
-        Ok(raw) => serde_json::from_str(&raw)
-            .map(Some)
-            .map_err(|_| "Stored Drive connection is invalid; reconnect".into()),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(_) => Err("Cannot read Drive connection from the system credential store".into()),
+fn link() -> Result<Link, String> {
+    if let Some(folder) = override_folder() {
+        return Ok(Link {
+            folder: Some(folder),
+            last_backup: None,
+        });
+    }
+    match std::fs::read(link_path()?) {
+        Ok(raw) => {
+            serde_json::from_slice(&raw).map_err(|_| "Invalid backup folder settings".into())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Link::default()),
+        Err(_) => Err("Cannot read the backup folder settings".into()),
     }
 }
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn tokens() -> Result<Option<Tokens>, String> {
-    Ok(None)
-}
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-fn save_tokens(tokens: &Tokens) -> Result<(), String> {
-    credential()?
-        .set_password(&serde_json::to_string(tokens).map_err(|_| "Cannot encode Drive connection")?)
-        .map_err(|_| "Cannot save Drive connection in the system credential store".into())
-}
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn save_tokens(_: &Tokens) -> Result<(), String> {
-    Err("Direct Drive sign-in is currently supported on Windows and macOS".into())
-}
-
-pub fn configure_client(path: &Path) -> Result<(), String> {
-    let raw = std::fs::read_to_string(path).map_err(|_| "Cannot read the OAuth client JSON")?;
-    let document: Value = serde_json::from_str(raw.trim_start_matches('\u{feff}'))
-        .map_err(|_| "Invalid OAuth JSON")?;
-    let installed = &document["installed"];
-    let client = ClientConfig {
-        client_id: installed["client_id"]
-            .as_str()
-            .ok_or("Choose a Desktop app OAuth JSON, not a service account")?
-            .to_string(),
-        client_secret: installed["client_secret"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
-    };
-    if !client.client_id.ends_with(".apps.googleusercontent.com") {
-        return Err("This is not a Google Desktop OAuth client".into());
+fn save_link(link: &Link) -> Result<(), String> {
+    if override_folder().is_some() {
+        return Ok(());
     }
-    let path = config_path()?;
+    let path = link_path()?;
     let parent = path.parent().ok_or("Invalid settings folder")?;
     std::fs::create_dir_all(parent).map_err(|_| "Cannot create app settings")?;
     let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "Cannot save client configuration")?;
-    serde_json::to_writer(&mut temporary, &client)
-        .map_err(|_| "Cannot save client configuration")?;
+        tempfile::NamedTempFile::new_in(parent).map_err(|_| "Cannot save the backup folder")?;
+    serde_json::to_writer(&mut temporary, link).map_err(|_| "Cannot save the backup folder")?;
     temporary
         .persist(path)
-        .map_err(|_| "Cannot save client configuration")?;
+        .map_err(|_| "Cannot save the backup folder")?;
     Ok(())
+}
+fn linked() -> Result<Link, String> {
+    let link = link()?;
+    if link.folder.is_none() {
+        return Err("Choose your Dropbox backup folder first".into());
+    }
+    Ok(link)
+}
+const UNAVAILABLE: &str =
+    "The backup folder is unavailable. Start Dropbox or choose the folder again.";
+/// The backup folder, recreated if only it was deleted. A missing sync folder
+/// above it is never rebuilt: that would hide backups in an unsynced place.
+fn backup_root(link: &Link) -> Result<PathBuf, String> {
+    let root = PathBuf::from(
+        link.folder
+            .as_deref()
+            .ok_or("Choose your Dropbox backup folder first")?,
+    );
+    if root.is_dir() {
+        return Ok(root);
+    }
+    match root.parent() {
+        Some(parent) if parent.is_dir() => std::fs::create_dir(&root)
+            .map(|_| root.clone())
+            .map_err(|e| format!("Cannot recreate the backup folder: {e}")),
+        _ => Err(UNAVAILABLE.into()),
+    }
+}
+fn existing_backup_root(link: &Link) -> Result<Option<PathBuf>, String> {
+    Ok(link
+        .folder
+        .as_deref()
+        .map(PathBuf::from)
+        .filter(|root| root.is_dir()))
+}
+
+/// Choose the synced folder. `Lemlio Backups` is created inside it.
+pub fn set_backup_folder(chosen: &Path) -> Result<String, String> {
+    if !chosen.is_absolute() || !chosen.is_dir() {
+        return Err("Choose an existing folder, for example your Dropbox folder".into());
+    }
+    let root = if chosen
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy() == ROOT_NAME)
+    {
+        chosen.to_path_buf()
+    } else {
+        chosen.join(ROOT_NAME)
+    };
+    if !root.is_dir() {
+        std::fs::create_dir(&root)
+            .map_err(|e| format!("Cannot create {ROOT_NAME} in that folder: {e}"))?;
+    }
+    tempfile::Builder::new()
+        .prefix(".lemlio-write-test")
+        .tempfile_in(&root)
+        .map_err(|_| "Lemlio cannot write to that folder")?;
+    let text = backup_store::root_id(&root);
+    let mut link = link()?;
+    if link.folder.as_deref() != Some(text.as_str()) {
+        link.last_backup = None;
+    }
+    link.folder = Some(text.clone());
+    save_link(&link)?;
+    Ok(text)
 }
 
 pub fn clear_local_setup() -> Result<(), String> {
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    match credential()?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => {}
-        Err(_) => return Err("Cannot remove the local Drive connection".into()),
-    }
-    let path = config_path()?;
-    match std::fs::remove_file(path) {
+    match std::fs::remove_file(link_path()?) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err("Cannot remove local OAuth configuration".into()),
+        Err(_) => Err("Cannot remove the backup folder setting".into()),
     }
 }
 #[tauri::command]
-pub fn drive_configure(client_path: String) -> Result<(), String> {
-    configure_client(Path::new(&client_path))
+pub fn drive_detect_folders() -> Value {
+    json!(backup_store::detect_sync_folders())
+}
+#[tauri::command]
+pub async fn drive_set_folder(folder_path: String) -> Result<String, String> {
+    set_backup_folder(Path::new(&folder_path))
 }
 
 #[tauri::command]
@@ -146,494 +168,78 @@ pub async fn drive_status(state: tauri::State<'_, DriveState>) -> Result<Value, 
     status(&state).await
 }
 async fn status(state: &DriveState) -> Result<Value, String> {
-    let config = config().ok();
-    let token = tokens()?;
-    let connected = token
-        .as_ref()
-        .is_some_and(|t| config.as_ref().is_some_and(|c| c.client_id == t.client_id));
+    let link = link()?;
+    let available = link
+        .folder
+        .as_deref()
+        .is_some_and(|folder| Path::new(folder).is_dir());
+    let mut error = state.error.lock().await.clone();
+    if link.folder.is_some() && !available && error.is_none() {
+        error = Some(UNAVAILABLE.to_string());
+    }
     Ok(
-        json!({"configured":config.is_some(),"connected":connected,"pending":state.pending.load(Ordering::SeqCst),"error":state.error.lock().await.clone(),"lastBackup":token.as_ref().and_then(|t|t.last_backup),"folderUrl":token.and_then(|t|t.folder_id).map(|id|format!("https://drive.google.com/drive/folders/{id}"))}),
+        json!({"configured":link.folder.is_some(),"connected":available,"pending":false,"error":error,"lastBackup":link.last_backup,"folderPath":link.folder,"folderUrl":link.folder,"suggestions":backup_store::detect_sync_folders()}),
     )
 }
-
-fn http_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|_| "Cannot initialize the Google connection".into())
-}
-
-async fn token_request(form: &[(&str, &str)]) -> Result<Value, String> {
-    let response = http_client()?
-        .post(TOKEN_URL)
-        .form(form)
-        .send()
-        .await
-        .map_err(|_| "Cannot reach Google sign-in. Check your connection.")?;
-    if !response.status().is_success() {
-        return Err("Google rejected the connection. Check the Desktop OAuth client and test-user settings, then reconnect.".into());
-    }
-    serde_json::from_str(
-        &response
-            .text()
-            .await
-            .map_err(|_| "Cannot read Google response")?,
-    )
-    .map_err(|_| "Invalid Google response".into())
-}
-
-fn authorization_url(
-    client_id: &str,
-    redirect: &str,
-    challenge: &str,
-    nonce: &str,
-) -> Result<reqwest::Url, String> {
-    let mut url = reqwest::Url::parse("https://accounts.google.com/o/oauth2/v2/auth")
-        .map_err(|_| "Invalid OAuth endpoint")?;
-    url.query_pairs_mut().extend_pairs([
-        ("client_id", client_id),
-        ("redirect_uri", redirect),
-        ("response_type", "code"),
-        ("scope", SCOPE),
-        ("access_type", "offline"),
-        ("prompt", "consent"),
-        ("state", nonce),
-        ("code_challenge", challenge),
-        ("code_challenge_method", "S256"),
-    ]);
-    Ok(url)
-}
-fn callback_parameters(
-    target: &str,
-    nonce: &str,
-) -> Option<std::collections::HashMap<String, String>> {
-    if !target.starts_with('/') {
-        return None;
-    }
-    let url = reqwest::Url::parse(&format!("http://127.0.0.1{target}")).ok()?;
-    let pairs: Vec<_> = url.query_pairs().into_owned().collect();
-    if pairs.iter().filter(|(key, _)| key == "state").count() != 1
-        || pairs.iter().filter(|(key, _)| key == "code").count() > 1
-    {
-        return None;
-    }
-    let parameters: std::collections::HashMap<_, _> = pairs.into_iter().collect();
-    if parameters.get("state").map(String::as_str) != Some(nonce) {
-        return None;
-    }
-    Some(parameters)
-}
-pub async fn begin_login(state: &DriveState) -> Result<String, String> {
-    let client = config()?;
-    if let Some(task) = state.login.lock().await.take() {
-        task.abort();
-    }
-    *state.error.lock().await = None;
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .map_err(|_| "Cannot start the local Google sign-in callback")?;
-    let port = listener
-        .local_addr()
-        .map_err(|_| "Cannot read callback port")?
-        .port();
-    let redirect = format!("http://127.0.0.1:{port}");
-    let verifier = format!(
-        "{}{}",
-        uuid::Uuid::new_v4().simple(),
-        uuid::Uuid::new_v4().simple()
-    );
-    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
-    let nonce = uuid::Uuid::new_v4().to_string();
-    let url = authorization_url(&client.client_id, &redirect, &challenge, &nonce)?;
-    state.pending.store(true, Ordering::SeqCst);
-    let current = state.clone();
-    let task = tokio::spawn(async move {
-        let result=tokio::time::timeout(Duration::from_secs(300),async {
-     loop {
-       let (mut stream,_)=listener.accept().await.map_err(|_|"Google callback failed".to_string())?;
-       let mut buffer=vec![0;16384];
-       let count=tokio::time::timeout(Duration::from_secs(10),stream.read(&mut buffer)).await.map_err(|_|"Google callback timed out")?.map_err(|_|"Cannot read Google callback")?;
-       let request=String::from_utf8_lossy(&buffer[..count]);
-       let target=request.lines().next().and_then(|line|line.split_whitespace().nth(1)).unwrap_or("/");
-       let Some(parameters)=callback_parameters(target,&nonce) else {let _=stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;continue;};
-       let exchange=async {
-         let code=parameters.get("code").ok_or("Google sign-in was cancelled")?;
-         let response=token_request(&[("client_id",&client.client_id),("client_secret",&client.client_secret),("code",code),("code_verifier",&verifier),("redirect_uri",&redirect),("grant_type","authorization_code")]).await?;
-         let access=response["access_token"].as_str().ok_or("Google did not return an access token")?;
-         let refresh=response["refresh_token"].as_str().ok_or("Google did not grant background access; reconnect and approve access")?;
-         save_tokens(&Tokens{access_token:access.into(),refresh_token:refresh.into(),expires_at:now()+response["expires_in"].as_u64().unwrap_or(3600),client_id:client.client_id.clone(),folder_id:None,last_backup:None})?;
-         Ok::<(),String>(())
-       }.await;
-       let message=if exchange.is_ok(){"Lemlio is connected to Google Drive. You can close this tab."}else{"Lemlio could not connect. Return to the app to check the connection."};
-       let page=format!("<!doctype html><meta charset=utf-8><title>Lemlio</title><p>{message}</p>");
-       let header=format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",page.len(),page);
-       let _=stream.write_all(header.as_bytes()).await;
-       return exchange;
-     }
-   }).await;
-        current.pending.store(false, Ordering::SeqCst);
-        *current.error.lock().await = match result {
-            Ok(Ok(())) => None,
-            Ok(Err(error)) => Some(error),
-            Err(_) => Some("Google sign-in timed out. Try Connect again.".into()),
-        };
-    });
-    *state.login.lock().await = Some(task);
-    Ok(url.to_string())
-}
+/// Forget the folder on this computer. Backups already in it are left untouched.
 #[tauri::command]
-pub async fn drive_connect(state: tauri::State<'_, DriveState>) -> Result<String, String> {
-    begin_login(&state).await
-}
-#[tauri::command]
-pub async fn drive_cancel(state: tauri::State<'_, DriveState>) -> Result<(), String> {
-    if let Some(task) = state.login.lock().await.take() {
-        task.abort();
-    }
-    state.pending.store(false, Ordering::SeqCst);
-    Ok(())
-}
-#[tauri::command]
-pub async fn drive_disconnect(state: tauri::State<'_, DriveState>) -> Result<(), String> {
-    if let Some(task) = state.login.lock().await.take() {
-        task.abort();
-    }
-    state.pending.store(false, Ordering::SeqCst);
-    if let Some(token) = tokens()? {
-        let _ = http_client()?
-            .post("https://oauth2.googleapis.com/revoke")
-            .form(&[("token", token.refresh_token)])
-            .send()
-            .await;
-    }
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    match credential()?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => {}
-        Err(_) => return Err("Cannot remove the stored Drive connection".into()),
-    }
-    Ok(())
+pub async fn drive_disconnect(_state: tauri::State<'_, DriveState>) -> Result<(), String> {
+    save_link(&Link::default())
 }
 
-async fn authorized_tokens() -> Result<Tokens, String> {
-    let client = config()?;
-    let mut token = tokens()?.ok_or("Connect Google Drive first")?;
-    if token.client_id != client.client_id {
-        return Err("The OAuth client changed. Reconnect Google Drive.".into());
-    }
-    if token.expires_at <= now() + 60 {
-        let response = token_request(&[
-            ("client_id", &client.client_id),
-            ("client_secret", &client.client_secret),
-            ("refresh_token", &token.refresh_token),
-            ("grant_type", "refresh_token"),
-        ])
-        .await?;
-        token.access_token = response["access_token"]
-            .as_str()
-            .ok_or("Google did not renew access; reconnect")?
-            .into();
-        token.expires_at = now() + response["expires_in"].as_u64().unwrap_or(3600);
-        if let Some(refresh) = response["refresh_token"].as_str() {
-            token.refresh_token = refresh.into();
-        }
-        save_tokens(&token)?;
-    }
-    Ok(token)
+// ---- Project identity -------------------------------------------------------
+// Every project carries a stable id in `.lemlio-project.json` inside its folder.
+// The id travels in each backup ZIP, so any computer holding that project (or a
+// copy of its folder) recognizes the same project instead of seeing a stranger.
+// Shared projects use their collaboration id. Clones and imported ZIPs drop the
+// id, so they become separate projects with their own history.
+fn valid_project_key(key: &str) -> bool {
+    (8..=64).contains(&key.len()) && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
-async fn google_json(response: reqwest::Response) -> Result<Value, String> {
-    if !response.status().is_success() {
-        let status = response.status().as_u16();
-        if status == 411 {
-            return Err("Google Drive rejected the request length (HTTP 411). The backup remains queued; reconnecting is not required.".into());
-        }
-        let details: Value = response.json().await.unwrap_or(Value::Null);
-        let reason = details["error"]["errors"][0]["reason"]
-            .as_str()
-            .unwrap_or("requestRejected");
-        let message: String = details["error"]["message"]
-            .as_str()
-            .unwrap_or("Google did not allow this request")
-            .chars()
-            .take(300)
-            .collect();
-        return Err(format!(
-            "Google Drive returned HTTP {status} ({reason}): {message}"
-        ));
-    }
-    serde_json::from_str(
-        &response
-            .text()
-            .await
-            .map_err(|_| "Cannot read Drive response")?,
-    )
-    .map_err(|_| "Invalid Drive response".into())
-}
-
-async fn drive_children(
-    client: &reqwest::Client,
-    token: &str,
-    parent: &str,
-) -> Result<Vec<Value>, String> {
-    let mut result = Vec::new();
-    let mut page = String::new();
-    loop {
-        let response = client
-            .get("https://www.googleapis.com/drive/v3/files")
-            .bearer_auth(token)
-            .query(&[
-                (
-                    "q",
-                    format!(
-                        "trashed=false and '{}' in parents",
-                        parent.replace('\\', "\\\\").replace('\'', "\\'")
-                    ),
-                ),
-                (
-                    "fields",
-                    "nextPageToken,files(id,name,mimeType,size,sha256Checksum,appProperties,modifiedTime)"
-                        .into(),
-                ),
-                ("pageSize", "1000".into()),
-                ("pageToken", page.clone()),
-            ])
-            .send()
-            .await
-            .map_err(|_| "Cannot list the Drive backup folder")?;
-        let data = google_json(response).await?;
-        result.extend(data["files"].as_array().cloned().unwrap_or_default());
-        match data["nextPageToken"].as_str() {
-            Some(next) if !next.is_empty() => page = next.to_string(),
-            _ => break,
-        }
-    }
-    Ok(result)
-}
-async fn create_drive_folder(
-    client: &reqwest::Client,
-    token: &str,
-    parent: Option<&str>,
-    name: &str,
-    project_key: Option<&str>,
-) -> Result<String, String> {
-    let mut metadata = json!({"name":name,"mimeType":"application/vnd.google-apps.folder"});
-    if let Some(parent) = parent {
-        metadata["parents"] = json!([parent]);
-    }
-    if let Some(key) = project_key {
-        metadata["appProperties"] = json!({"lemlioProject":key});
-    }
-    let response = client
-        .post("https://www.googleapis.com/drive/v3/files")
-        .bearer_auth(token)
-        .json(&metadata)
-        .send()
-        .await
-        .map_err(|_| "Cannot create the Drive folder")?;
-    google_json(response).await?["id"]
+pub(crate) fn read_project_id(source: &Path) -> Option<String> {
+    let raw = std::fs::read(source.join(crate::drive_sync::PROJECT_ID)).ok()?;
+    let value: Value = serde_json::from_slice(&raw).ok()?;
+    value["id"]
         .as_str()
+        .filter(|id| valid_project_key(id))
         .map(str::to_string)
-        .ok_or("Missing Drive folder ID".into())
 }
-fn chunk_request(
-    client: &reqwest::Client,
-    url: reqwest::Url,
-    token: &str,
-    range: &str,
-    body: Vec<u8>,
-) -> reqwest::RequestBuilder {
-    client
-        .put(url)
-        .bearer_auth(token)
-        .header("Content-Type", "application/octet-stream")
-        .header("Content-Range", range)
-        .header(reqwest::header::CONTENT_LENGTH, body.len().to_string())
-        .body(body)
+/// The project's backup identity, created on first use. `seed` carries an
+/// identity the project already had (an earlier backup record).
+fn ensure_project_key(source: &Path, seed: Option<&str>) -> Result<String, String> {
+    if let Some(shared) = crate::collaboration::manifest(source)? {
+        return Ok(shared.drive_project_id);
+    }
+    if let Some(id) = read_project_id(source) {
+        return Ok(id);
+    }
+    let id = seed
+        .filter(|seed| valid_project_key(seed))
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    write_project_id(source, &id)?;
+    Ok(id)
+}
+fn write_project_id(source: &Path, id: &str) -> Result<(), String> {
+    let mut file = tempfile::NamedTempFile::new_in(source).map_err(|e| e.to_string())?;
+    std::io::Write::write_all(
+        &mut file,
+        &serde_json::to_vec_pretty(&json!({"schema":1,"id":id})).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    file.persist(source.join(crate::drive_sync::PROJECT_ID))
+        .map_err(|e| e.error.to_string())?;
+    Ok(())
+}
+/// The identity of a local project without creating one.
+fn project_key_of(source: &Path) -> Option<String> {
+    crate::collaboration::manifest(source)
+        .ok()
+        .flatten()
+        .map(|shared| shared.drive_project_id)
+        .or_else(|| read_project_id(source))
 }
 
-#[cfg(test)]
-fn drive_file_matches(remote: &Value, hash: &str, size: u64) -> bool {
-    remote["sha256Checksum"].as_str() == Some(hash)
-        || (size == 0
-            && (remote["size"].as_str() == Some("0") || remote["size"].as_u64() == Some(0)))
-}
-
-async fn upload_drive_file(
-    client: &reqwest::Client,
-    token: &str,
-    parent: &str,
-    name: &str,
-    source: &Path,
-    existing: Option<&str>,
-    project_key: &str,
-    sync_properties: &Value,
-) -> Result<Value, String> {
-    let mime = match source
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "svg" => "image/svg+xml",
-        "webp" => "image/webp",
-        "pdf" => "application/pdf",
-        "zip" => "application/zip",
-        "tex" | "ltx" | "bib" | "sty" | "cls" | "txt" | "md" | "csv" => "text/plain",
-        "json" => "application/json",
-        _ => "application/octet-stream",
-    };
-    let size = tokio::fs::metadata(source)
-        .await
-        .map_err(|_| "Cannot read backup file")?
-        .len();
-    let url = existing
-        .map(|id| format!("https://www.googleapis.com/upload/drive/v3/files/{id}"))
-        .unwrap_or_else(|| "https://www.googleapis.com/upload/drive/v3/files".into());
-    let request = if existing.is_some() {
-        client.patch(url)
-    } else {
-        client.post(url)
-    };
-    let mut metadata = json!({"name": name,"mimeType":mime,"appProperties":{"lemlioProject":project_key,"lemlioFormat":"zip-v2","lemlioArchiveHash":sha256_file(source)?}});
-    if let Some(properties) = sync_properties.as_object() {
-        for (key, value) in properties {
-            metadata["appProperties"][key] = value.clone();
-        }
-    }
-    if existing.is_none() {
-        metadata["parents"] = json!([parent]);
-    }
-    if size == 0 {
-        // Empty files have no resumable chunks. Creating metadata or explicitly
-        // replacing media with a length-zero body avoids invalid empty sessions.
-        let response = if let Some(id) = existing {
-            client
-                .patch(format!(
-                    "https://www.googleapis.com/upload/drive/v3/files/{id}"
-                ))
-                .query(&[
-                    ("uploadType", "media"),
-                    ("fields", "id,size,sha256Checksum"),
-                ])
-                .bearer_auth(token)
-                .header("Content-Type", mime)
-                .header(reqwest::header::CONTENT_LENGTH, "0")
-                .body(Vec::<u8>::new())
-                .send()
-                .await
-                .map_err(|_| "Cannot save the empty Drive file")?
-        } else {
-            client
-                .post("https://www.googleapis.com/drive/v3/files")
-                .query(&[("fields", "id,size,sha256Checksum")])
-                .bearer_auth(token)
-                .json(&metadata)
-                .send()
-                .await
-                .map_err(|_| "Cannot create the empty Drive file")?
-        };
-        let result = google_json(response).await?;
-        if result["id"].as_str().is_none() {
-            return Err("Google did not confirm the empty file".into());
-        }
-        return Ok(result);
-    }
-    let metadata_body =
-        serde_json::to_vec(&metadata).map_err(|_| "Cannot encode Drive upload metadata")?;
-    let response = request
-        .query(&[
-            ("uploadType", "resumable"),
-            ("fields", "id,size,sha256Checksum"),
-        ])
-        .bearer_auth(token)
-        .header("Content-Type", "application/json")
-        .header("X-Upload-Content-Type", mime)
-        .header("X-Upload-Content-Length", size.to_string())
-        .header(
-            reqwest::header::CONTENT_LENGTH,
-            metadata_body.len().to_string(),
-        )
-        .body(metadata_body)
-        .send()
-        .await
-        .map_err(|_| "Cannot start the Drive file upload")?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "Cannot start Drive upload (HTTP {})",
-            response.status().as_u16()
-        ));
-    }
-    let location = response
-        .headers()
-        .get("location")
-        .and_then(|h| h.to_str().ok())
-        .ok_or("Missing Drive upload session")?;
-    let upload_url = reqwest::Url::parse(location).map_err(|_| "Invalid Drive upload URL")?;
-    if upload_url.scheme() != "https" || upload_url.host_str() != Some("www.googleapis.com") {
-        return Err("Unexpected Drive upload endpoint".into());
-    }
-    let mut file = tokio::fs::File::open(source)
-        .await
-        .map_err(|_| "Cannot open backup file")?;
-    let mut offset = 0u64;
-    loop {
-        let length = (size - offset).min(8 * 1024 * 1024) as usize;
-        let mut chunk = vec![0; length];
-        file.read_exact(&mut chunk)
-            .await
-            .map_err(|_| "Cannot read backup data")?;
-        let range = if size == 0 {
-            "bytes */0".to_string()
-        } else {
-            format!("bytes {}-{}/{}", offset, offset + length as u64 - 1, size)
-        };
-        let mut response = None;
-        for attempt in 0..3 {
-            match chunk_request(client, upload_url.clone(), token, &range, chunk.clone())
-                .send()
-                .await
-            {
-                Ok(reply)
-                    if reply.status().as_u16() != 429 && !reply.status().is_server_error() =>
-                {
-                    response = Some(reply);
-                    break;
-                }
-                _ if attempt < 2 => tokio::time::sleep(Duration::from_secs(1 << attempt)).await,
-                _ => return Err("Drive upload interrupted; automatic backup will retry".into()),
-            }
-        }
-        let reply = response.ok_or("Drive upload failed")?;
-        offset += length as u64;
-        if reply.status().as_u16() != 308 {
-            let uploaded = google_json(reply).await?;
-            if offset != size || uploaded["id"].as_str().is_none() {
-                return Err("Google did not confirm the complete file".into());
-            }
-            return Ok(uploaded);
-        }
-        if offset >= size {
-            return Err("Google has not confirmed the complete file".into());
-        }
-    }
-}
-fn sha256_file(path: &Path) -> Result<String, String> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0u8; 65536];
-    loop {
-        let count = file.read(&mut buffer).map_err(|e| e.to_string())?;
-        if count == 0 {
-            break;
-        }
-        hash.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", hash.finalize()))
-}
 fn backup_archive_name(name: &str, key: &str) -> String {
     let safe: String = name
         .chars()
@@ -654,61 +260,40 @@ fn backup_archive_name(name: &str, key: &str) -> String {
     )
 }
 
-fn validate_backup_root(file: &Value) -> Result<(), String> {
-    if file["name"] != "Lemlio Backups"
-        || file["mimeType"] != "application/vnd.google-apps.folder"
-        || file["ownedByMe"] != true
+fn validate_backup_root(root: &Path) -> Result<(), String> {
+    if root
+        .file_name()
+        .map(|n| n.to_string_lossy() != ROOT_NAME)
+        .unwrap_or(true)
+        || !root.is_dir()
     {
         return Err(
-            "Reset stopped: the configured Drive folder is not your Lemlio Backups folder".into(),
+            "Reset stopped: the configured folder is not your Lemlio Backups folder".into(),
         );
     }
     Ok(())
 }
 
-/// Explicit reset only: trash the configured backup root, never permanently delete it.
+/// Explicit reset only: the old folder is renamed and kept, never deleted.
 pub async fn reset_backups(state: &DriveState) -> Result<Value, String> {
     let _upload = state.upload.lock().await;
-    let mut token = authorized_tokens().await?;
-    let client = http_client()?;
-    let mut trashed = false;
-    if let Some(id) = token.folder_id.clone() {
-        let response = client
-            .get(format!("https://www.googleapis.com/drive/v3/files/{id}"))
-            .bearer_auth(&token.access_token)
-            .query(&[("fields", "id,name,mimeType,ownedByMe,trashed")])
-            .send()
-            .await
-            .map_err(|_| "Cannot inspect the backup folder")?;
-        if response.status().as_u16() != 404 {
-            let file = google_json(response).await?;
-            validate_backup_root(&file)?;
-            if file["trashed"] != true {
-                let response = client
-                    .patch(format!("https://www.googleapis.com/drive/v3/files/{id}"))
-                    .bearer_auth(&token.access_token)
-                    .query(&[("fields", "id,trashed")])
-                    .json(&json!({"trashed":true}))
-                    .send()
-                    .await
-                    .map_err(|_| "Cannot move the backup folder to Trash")?;
-                if google_json(response).await.map_err(|error| if error.contains("appNotAuthorizedToChild") { "Google cannot reset this folder because it contains items outside Lemlio's app access. Open the backup folder in Drive, move that folder to Trash, then try Reset again. Your PC files are unaffected.".to_string() } else {error})?["trashed"] != true {
-                    return Err("Google did not confirm moving the backup folder to Trash".into());
-                }
-            }
-            trashed = true;
-        }
-    }
-    token.folder_id = None;
-    token.last_backup = None;
-    save_tokens(&token)?;
-    token.folder_id = Some(
-        create_drive_folder(&client, &token.access_token, None, "Lemlio Backups", None).await?,
+    let mut link = linked()?;
+    let folder = PathBuf::from(
+        link.folder
+            .clone()
+            .ok_or("Choose your Dropbox backup folder first")?,
     );
-    save_tokens(&token)?;
+    let mut retired = None;
+    if folder.is_dir() {
+        validate_backup_root(&folder)?;
+        retired = Some(backup_store::retire_root(&folder)?);
+    }
+    link.last_backup = None;
+    save_link(&link)?;
+    let fresh = backup_root(&link)?;
     *state.error.lock().await = None;
     Ok(
-        json!({"trashedPreviousFolder":trashed,"folderUrl":format!("https://drive.google.com/drive/folders/{}",token.folder_id.unwrap())}),
+        json!({"retiredPreviousFolder":retired.as_ref().map(|p|p.to_string_lossy().to_string()),"trashedPreviousFolder":retired.is_some(),"folderPath":fresh.to_string_lossy(),"folderUrl":fresh.to_string_lossy()}),
     )
 }
 
@@ -835,18 +420,87 @@ fn revision_choices(heads: &[&Value]) -> Value {
         .map(|f| conflict_details(f, heads.len()))
         .collect::<Vec<_>>())
 }
+/// Complete revisions in the backup folder, or `None` when the folder is missing.
+async fn remote_files() -> Result<Option<(PathBuf, Vec<Value>)>, String> {
+    let link = linked()?;
+    let Some(root) = existing_backup_root(&link)? else {
+        return Ok(None);
+    };
+    let listing = root.clone();
+    let files = tokio::task::spawn_blocking(move || backup_store::list(&listing))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(Some((root, files)))
+}
+
+/// Link a local project to its backup history by identity when this computer has
+/// no backup record for it yet (a copied folder, or a project from another PC).
+/// The link is made only when the local files are exactly one stored revision of
+/// that project, so the revisions after it are provably newer and may replace it.
+fn adopt_receipt(
+    path: &str,
+    root: &Path,
+    files: &[Value],
+) -> Result<Option<crate::drive_receipts::Receipt>, String> {
+    if let Some(existing) = crate::drive_receipts::load(path)? {
+        return Ok(Some(existing));
+    }
+    let source = Path::new(path);
+    let Some(key) = project_key_of(source) else {
+        return Ok(None);
+    };
+    let revisions: Vec<&Value> = files
+        .iter()
+        .filter(|f| f["appProperties"]["lemlioProject"] == key.as_str())
+        .collect();
+    if revisions.is_empty() {
+        return Ok(None);
+    }
+    let heads = crate::drive_sync::heads(files, &key);
+    let mut titles = vec![project_title(source)];
+    for revision in &revisions {
+        if let Some(title) = revision["appProperties"]["lemlioTitle"].as_str() {
+            if !titles.iter().any(|t| t == title) {
+                titles.push(title.to_string());
+            }
+        }
+    }
+    for title in titles {
+        let content = crate::drive_sync::content_revision(source, &title)?;
+        let matched = heads
+            .iter()
+            .copied()
+            .chain(revisions.iter().copied())
+            .find(|f| f["appProperties"]["lemlioContent"] == content.as_str());
+        let Some(matched) = matched else {
+            continue;
+        };
+        let (Some(id), Some(hash)) = (matched["id"].as_str(), matched["sha256Checksum"].as_str())
+        else {
+            continue;
+        };
+        let receipt = crate::drive_receipts::Receipt {
+            project_key: key,
+            archive_id: id.to_string(),
+            archive_hash: hash.to_string(),
+            source_revision: local_revision(source)?,
+            content_revision: content,
+            folder_id: backup_store::root_id(root),
+            last_backup: now(),
+        };
+        crate::drive_receipts::save(path, receipt.clone())?;
+        return Ok(Some(receipt));
+    }
+    Ok(None)
+}
+
 async fn conflict_archive(key: &str, expected: &str) -> Result<String, String> {
-    let mut token = authorized_tokens().await?;
-    let client = http_client()?;
-    let root = existing_backup_root(&client, &mut token)
-        .await?
-        .ok_or("No Drive backup folder")?;
-    let files = drive_children(&client, &token.access_token, &root).await?;
+    let (_, files) = remote_files().await?.ok_or("No backup folder")?;
     crate::drive_sync::heads(&files, key)
         .into_iter()
         .find(|f| f["sha256Checksum"] == expected)
         .and_then(|f| f["id"].as_str().map(str::to_string))
-        .ok_or("The Drive revision changed again; refresh before continuing".into())
+        .ok_or("The backup revision changed again; refresh before continuing".into())
 }
 
 #[tauri::command]
@@ -862,26 +516,23 @@ async fn sync_project(
     project_path: String,
     expected: String,
 ) -> Result<Value, String> {
+    let (root, files) = remote_files().await?.ok_or("No backup folder")?;
     let receipt =
-        crate::drive_receipts::load(&project_path)?.ok_or("Project is not linked to Drive")?;
+        adopt_receipt(&project_path, &root, &files)?.ok_or("Project is not linked to a backup")?;
     if !receipt_unchanged(Path::new(&project_path), &receipt)? {
         return Err("Local files changed too. Review both versions; nothing was replaced".into());
     }
     let id = conflict_archive(&receipt.project_key, &expected).await?;
     // Only a single, genuine Lemlio revision may fast-forward automatically.
-    let mut token = authorized_tokens().await?;
-    let client = http_client()?;
-    let root = existing_backup_root(&client, &mut token)
-        .await?
-        .ok_or("No backup folder")?;
-    let files = drive_children(&client, &token.access_token, &root).await?;
     let heads = crate::drive_sync::heads(&files, &receipt.project_key);
     if heads.len() != 1
-        || heads[0]["id"] != id
+        || heads[0]["id"] != id.as_str()
         || heads[0]["appProperties"]["lemlioSync"] != "1"
         || heads[0]["sha256Checksum"] != heads[0]["appProperties"]["lemlioArchiveHash"]
     {
-        return Err("Drive has competing or externally edited versions; review them first".into());
+        return Err(
+            "The backup has competing or externally edited versions; review them first".into(),
+        );
     }
     let content = crate::drive_sync::content_revision(
         Path::new(&project_path),
@@ -895,6 +546,81 @@ async fn sync_project(
         Some((project_path, content)),
     )
     .await
+}
+
+/// The user chose the cloud version for a project whose copies both changed (or
+/// that has no shared history yet). The project is replaced in place; the local
+/// files are kept beside it as a recovery copy. No second project is created.
+#[tauri::command]
+pub async fn drive_use_cloud_version(
+    state: tauri::State<'_, DriveState>,
+    project_path: String,
+    expected_remote_hash: String,
+) -> Result<Value, String> {
+    use_cloud_version(&state, project_path, expected_remote_hash).await
+}
+async fn use_cloud_version(
+    state: &DriveState,
+    project_path: String,
+    expected_remote_hash: String,
+) -> Result<Value, String> {
+    let key = crate::drive_receipts::load(&project_path)?
+        .map(|r| r.project_key)
+        .or_else(|| project_key_of(Path::new(&project_path)))
+        .ok_or("This project is not linked to a backup")?;
+    let id = conflict_archive(&key, &expected_remote_hash).await?;
+    let content = crate::drive_sync::content_revision(
+        Path::new(&project_path),
+        &project_title(Path::new(&project_path)),
+    )?;
+    restore_snapshot_with_target(
+        state,
+        id,
+        None,
+        Some((project_path.clone(), expected_remote_hash)),
+        Some((project_path, content)),
+    )
+    .await
+}
+
+/// Confirmed by the user: this local project (which has no backup identity yet) is
+/// the cloud project `archive_id`. The local folder takes over the cloud identity,
+/// so later backups continue that history instead of starting a duplicate.
+#[tauri::command]
+pub async fn drive_link_project(
+    state: tauri::State<'_, DriveState>,
+    project_path: String,
+    archive_id: String,
+) -> Result<Value, String> {
+    link_project(&state, project_path, archive_id).await
+}
+async fn link_project(
+    state: &DriveState,
+    project_path: String,
+    archive_id: String,
+) -> Result<Value, String> {
+    let _lock = state.upload.lock().await;
+    let (root, files) = remote_files().await?.ok_or("No backup folder")?;
+    let key = files
+        .iter()
+        .find(|f| f["id"] == archive_id.as_str())
+        .and_then(|f| f["appProperties"]["lemlioProject"].as_str())
+        .ok_or("Choose a project from this backup folder")?
+        .to_string();
+    let source = Path::new(&project_path);
+    if let Some(shared) = crate::collaboration::manifest(source)? {
+        if shared.drive_project_id != key {
+            return Err("This shared project already has its own backup history".into());
+        }
+    } else if let Some(current) = read_project_id(source) {
+        if current != key {
+            return Err("This project already has its own backup identity".into());
+        }
+    } else {
+        write_project_id(source, &key)?;
+    }
+    let adopted = adopt_receipt(&project_path, &root, &files)?;
+    Ok(json!({"linked":true,"provablyRelated":adopted.is_some(),"projectKey":key}))
 }
 
 pub async fn backup_project(state: &DriveState, project_path: String) -> Result<Value, String> {
@@ -930,32 +656,22 @@ async fn backup_project_with_collaboration(
             "Open Lemlio to merge the shared history before backing up this project".into(),
         );
     }
-    let mut token = authorized_tokens().await?;
-    let client = http_client()?;
+    let mut link = linked()?;
     let snapshot = tokio::task::spawn_blocking(move || {
         let source = std::fs::canonicalize(&project_path).map_err(|e| e.to_string())?;
         if !source.is_dir() {
             return Err("Project folder is unavailable".to_string());
         }
         let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let local_path = source.to_string_lossy().to_string();
+        let receipt = crate::drive_receipts::load(&local_path)?;
+        // The stable project id is written first so it travels inside every revision.
+        let key = ensure_project_key(&source, receipt.as_ref().map(|r| r.project_key.as_str()))?;
         let revision = local_revision(&source)?;
         let file_count = crate::projects::export_to(&source, &directory.path().join("backup.zip"))?;
         if local_revision(&source)? != revision {
             return Err("Project changed while preparing its ZIP; backup will retry".into());
         }
-        let local_path = source.to_string_lossy().to_string();
-        let receipt = crate::drive_receipts::load(&local_path)?;
-        // Keep the established archive identity for existing Windows projects.
-        let normalized = if cfg!(target_os = "windows") {
-            local_path.replace('\\', "/").to_lowercase()
-        } else {
-            crate::drive_receipts::path_key(&local_path)
-        };
-        let key = receipt
-            .as_ref()
-            .map(|r| r.project_key.clone())
-            .or(crate::collaboration::manifest(&source)?.map(|m| m.drive_project_id))
-            .unwrap_or_else(|| format!("{:x}", Sha256::digest(normalized.as_bytes())));
         let name = crate::projects::project_details(project_path)
             .ok()
             .and_then(|d| d["name"].as_str().map(str::to_string))
@@ -972,44 +688,19 @@ async fn backup_project_with_collaboration(
     })
     .await
     .map_err(|_| "Cannot prepare backup files")??;
-    // A deleted backup root is recreated without touching any old backup files.
-    if let Some(id) = token.folder_id.clone() {
-        let response = client
-            .get(format!("https://www.googleapis.com/drive/v3/files/{id}"))
-            .bearer_auth(&token.access_token)
-            .query(&[("fields", "id,trashed")])
-            .send()
-            .await
-            .map_err(|_| "Cannot reach Google Drive")?;
-        if response.status().as_u16() == 404 {
-            token.folder_id = None;
-        } else {
-            let data = google_json(response).await?;
-            if data["trashed"].as_bool() == Some(true) {
-                token.folder_id = None;
-            }
-        }
-    }
-    if token.folder_id.is_none() {
-        let root_files = drive_children(&client, &token.access_token, "root").await?;
-        token.folder_id = root_files
-            .iter()
-            .find(|f| {
-                f["name"] == "Lemlio Backups"
-                    && f["mimeType"] == "application/vnd.google-apps.folder"
-            })
-            .and_then(|f| f["id"].as_str())
-            .map(str::to_string);
-        if token.folder_id.is_none() {
-            token.folder_id = Some(
-                create_drive_folder(&client, &token.access_token, None, "Lemlio Backups", None)
-                    .await?,
-            );
-        }
-        save_tokens(&token)?;
-    }
-    let root = token.folder_id.as_deref().ok_or("Missing backup root")?;
-    let children = drive_children(&client, &token.access_token, root).await?;
+    // A deleted backup folder is recreated without touching any old backup files.
+    let root_path = backup_root(&link)?;
+    let root_text = backup_store::root_id(&root_path);
+    let root = root_text.as_str();
+    let listing = root_path.clone();
+    let children = tokio::task::spawn_blocking(move || backup_store::list(&listing))
+        .await
+        .map_err(|e| e.to_string())??;
+    // A project copied from another PC already carries its identity: recognize it.
+    let receipt = match snapshot.5.clone() {
+        Some(record) => Some(record),
+        None => adopt_receipt(&snapshot.6, &root_path, &children)?,
+    };
     let heads = crate::drive_sync::heads(&children, &snapshot.2);
     if heads.len() > 16 {
         return Err(
@@ -1061,8 +752,7 @@ async fn backup_project_with_collaboration(
     let content = snapshot.4.trim_start_matches("content-v1:");
     let old_hash = sha256_file(&archive)?;
     if let Some(remote) = existing {
-        let baseline = snapshot
-            .5
+        let baseline = receipt
             .as_ref()
             .filter(|r| r.folder_id == root && remote["id"].as_str() == Some(r.archive_id.as_str()))
             .map(|r| r.archive_hash.as_str());
@@ -1093,7 +783,8 @@ async fn backup_project_with_collaboration(
     let manifest = json!({"schema":1,"projectId":snapshot.2,"revision":uuid::Uuid::new_v4().to_string(),
         "parents":parents,"contentHash":content,"title":snapshot.3,"device":device,"savedAt":now()});
     let mut properties = json!({"lemlioSync":"1","lemlioContent":content,
-        "lemlioDevice":device["id"],"lemlioDeviceName":device["name"],"lemlioSavedAt":now().to_string()});
+        "lemlioDevice":device["id"],"lemlioDeviceName":device["name"],"lemlioSavedAt":now().to_string(),
+        "lemlioTitle":snapshot.3});
     if let Some(shared) = shared {
         properties["lemlioCollaboration"] = json!(shared.id);
     }
@@ -1110,27 +801,35 @@ async fn backup_project_with_collaboration(
             .ok_or("Missing backup archive ID")?
             .to_string()
     } else {
-        let result = upload_drive_file(
-            &client,
-            &token.access_token,
-            root,
-            &archive_name,
-            &archive,
-            None, // Immutable revision: another device can never overwrite this upload.
-            &snapshot.2,
-            &properties,
-        )
-        .await?;
+        let (store_root, store_name, store_archive, store_key, store_properties) = (
+            root_path.clone(),
+            archive_name.clone(),
+            archive.clone(),
+            snapshot.2.clone(),
+            properties.clone(),
+        );
+        // Immutable revision: another device can never overwrite this upload.
+        let result = tokio::task::spawn_blocking(move || {
+            backup_store::put(
+                &store_root,
+                &store_name,
+                &store_archive,
+                &store_key,
+                &store_properties,
+            )
+        })
+        .await
+        .map_err(|_| "Cannot write the backup")??;
         if result["sha256Checksum"].as_str() != Some(hash.as_str()) {
-            return Err("Drive ZIP verification failed; backup will retry".into());
+            return Err("The backup ZIP failed verification; backup will retry".into());
         }
         result["id"]
             .as_str()
             .ok_or("Missing backup archive ID")?
             .to_string()
     };
-    token.last_backup = Some(now());
-    save_tokens(&token)?;
+    link.last_backup = Some(now());
+    save_link(&link)?;
     crate::drive_receipts::save(
         &snapshot.6,
         crate::drive_receipts::Receipt {
@@ -1147,11 +846,11 @@ async fn backup_project_with_collaboration(
             content_revision: content.to_string(),
             source_revision: snapshot.4.clone(),
             folder_id: root.to_string(),
-            last_backup: token.last_backup.unwrap_or_default(),
+            last_backup: link.last_backup.unwrap_or_default(),
         },
     )?;
     Ok(
-        json!({"name":snapshot.3,"format":"zip","sourceFiles":snapshot.1,"sourceRevision":snapshot.4,"uploadedFiles":if reused {0} else {1},"unchangedFiles":if reused {1} else {0},"deviceName":device["name"],"lastBackup":token.last_backup,"archiveUrl":format!("https://drive.google.com/file/d/{archive_id}/view"),"folderUrl":format!("https://drive.google.com/drive/folders/{root}")}),
+        json!({"name":snapshot.3,"format":"zip","sourceFiles":snapshot.1,"sourceRevision":snapshot.4,"uploadedFiles":if reused {0} else {1},"unchangedFiles":if reused {1} else {0},"deviceName":device["name"],"lastBackup":link.last_backup,"archivePath":root_path.join(format!("{archive_id}.zip")).to_string_lossy(),"folderPath":root,"folderUrl":root}),
     )
 }
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
@@ -1170,12 +869,9 @@ pub async fn drive_collaboration_updates(
     let shared = crate::collaboration::manifest(Path::new(&project_path))?
         .ok_or("This is not a shared project")?;
     let receipt = crate::drive_receipts::load(&project_path)?;
-    let mut token = authorized_tokens().await?;
-    let client = http_client()?;
-    let Some(root) = existing_backup_root(&client, &mut token).await? else {
+    let Some((root_path, children)) = remote_files().await? else {
         return Ok(json!({"heads":[]}));
     };
-    let children = drive_children(&client, &token.access_token, &root).await?;
     let heads = crate::drive_sync::heads(&children, &shared.drive_project_id);
     if heads.len() > 16 {
         return Err("Too many shared backup branches; export a recovery copy first".into());
@@ -1190,28 +886,12 @@ pub async fn drive_collaboration_updates(
         if head["appProperties"]["lemlioArchiveHash"] != hash {
             return Err(conflict_error(head, 1));
         }
-        let mut response = client
-            .get(format!("https://www.googleapis.com/drive/v3/files/{id}"))
-            .bearer_auth(&token.access_token)
-            .query(&[("alt", "media")])
-            .send()
-            .await
-            .map_err(|_| "Cannot reach the shared backup")?;
-        if !response.status().is_success() {
-            google_json(response).await?;
-            return Err("Cannot download shared history".into());
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| "Shared history download was interrupted")?
-        {
-            if bytes.len() + chunk.len() > 160 * 1024 * 1024 {
-                return Err("Shared backup ZIP exceeds 160 MB".into());
-            }
-            bytes.extend_from_slice(&chunk);
-        }
+        let (read_root, read_id) = (root_path.clone(), id.to_string());
+        let bytes = tokio::task::spawn_blocking(move || {
+            backup_store::read_archive(&read_root, &read_id, 160 * 1024 * 1024)
+        })
+        .await
+        .map_err(|_| "Cannot read the shared backup")??;
         if format!("{:x}", Sha256::digest(&bytes)) != hash {
             return Err("Shared backup checksum failed; local edits were kept".into());
         }
@@ -1358,14 +1038,15 @@ mod tests {
         );
     }
     #[test]
-    fn reset_only_accepts_owned_lemlio_backup_folders() {
-        let folder = json!({"name":"Lemlio Backups","mimeType":"application/vnd.google-apps.folder","ownedByMe":true});
-        assert!(validate_backup_root(&folder).is_ok());
-        for field in ["name", "mimeType", "ownedByMe"] {
-            let mut other = folder.clone();
-            other[field] = Value::Null;
-            assert!(validate_backup_root(&other).is_err());
-        }
+    fn reset_only_accepts_the_lemlio_backups_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        let good = temp.path().join(ROOT_NAME);
+        std::fs::create_dir(&good).unwrap();
+        assert!(validate_backup_root(&good).is_ok());
+        let other = temp.path().join("Documents");
+        std::fs::create_dir(&other).unwrap();
+        assert!(validate_backup_root(&other).is_err());
+        assert!(validate_backup_root(&temp.path().join("missing")).is_err());
         assert!(
             backup_archive_name("A/B: Paper", "abcdef123456789").ends_with("--abcdef123456.zip")
         );
@@ -1409,102 +1090,8 @@ mod tests {
         let mut archive = zip::ZipArchive::new(std::fs::File::open(third).unwrap()).unwrap();
         assert!(archive.by_name("figs/empty.png").is_err());
     }
-    #[test]
-    fn upload_chunks_always_declare_their_exact_length_including_empty_bodies() {
-        let client = reqwest::Client::new();
-        for body in [Vec::new(), vec![1, 2, 3]] {
-            let length = body.len();
-            let request = chunk_request(
-                &client,
-                reqwest::Url::parse("http://127.0.0.1/upload").unwrap(),
-                "test",
-                "bytes */3",
-                body,
-            )
-            .build()
-            .unwrap();
-            assert_eq!(
-                request.headers()[reqwest::header::CONTENT_LENGTH],
-                length.to_string()
-            );
-            assert_eq!(request.body().unwrap().as_bytes().unwrap().len(), length);
-        }
-    }
-    #[test]
-    fn empty_backups_are_not_reuploaded_when_drive_has_no_checksum() {
-        assert!(drive_file_matches(&json!({"size":"0"}), "empty-hash", 0));
-        assert!(!drive_file_matches(&json!({"size":"0"}), "file-hash", 2));
-        assert!(drive_file_matches(
-            &json!({"sha256Checksum":"file-hash"}),
-            "file-hash",
-            2
-        ));
-    }
-    #[test]
-    fn callback_rejects_wrong_or_ambiguous_state() {
-        assert!(callback_parameters("/?state=wrong&code=code", "expected").is_none());
-        assert!(
-            callback_parameters("/?state=expected&state=wrong&code=code", "expected").is_none()
-        );
-        assert!(
-            callback_parameters("/?state=expected&code=first&code=second", "expected").is_none()
-        );
-        assert!(
-            callback_parameters("https://example.com/?state=expected&code=code", "expected")
-                .is_none()
-        );
-    }
-    #[test]
-    fn valid_callback_decodes_code_without_logging_it() {
-        let parameters =
-            callback_parameters("/?state=expected&code=a%2Bb%2Fc", "expected").unwrap();
-        assert_eq!(parameters["code"], "a+b/c");
-    }
-    #[test]
-    fn authorization_is_google_only_with_pkce_and_minimal_scope() {
-        let url = authorization_url(
-            "example.apps.googleusercontent.com",
-            "http://127.0.0.1:49152",
-            "challenge",
-            "nonce",
-        )
-        .unwrap();
-        assert_eq!(url.host_str(), Some("accounts.google.com"));
-        let pairs: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
-        assert_eq!(pairs["scope"], SCOPE);
-        assert_eq!(pairs["code_challenge_method"], "S256");
-        assert_eq!(pairs["state"], "nonce");
-        assert_eq!(pairs["access_type"], "offline");
-    }
 }
 
-async fn existing_backup_root(
-    client: &reqwest::Client,
-    token: &mut Tokens,
-) -> Result<Option<String>, String> {
-    if let Some(id) = token.folder_id.clone() {
-        let response = client
-            .get(format!("https://www.googleapis.com/drive/v3/files/{id}"))
-            .bearer_auth(&token.access_token)
-            .query(&[("fields", "id,trashed")])
-            .send()
-            .await
-            .map_err(|_| "Cannot reach Drive")?;
-        if response.status().is_success() && google_json(response).await?["trashed"] != true {
-            return Ok(Some(id));
-        }
-    }
-    let root = drive_children(client, &token.access_token, "root")
-        .await?
-        .into_iter()
-        .find(|f| {
-            f["name"] == "Lemlio Backups" && f["mimeType"] == "application/vnd.google-apps.folder"
-        })
-        .and_then(|f| f["id"].as_str().map(str::to_string));
-    token.folder_id = root.clone();
-    save_tokens(token)?;
-    Ok(root)
-}
 fn display_archive_name(file: &Value) -> String {
     let name = file["name"]
         .as_str()
@@ -1529,12 +1116,9 @@ fn managed_archive(file: &Value, root: &str) -> bool {
 }
 #[tauri::command]
 pub async fn drive_list_backups() -> Result<Value, String> {
-    let mut token = authorized_tokens().await?;
-    let client = http_client()?;
-    let Some(root) = existing_backup_root(&client, &mut token).await? else {
+    let Some((_, files)) = remote_files().await? else {
         return Ok(json!({"projects":[]}));
     };
-    let files = drive_children(&client, &token.access_token, &root).await?;
     Ok(json!({"projects":backup_listing(&files)?}))
 }
 fn backup_listing(files: &[Value]) -> Result<Vec<Value>, String> {
@@ -1626,50 +1210,45 @@ async fn restore_snapshot_with_target(
             );
         }
     }
-    let mut token = authorized_tokens().await?;
-    let client = http_client()?;
-    let root = existing_backup_root(&client, &mut token)
+    let (root_path, files) = remote_files()
         .await?
-        .ok_or("No backup folder was found in this account")?;
-    let metadata = google_json(
-        client
-            .get(format!(
-                "https://www.googleapis.com/drive/v3/files/{archive_id}"
-            ))
-            .bearer_auth(&token.access_token)
-            .query(&[(
-                "fields",
-                "id,name,mimeType,parents,trashed,sha256Checksum,size,appProperties",
-            )])
-            .send()
-            .await
-            .map_err(|_| "Cannot inspect the Drive backup")?,
-    )
-    .await?;
+        .ok_or("No backup folder was found on this computer")?;
+    let root = backup_store::root_id(&root_path);
+    let metadata = files
+        .iter()
+        .find(|f| f["id"] == archive_id.as_str())
+        .cloned()
+        .ok_or("That backup revision is not in the folder yet (it may still be syncing)")?;
     if !managed_archive(&metadata, &root) {
-        return Err("Choose a ZIP from this account's Lemlio backup folder".into());
+        return Err("Choose a ZIP from this computer's Lemlio backup folder".into());
     }
     let project_key = metadata["appProperties"]["lemlioProject"]
         .as_str()
         .ok_or("Missing project identity")?
         .to_string();
     if let Some((path, expected)) = &binding {
-        let receipt =
-            crate::drive_receipts::load(path)?.ok_or("Backup link changed; refresh and retry")?;
-        if receipt.project_key != project_key {
+        // A recorded link, or an identity the project already carries, must match.
+        // A project the user explicitly linked has neither and is accepted.
+        let linked_key = crate::drive_receipts::load(path)?
+            .map(|r| r.project_key)
+            .or_else(|| project_key_of(Path::new(path)));
+        if linked_key.is_some_and(|key| key != project_key) {
             return Err("Backup link changed; refresh and retry".into());
         }
         if metadata["sha256Checksum"].as_str() != Some(expected.as_str()) {
             return Err(
-                "The Drive version changed again. Refresh the conflict before downloading.".into(),
+                "The backup version changed again. Refresh the conflict before continuing.".into(),
             );
         }
     } else if crate::drive_receipts::linked_project(&project_key)?.is_some() {
-        return Err("This Drive project is already linked to a local folder. Open that local project instead.".into());
+        return Err(
+            "This backup is already linked to a local project. Open that local project instead."
+                .into(),
+        );
     }
     let expected_hash = metadata["sha256Checksum"]
         .as_str()
-        .ok_or("Drive has not confirmed the backup checksum yet")?
+        .ok_or("The backup checksum is not ready yet")?
         .to_string();
     let name = display_archive_name(&metadata);
     let temp = tempfile::tempdir().map_err(|e| e.to_string())?;
@@ -1692,43 +1271,13 @@ async fn restore_snapshot_with_target(
             safe.trim()
         }
     ));
-    let mut response = client
-        .get(format!(
-            "https://www.googleapis.com/drive/v3/files/{archive_id}"
-        ))
-        .bearer_auth(&token.access_token)
-        .query(&[("alt", "media")])
-        .send()
-        .await
-        .map_err(|_| "Cannot download the backup ZIP")?;
-    if !response.status().is_success() {
-        google_json(response).await?;
-        return Err("Cannot download the backup ZIP".into());
-    }
-    let mut file = tokio::fs::File::create(&archive)
-        .await
-        .map_err(|e| e.to_string())?;
-    let mut hash = Sha256::new();
-    let mut total = 0u64;
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| "Backup download was interrupted; local projects were kept")?
-    {
-        total = total
-            .checked_add(chunk.len() as u64)
-            .ok_or("Backup ZIP is too large")?;
-        if total > 2 * 1024 * 1024 * 1024 {
-            return Err("Backup ZIP exceeds the 2 GB download limit".into());
-        }
-        hash.update(&chunk);
-        file.write_all(&chunk).await.map_err(|e| e.to_string())?;
-    }
-    file.sync_all().await.map_err(|e| e.to_string())?;
-    drop(file);
-    if format!("{:x}", hash.finalize()) != expected_hash {
-        return Err("The Drive ZIP changed or its download is incomplete. Refresh backups and try again; local files were kept.".into());
-    }
+    let stored = backup_store::archive_path(&root_path, &archive_id)?;
+    let (copy_from, copy_to, copy_hash) = (stored, archive.clone(), expected_hash.clone());
+    tokio::task::spawn_blocking(move || {
+        backup_store::copy_verified(&copy_from, &copy_to, &copy_hash, 2 * 1024 * 1024 * 1024)
+    })
+    .await
+    .map_err(|_| "Backup copy was interrupted; local projects were kept")??;
     let staging = if let Some((path, _)) = &sync_target {
         Some(
             tempfile::Builder::new()
@@ -1841,22 +1390,71 @@ pub async fn backup_summary(
     }
     let mut available_projects = Vec::new();
     let verified = async {
-        let mut token = authorized_tokens().await?;
-        let client = http_client()?;
-        let Some(root) = existing_backup_root(&client, &mut token).await? else {
-            return Err("No Drive backup folder is available".to_string());
+        let Some((root_path, remote)) = remote_files().await? else {
+            return Err("No backup folder is available".to_string());
         };
-        let remote = drive_children(&client, &token.access_token, &root).await?;
-        available_projects = backup_listing(&remote)?
-            .into_iter()
-            .filter(|p| p["localPath"].is_null())
-            .collect();
+        // A project that shares its identity with a backed-up project is the same
+        // project (for example a copy from another PC): link it, never duplicate it.
         for row in &mut rows {
-            let receipt = row["receipt"].clone();
-            let Some(key) = receipt["projectKey"].as_str() else {
+            if !row["receipt"].is_null() {
+                continue;
+            }
+            let Some(path) = row["path"].as_str().map(str::to_string) else {
                 continue;
             };
-            let heads = crate::drive_sync::heads(&remote, key);
+            if let Ok(Some(adopted)) = adopt_receipt(&path, &root_path, &remote) {
+                row["status"] = json!("saved");
+                row["lastBackup"] = json!(adopted.last_backup);
+                row["sourceRevision"] = json!(adopted.source_revision);
+                row["receipt"] = json!(adopted);
+            }
+        }
+        let identities: std::collections::BTreeSet<String> = rows
+            .iter()
+            .filter_map(|r| {
+                r["path"]
+                    .as_str()
+                    .and_then(|p| project_key_of(Path::new(p)))
+            })
+            .collect();
+        available_projects = backup_listing(&remote)?
+            .into_iter()
+            .filter(|p| {
+                p["localPath"].is_null()
+                    && !p["projectId"]
+                        .as_str()
+                        .is_some_and(|id| identities.contains(id))
+            })
+            .collect();
+        // Local projects with no identity yet may be the same project: offer a link.
+        for project in &mut available_projects {
+            let name = project["name"].as_str().unwrap_or("").trim().to_lowercase();
+            let matches: Vec<String> = rows
+                .iter()
+                .filter(|r| r["receipt"].is_null())
+                .filter_map(|r| r["path"].as_str())
+                .filter(|p| {
+                    project_key_of(Path::new(p)).is_none()
+                        && project_title(Path::new(p)).trim().to_lowercase() == name
+                })
+                .map(str::to_string)
+                .collect();
+            project["localMatches"] = json!(matches);
+        }
+        for row in &mut rows {
+            let receipt = row["receipt"].clone();
+            let key = receipt["projectKey"]
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| {
+                    row["path"]
+                        .as_str()
+                        .and_then(|p| project_key_of(Path::new(p)))
+                });
+            let Some(key) = key else {
+                continue;
+            };
+            let heads = crate::drive_sync::heads(&remote, &key);
             if let Some(file) = heads.first() {
                 let changed = file["id"] != receipt["archiveId"]
                     || file["sha256Checksum"] != receipt["archiveHash"];
@@ -1892,74 +1490,276 @@ pub async fn backup_summary(
 }
 
 #[cfg(test)]
-mod restore_live_test {
+mod folder_sync_tests {
     use super::*;
+    static GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A throwaway backup folder, project library and per-computer settings.
+    struct Sandbox {
+        temp: tempfile::TempDir,
+        _guard: std::sync::MutexGuard<'static, ()>,
+    }
+    impl Sandbox {
+        fn new() -> Self {
+            let guard = GUARD.lock().unwrap_or_else(|p| p.into_inner());
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().join("Dropbox").join(ROOT_NAME);
+            std::fs::create_dir_all(&root).unwrap();
+            *TEST_FOLDER.lock().unwrap() = Some(root);
+            *crate::projects::TEST_LIBRARY.lock().unwrap() = Some(temp.path().join("library"));
+            Sandbox {
+                temp,
+                _guard: guard,
+            }
+        }
+        /// Switch to another computer: its own settings, device id and backup records.
+        fn computer(&self, name: &str) {
+            *crate::drive_receipts::TEST_CONFIG.lock().unwrap() =
+                Some(self.temp.path().join(format!("config-{name}")));
+        }
+        fn project(&self, computer: &str, text: &str) -> PathBuf {
+            let dir = self.temp.path().join(computer).join("Paper");
+            std::fs::create_dir_all(dir.join("figs")).unwrap();
+            std::fs::write(dir.join("main.tex"), text).unwrap();
+            std::fs::write(dir.join("figs/binary.dat"), [0, 1, 2, 255]).unwrap();
+            dir
+        }
+    }
+    impl Drop for Sandbox {
+        fn drop(&mut self) {
+            *TEST_FOLDER.lock().unwrap_or_else(|p| p.into_inner()) = None;
+            *crate::projects::TEST_LIBRARY
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = None;
+            *crate::drive_receipts::TEST_CONFIG
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = None;
+        }
+    }
+    fn copy_dir(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for item in std::fs::read_dir(from).unwrap() {
+            let item = item.unwrap();
+            let target = to.join(item.file_name());
+            if item.file_type().unwrap().is_dir() {
+                copy_dir(&item.path(), &target);
+            } else {
+                std::fs::copy(item.path(), target).unwrap();
+            }
+        }
+    }
+    fn run<F: std::future::Future>(future: F) -> F::Output {
+        tokio::runtime::Runtime::new().unwrap().block_on(future)
+    }
+    fn text(path: &Path) -> String {
+        std::fs::read_to_string(path.join("main.tex")).unwrap()
+    }
+    fn visible_entries(dir: &Path) -> Vec<String> {
+        // A folder that was never created has nothing visible in it.
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        let mut names: Vec<String> = entries
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| !n.starts_with('.'))
+            .collect();
+        names.sort();
+        names
+    }
+    fn stored_files() -> Vec<Value> {
+        backup_store::list(&PathBuf::from(link().unwrap().folder.unwrap())).unwrap()
+    }
+
     #[test]
-    #[ignore = "Needs connected Drive; only generated disposable projects are uploaded"]
-    fn live_two_device_sync_renames_conflicts_and_recovery() {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let temporary = tempfile::tempdir().unwrap();
-            let title = format!("Lemlio-Sync-QA-{}",uuid::Uuid::new_v4());
-            let a = temporary.path().join("device-a").join(&title);
-            let b = temporary.path().join("device-b").join(&title);
-            for path in [&a,&b] {
-                std::fs::create_dir_all(path.join("figs")).unwrap();
-                std::fs::write(path.join("main.tex"),"Original fictional paper").unwrap();
-                std::fs::write(path.join("figs/binary.dat"),[0,1,2,255]).unwrap();
-            }
-            let a_path = a.to_string_lossy().to_string(); let b_path=b.to_string_lossy().to_string();
-            let state=DriveState::default();
-            backup_project(&state,a_path.clone()).await.unwrap();
-            let base=crate::drive_receipts::load(&a_path).unwrap().unwrap();
-            // Two independent local receipts emulate two installations using one account.
-            crate::drive_receipts::save(&b_path,base.clone()).unwrap();
-            let outcome=async {
-                let no_change=backup_project(&state,b_path.clone()).await?;
-                if no_change["uploadedFiles"] != 0 {return Err("Unchanged second device uploaded unnecessarily".into());}
-                std::fs::write(a.join("main.tex"),"Edited on device A").map_err(|e|e.to_string())?;
-                backup_project(&state,a_path.clone()).await?;
-                let next=crate::drive_receipts::load(&a_path)?.unwrap();
-                if next.archive_id==base.archive_id {return Err("New revision overwrote the base archive".into());}
-                let summary=backup_summary(&state,vec![b_path.clone()]).await?;
-                if summary["projects"][0]["status"]!="incoming" {return Err(format!("Expected incoming update: {summary}"));}
-                let synced=sync_project(&state,b_path.clone(),next.archive_hash.clone()).await?;
-                if std::fs::read_to_string(b.join("main.tex")).map_err(|e|e.to_string())?!="Edited on device A" {return Err("Incoming source was not installed".into());}
-                let recovery=Path::new(synced["recoveryPath"].as_str().ok_or("Missing recovery path")?);
-                if std::fs::read_to_string(recovery.join("main.tex")).map_err(|e|e.to_string())?!="Original fictional paper" {return Err("Recovery source was lost".into());}
-                if std::fs::read(b.join("figs/binary.dat")).map_err(|e|e.to_string())?!=[0,1,2,255] {return Err("Binary changed in sync".into());}
-                let renamed=format!("{title} renamed");
-                crate::projects::rename_project(a_path.clone(),renamed.clone())?;
-                backup_project_with_choice(&state,a_path.clone(),None,true).await?;
-                let rename=crate::drive_receipts::load(&a_path)?.unwrap();
-                sync_project(&state,b_path.clone(),rename.archive_hash.clone()).await?;
-                if project_title(&b)!=renamed {return Err("Project rename did not sync".into());}
-                let unchanged=backup_project(&state,b_path.clone()).await?;
-                if unchanged["uploadedFiles"]!=0 {return Err("Synced project uploaded again".into());}
-                std::fs::write(a.join("main.tex"),"Independent PC edit").map_err(|e|e.to_string())?;
-                std::fs::write(b.join("main.tex"),"Independent Mac edit").map_err(|e|e.to_string())?;
-                backup_project(&state,b_path.clone()).await?;
-                let remote=crate::drive_receipts::load(&b_path)?.unwrap();
-                let conflict=backup_summary(&state,vec![a_path.clone()]).await?;
-                if conflict["projects"][0]["status"]!="conflict" {return Err("Simultaneous local/remote edits were not flagged".into());}
-                if sync_project(&state,a_path.clone(),remote.archive_hash.clone()).await.is_ok() {return Err("Changed local source was overwritten".into());}
-                if std::fs::read_to_string(a.join("main.tex")).map_err(|e|e.to_string())?!="Independent PC edit" {return Err("Local edits were lost".into());}
-                backup_project_with_choice(&state,a_path.clone(),Some(&remote.archive_hash),false).await?;
-                let resolved=backup_summary(&state,vec![a_path.clone()]).await?;
-                if resolved["projects"][0]["status"]!="saved" {return Err("Explicit version resolution did not settle".into());}
-                Ok::<_,String>(())
-            }.await;
-            // Cleanup only exact generated project IDs; never reset or touch other backups.
-            let token=authorized_tokens().await.unwrap(); let client=http_client().unwrap();
-            let root=token.folder_id.as_deref().unwrap();
-            for file in drive_children(&client,&token.access_token,root).await.unwrap() {
-                if file["appProperties"]["lemlioProject"]==base.project_key && file["name"].as_str().is_some_and(|n|n.starts_with(&title)) {
-                    let id=file["id"].as_str().unwrap();
-                    let result=google_json(client.patch(format!("https://www.googleapis.com/drive/v3/files/{id}")).bearer_auth(&token.access_token).query(&[("fields","id,trashed")]).json(&json!({"trashed":true})).send().await.unwrap()).await.unwrap();
-                    assert_eq!(result["trashed"],true);
-                }
-            }
-            outcome.unwrap();
-            println!("Verified live two-device fast-forward, binary integrity, rename propagation, deduplication, genuine conflict protection and explicit resolution. Only disposable snapshots moved to Trash.");
+    fn a_newer_backup_replaces_the_same_project_in_place_without_a_duplicate() {
+        let sandbox = Sandbox::new();
+        run(async {
+            let state = DriveState::default();
+            sandbox.computer("a");
+            let a = sandbox.project("a", "version one");
+            let a_path = a.to_string_lossy().to_string();
+            backup_project(&state, a_path.clone()).await.unwrap();
+            assert!(
+                read_project_id(&a).is_some(),
+                "the project gets a stable id"
+            );
+
+            // PC B already holds an older copy of the very same project.
+            sandbox.computer("b");
+            let b = sandbox.temp.path().join("b").join("Paper");
+            copy_dir(&a, &b);
+            let b_path = b.to_string_lossy().to_string();
+            let summary = backup_summary(&state, vec![b_path.clone()]).await.unwrap();
+            assert_eq!(summary["projects"][0]["status"], "saved", "{summary}");
+            assert!(
+                summary["availableProjects"].as_array().unwrap().is_empty(),
+                "{summary}"
+            );
+
+            // PC A keeps editing and backs up again.
+            sandbox.computer("a");
+            std::fs::write(a.join("main.tex"), "version two from PC A").unwrap();
+            backup_project(&state, a_path.clone()).await.unwrap();
+            let head = crate::drive_receipts::load(&a_path).unwrap().unwrap();
+
+            // PC B recognizes the newer revision of the same project and takes it.
+            sandbox.computer("b");
+            let summary = backup_summary(&state, vec![b_path.clone()]).await.unwrap();
+            assert_eq!(summary["projects"][0]["status"], "incoming", "{summary}");
+            assert!(
+                summary["availableProjects"].as_array().unwrap().is_empty(),
+                "{summary}"
+            );
+            let synced = sync_project(&state, b_path.clone(), head.archive_hash.clone())
+                .await
+                .unwrap();
+            assert_eq!(text(&b), "version two from PC A");
+            assert_eq!(
+                std::fs::read(b.join("figs/binary.dat")).unwrap(),
+                [0, 1, 2, 255]
+            );
+            let recovery = Path::new(synced["recoveryPath"].as_str().unwrap());
+            assert_eq!(
+                text(recovery),
+                "version one",
+                "the old copy stays recoverable"
+            );
+            assert_eq!(
+                visible_entries(b.parent().unwrap()),
+                ["Paper"],
+                "no second project"
+            );
+            assert!(
+                visible_entries(&sandbox.temp.path().join("library").join("Imports")).is_empty()
+            );
+            assert_eq!(read_project_id(&b), read_project_id(&a));
+            let settled = backup_summary(&state, vec![b_path]).await.unwrap();
+            assert_eq!(settled["projects"][0]["status"], "saved", "{settled}");
         });
+    }
+
+    #[test]
+    fn a_project_without_an_id_is_linked_after_confirmation_never_duplicated() {
+        let sandbox = Sandbox::new();
+        run(async {
+            let state = DriveState::default();
+            sandbox.computer("a");
+            let a = sandbox.project("a", "shared text");
+            backup_project(&state, a.to_string_lossy().to_string())
+                .await
+                .unwrap();
+
+            // PC B has the same-titled project from before ids existed.
+            sandbox.computer("b");
+            let b = sandbox.project("b", "shared text");
+            let b_path = b.to_string_lossy().to_string();
+            assert!(read_project_id(&b).is_none());
+            let summary = backup_summary(&state, vec![b_path.clone()]).await.unwrap();
+            let available = summary["availableProjects"].as_array().unwrap();
+            assert_eq!(available.len(), 1, "{summary}");
+            assert_eq!(available[0]["localMatches"], json!([b_path]), "{summary}");
+            let archive_id = available[0]["id"].as_str().unwrap().to_string();
+            // Nothing is linked until the user confirms.
+            assert!(read_project_id(&b).is_none());
+
+            let linked = link_project(&state, b_path.clone(), archive_id.clone())
+                .await
+                .unwrap();
+            assert_eq!(linked["provablyRelated"], true, "{linked}");
+            assert_eq!(read_project_id(&b), read_project_id(&a));
+            let summary = backup_summary(&state, vec![b_path.clone()]).await.unwrap();
+            assert_eq!(summary["projects"][0]["status"], "saved", "{summary}");
+            assert!(
+                summary["availableProjects"].as_array().unwrap().is_empty(),
+                "{summary}"
+            );
+
+            // A project that already has its own identity cannot be hijacked by a link.
+            let other = sandbox.project("c", "unrelated");
+            ensure_project_key(&other, None).unwrap();
+            assert!(
+                link_project(&state, other.to_string_lossy().to_string(), archive_id)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(stored_files().len(), 1);
+        });
+    }
+
+    #[test]
+    fn diverged_copies_are_a_conflict_and_the_cloud_choice_replaces_in_place() {
+        let sandbox = Sandbox::new();
+        run(async {
+            let state = DriveState::default();
+            sandbox.computer("a");
+            let a = sandbox.project("a", "base");
+            let a_path = a.to_string_lossy().to_string();
+            backup_project(&state, a_path.clone()).await.unwrap();
+            sandbox.computer("b");
+            let b = sandbox.temp.path().join("b").join("Paper");
+            copy_dir(&a, &b);
+            let b_path = b.to_string_lossy().to_string();
+            backup_summary(&state, vec![b_path.clone()]).await.unwrap();
+
+            // Both computers edit independently.
+            sandbox.computer("a");
+            std::fs::write(a.join("main.tex"), "edited on PC A").unwrap();
+            backup_project(&state, a_path.clone()).await.unwrap();
+            let head = crate::drive_receipts::load(&a_path).unwrap().unwrap();
+            sandbox.computer("b");
+            std::fs::write(b.join("main.tex"), "edited on PC B").unwrap();
+            let summary = backup_summary(&state, vec![b_path.clone()]).await.unwrap();
+            assert_eq!(summary["projects"][0]["status"], "conflict", "{summary}");
+            // The automatic path refuses to overwrite local edits.
+            assert!(
+                sync_project(&state, b_path.clone(), head.archive_hash.clone())
+                    .await
+                    .is_err()
+            );
+            assert_eq!(text(&b), "edited on PC B");
+
+            // Choosing the cloud version replaces the project in place and keeps a recovery copy.
+            let chosen = use_cloud_version(&state, b_path.clone(), head.archive_hash.clone())
+                .await
+                .unwrap();
+            assert_eq!(text(&b), "edited on PC A");
+            assert_eq!(
+                text(Path::new(chosen["recoveryPath"].as_str().unwrap())),
+                "edited on PC B"
+            );
+            assert_eq!(visible_entries(b.parent().unwrap()), ["Paper"]);
+            let settled = backup_summary(&state, vec![b_path]).await.unwrap();
+            assert_eq!(settled["projects"][0]["status"], "saved", "{settled}");
+        });
+    }
+
+    #[test]
+    fn a_missing_sync_folder_is_never_rebuilt_but_a_deleted_backup_folder_is() {
+        let sandbox = Sandbox::new();
+        let dropbox = sandbox.temp.path().join("Dropbox");
+        let root = dropbox.join(ROOT_NAME);
+        std::fs::remove_dir_all(&root).unwrap();
+        let link = Link {
+            folder: Some(root.to_string_lossy().to_string()),
+            last_backup: None,
+        };
+        assert_eq!(backup_root(&link).unwrap(), root);
+        assert!(root.is_dir());
+        std::fs::remove_dir_all(&dropbox).unwrap();
+        assert!(backup_root(&link).is_err());
+        assert!(!dropbox.exists(), "Dropbox itself must not be recreated");
+        assert!(existing_backup_root(&link).unwrap().is_none());
+    }
+
+    #[test]
+    fn choosing_a_folder_creates_lemlio_backups_inside_it() {
+        let sandbox = Sandbox::new();
+        let dropbox = sandbox.temp.path().join("Dropbox");
+        let chosen = set_backup_folder(&dropbox).unwrap();
+        assert_eq!(PathBuf::from(&chosen), dropbox.join(ROOT_NAME));
+        assert_eq!(set_backup_folder(&dropbox.join(ROOT_NAME)).unwrap(), chosen);
+        assert!(set_backup_folder(Path::new("relative/folder")).is_err());
+        assert!(set_backup_folder(&sandbox.temp.path().join("absent")).is_err());
     }
 }

@@ -188,7 +188,7 @@ function buildFileTree(files: ProjectFile[], folders: string[]): TreeNode[] {
 function getFileIcon(file: ProjectFile) {
   if (file.type === "tex")
     return (
-      <FileTextIcon className="size-4 shrink-0 text-teal-600 dark:text-teal-400" />
+      <FileTextIcon className="size-4 shrink-0 text-primary" />
     );
   if (file.type === "bib")
     return (
@@ -632,7 +632,7 @@ export function Sidebar() {
   // ─── Render ───
 
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground backdrop-blur-2xl backdrop-saturate-150">
       {/* Header — padded top for macOS overlay titlebar */}
       <div className="grid h-[calc(56px+var(--titlebar-height))] shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 border-sidebar-border border-b px-3 pt-[var(--titlebar-height)]">
         <div className="col-start-2 row-start-1 flex min-w-0 flex-col items-start">
@@ -1140,10 +1140,10 @@ function FileTreeNode({
             className={cn(
               "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
               file.id === activeFileId
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "hover:bg-sidebar-accent/50",
+                ? "bg-primary/15 font-medium text-primary"
+                : "hover:bg-sidebar-accent/60",
               file.id === mainFileId &&
-                "border-teal-500 border-l-2 bg-teal-500/10 font-medium",
+                "bg-primary/15 font-medium text-primary",
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
             onClick={() => {
@@ -1154,7 +1154,7 @@ function FileTreeNode({
             {getFileIcon(file)}
             <span className="min-w-0 flex-1 truncate">{node.name}</span>
             {file.id === mainFileId && (
-              <span className="shrink-0 rounded bg-teal-500/15 px-1 text-[9px] text-teal-700 dark:text-teal-300">
+              <span className="shrink-0 rounded-full bg-primary/15 px-1.5 text-[9px] text-primary">
                 MAIN
               </span>
             )}

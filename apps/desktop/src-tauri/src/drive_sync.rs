@@ -8,6 +8,8 @@ use std::{
 };
 
 pub const MANIFEST: &str = ".lemlio-sync.json";
+/// Stable backup identity stored inside every (non-shared) project folder.
+pub const PROJECT_ID: &str = ".lemlio-project.json";
 
 pub fn content_revision(source: &Path, title: &str) -> Result<String, String> {
     let mut hash = Sha256::new();
@@ -67,7 +69,7 @@ pub fn heads<'a>(files: &'a [Value], project: &str) -> Vec<&'a Value> {
 }
 
 pub fn device() -> Result<Value, String> {
-    let path = dirs::config_dir()
+    let path = crate::drive_receipts::config_dir()
         .ok_or("Cannot locate device settings")?
         .join("Lemlio/sync-device.json");
     if let Ok(raw) = std::fs::read(&path) {

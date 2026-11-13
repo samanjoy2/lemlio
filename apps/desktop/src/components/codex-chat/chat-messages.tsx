@@ -177,7 +177,7 @@ const UserMessage: FC<{ message: CodexStreamMessage }> = ({ message }) => {
     prompt: string,
   ) => (
     <div className="flex w-full flex-col items-end py-1.5">
-      <div className="max-w-[85%] rounded-xl bg-muted px-3 py-2 text-foreground text-sm">
+      <div className="max-w-[85%] rounded-[20px] rounded-br-md bg-muted px-3.5 py-2.5 text-foreground text-sm">
         <div className="mb-2 rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-2">
           <div className="mb-1.5 font-medium text-red-400 text-xs">{title}</div>
           <div className="space-y-1">
@@ -241,9 +241,9 @@ const UserMessage: FC<{ message: CodexStreamMessage }> = ({ message }) => {
 
   return (
     <div className="flex w-full flex-col items-end py-1.5">
-      <div className="max-w-[85%] rounded-xl bg-muted px-3 py-1.5 text-foreground text-sm">
+      <div className="max-w-[85%] rounded-[20px] rounded-br-md bg-primary px-3.5 py-2 text-primary-foreground text-sm shadow-sm [&_a]:text-primary-foreground [&_a]:underline [&_code]:bg-white/20 [&_code]:text-primary-foreground">
         {contextLabel && (
-          <span className="mb-1 inline-flex items-center rounded-md bg-background/60 px-1.5 py-0.5 font-mono text-muted-foreground text-xs">
+          <span className="mb-1 inline-flex items-center rounded-md bg-white/20 px-1.5 py-0.5 font-mono text-primary-foreground/90 text-xs">
             {contextLabel}
           </span>
         )}
