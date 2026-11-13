@@ -13,9 +13,9 @@ mod latex_compat;
 mod previews;
 mod project_delete;
 mod projects;
-mod skills;
 mod slash_commands;
 mod speech;
+mod tools;
 mod updates;
 mod uv;
 
@@ -532,22 +532,17 @@ pub fn run() {
             slash_commands::slash_command_get,
             slash_commands::slash_command_save,
             slash_commands::slash_command_delete,
-            skills::install_scientific_skills,
-            skills::install_scientific_skills_global,
-            skills::check_skills_installed,
-            skills::list_installed_skills,
-            skills::uninstall_scientific_skills,
-            skills::get_skill_categories,
-            skills::get_skill_content,
             uv::check_uv_status,
             speech::speech_start,
             speech::check_speech_status,
             speech::speech_stop,
             speech::open_speech_settings,
             uv::install_uv,
-            uv::setup_project_venv,
-            uv::uv_add_packages,
-            uv::uv_run_command,
+            tools::tools_list,
+            tools::tools_preview,
+            tools::tools_install,
+            tools::tools_set_enabled,
+            tools::tools_remove,
             get_system_info,
             open_debug_window,
         ])

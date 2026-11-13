@@ -2,7 +2,8 @@ import { useProjectGroups } from "./project-groups-store";
 import { useCollaborationStore } from "@/lib/collaboration/runtime";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { useDocumentStore } from "./document-store";
+import { useDocumentStore, hasPdfData } from "./document-store";
+import { buildProjectContext, getPreviewPage } from "@/lib/agent-context";
 import { useHistoryStore } from "./history-store";
 import { useSettingsStore } from "./settings-store";
 import {
@@ -194,7 +195,13 @@ interface CodexChatState {
   // Actions
   sendPrompt: (
     userPrompt: string,
-    contextOverride?: { label: string; filePath: string; selectedText: string },
+    contextOverride?: {
+      label: string;
+      filePath: string;
+      selectedText: string;
+      /** User-attached screenshots as PNG/JPEG data URLs. */
+      images?: string[];
+    },
   ) => Promise<void>;
   cancelExecution: () => Promise<void>;
   clearMessages: () => void;
@@ -279,7 +286,13 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
 
   sendPrompt: async (
     userPrompt: string,
-    contextOverride?: { label: string; filePath: string; selectedText: string },
+    contextOverride?: {
+      label: string;
+      filePath: string;
+      selectedText: string;
+      /** User-attached screenshots as PNG/JPEG data URLs. */
+      images?: string[];
+    },
   ) => {
     const state = get();
     const { activeTabId } = state;
@@ -411,13 +424,22 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
         ctx += `\n[Selection: @${activeFile.relativePath}:${startLC.line}:${startLC.col}-${endLC.line}:${endLC.col}]`;
         ctx += `\n[Selected text:\n${selectedText}\n]`;
       }
-      prompt = `${ctx}\n\n${userPrompt}`;
+      const extra = buildProjectContext({
+        files: (docState.files ?? []).map((f) => f.relativePath),
+        compileError: docState.compileError,
+        pdfPage: hasPdfData() ? getPreviewPage() : null,
+      });
+      prompt = `${ctx}${extra ? `\n${extra}` : ""}\n\n${userPrompt}`;
     }
+    const images = contextOverride?.images?.length
+      ? contextOverride.images
+      : undefined;
     if (relatedProjects.length)
       prompt = `Manually selected project group. ${groupScope?.mainPath ? `The main/reference version is ${JSON.stringify(groupScope.mainPath)}. Use it as the reference for common content while preserving intentional variant differences. ` : ""}Work only on the requested common change in these project directories: ${JSON.stringify([projectPath, ...relatedProjects])}. Read each version first. Preserve version-specific content, formatting, and emphasis; do not make all versions identical. Check each affected project separately. Integrated compiler tools target only the open project; use the provided Lemlio terminal fallback for other projects. Summarize changes per project and any skipped items.\n\n${prompt}`;
     log.info("invoking CLI", {
       promptLength: prompt.length,
       mode: sessionId ? "resume" : "new",
+      images: images?.length ?? 0,
     });
 
     try {
@@ -426,6 +448,7 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
         await invoke(agentCommand("resume"), {
           projectPath,
           relatedProjects,
+          images,
           sessionId,
           prompt,
           tabId: activeTabId,
@@ -439,6 +462,7 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
         await invoke(agentCommand("execute"), {
           projectPath,
           relatedProjects,
+          images,
           prompt,
           tabId: activeTabId,
           model: selectedModel,

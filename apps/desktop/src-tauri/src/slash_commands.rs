@@ -23,12 +23,14 @@ pub struct SlashCommand {
 struct CommandFrontmatterRaw {
     allowed_tools: Option<serde_yaml::Value>,
     description: Option<String>,
+    #[allow(dead_code)]
     name: Option<String>,
 }
 
 struct CommandFrontmatter {
     allowed_tools: Option<Vec<String>>,
     description: Option<String>,
+    #[allow(dead_code)]
     name: Option<String>,
 }
 

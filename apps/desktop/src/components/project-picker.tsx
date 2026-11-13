@@ -56,7 +56,7 @@ import {
 import { ProjectWizard, type CreationMode } from "./project-wizard";
 import { CodexSetup } from "./codex-setup";
 import { ProjectCard } from "./project-library";
-import { SkillsLibraryDialog, useInstalledSkills } from "./skills-library";
+import { ToolsDialog, useTools } from "./tools-library";
 import {
   ImportProjectDialog,
   useProjectZipExport,
@@ -81,7 +81,7 @@ export function ProjectPicker() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("recent");
   const [layout, setLayout] = useState<"grid" | "list">("grid");
-  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
 
   const [importOpen, setImportOpen] = useState(false);
   const { exportingPath, exportZip } = useProjectZipExport();
@@ -89,7 +89,7 @@ export function ProjectPicker() {
   const [openError, setOpenError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const { projects, loading, error, refresh } = useProjectCatalog();
-  const { skills } = useInstalledSkills(null);
+  const { tools } = useTools();
   const recent = useProjectStore((state) => state.recentProjects);
   const starred = useProjectStore((state) => state.starredPaths);
   const addRecent = useProjectStore((state) => state.addRecentProject);
@@ -118,7 +118,7 @@ export function ProjectPicker() {
       if (
         (event.ctrlKey || event.metaKey) &&
         event.key.toLowerCase() === "k" &&
-        !skillsOpen &&
+        !toolsOpen &&
         !importOpen &&
         !showModeDialog &&
         !wizardMode
@@ -129,7 +129,7 @@ export function ProjectPicker() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [skillsOpen, importOpen, showModeDialog, wizardMode]);
+  }, [toolsOpen, importOpen, showModeDialog, wizardMode]);
 
   useEffect(() => {
     const cloned = () => {
@@ -312,10 +312,10 @@ export function ProjectPicker() {
             <UsersIcon size={16} />
             <span>Join shared project</span>
           </button>
-          <button type="button" onClick={() => setSkillsOpen(true)}>
+          <button type="button" onClick={() => setToolsOpen(true)}>
             <BookOpenIcon size={16} />
-            <span>Skills</span>
-            <small>{skills.length}</small>
+            <span>AI tools</span>
+            <small>{tools.length}</small>
           </button>
           <button type="button" onClick={() => chooseMode("template")}>
             <PanelsTopLeftIcon size={16} />
@@ -642,7 +642,7 @@ export function ProjectPicker() {
         </div>
       </main>
 
-      <SkillsLibraryDialog open={skillsOpen} onOpenChange={setSkillsOpen} />
+      <ToolsDialog open={toolsOpen} onOpenChange={setToolsOpen} />
       <ImportProjectDialog
         open={importOpen}
         onOpenChange={setImportOpen}

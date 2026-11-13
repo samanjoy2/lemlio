@@ -8,7 +8,7 @@ import { Tabs } from "./panelui/tabs";
 import { Switch } from "./panelui/switch";
 import { Button } from "./ui/button";
 import { CodexSetup } from "./codex-setup";
-import { SkillsLibrary } from "./skills-library";
+import { ToolsLibrary } from "./tools-library";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useTheme } from "next-themes";
 import { open } from "@tauri-apps/plugin-shell";
@@ -101,7 +101,7 @@ export function AppSettings() {
                 "General",
                 "Assistant",
                 "Compiler",
-                "Skills",
+                "Tools",
                 "Backup",
                 "Voice",
                 "About",
@@ -244,7 +244,7 @@ export function AppSettings() {
                   </p>
                 </>
               )}
-              {tab === "Skills" && <SkillsLibrary />}
+              {tab === "Tools" && <ToolsLibrary />}
               {tab === "Backup" && <DriveSettings />}
               {tab === "Voice" &&
                 (navigator.userAgent.includes("Mac") ? (

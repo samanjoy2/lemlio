@@ -21,7 +21,6 @@ import { WorkspaceLayout } from "@/components/workspace/workspace-layout";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useUvSetupStore } from "@/stores/uv-setup-store";
 import { ErrorFallback } from "@/components/error-fallback";
 import { createLogger } from "@/lib/debug/logger";
 
@@ -44,23 +43,6 @@ function WorkspaceWithCodex() {
       getCurrentWindow().setTitle(`${name} - Lemlio`);
     }
   }, [projectRoot]);
-
-  // Auto-setup Python venv when project opens
-  useEffect(() => {
-    if (!initialized || !projectRoot) return;
-    const uvStore = useUvSetupStore.getState();
-    uvStore
-      .checkStatus()
-      .then(() => {
-        const { status } = useUvSetupStore.getState();
-        if (status === "ready") {
-          return uvStore.setupVenv(projectRoot);
-        }
-      })
-      .catch((err) => {
-        log.error("Failed to setup Python venv", { error: String(err) });
-      });
-  }, [initialized, projectRoot]);
 
   // Consume pending initial prompt from project wizard
   useEffect(() => {
