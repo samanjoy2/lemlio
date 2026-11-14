@@ -44,7 +44,7 @@ Lemlio brings your LaTeX projects into a searchable library with PDF covers, an 
 | **Choose when to compile** | Switch between **Auto** and **Manual**. Use bundled Tectonic or select an optional MiKTeX / TeX Live installation. |
 | **Move projects easily** | Import and export ZIPs with nested source folders, figures, and bibliography files. Keep the original ZIP or choose to move it. |
 | **Write together** | Live shared text, colored cursors, local offline history, encrypted offline change files, and hosting from either collaborator’s computer. |
-| **Sync between devices** | Choose your Dropbox folder once. Five-minute checks, notifications for projects found only in the backup, automatic incoming revisions for closed unchanged projects (the same project is updated in place, never duplicated), and protected conflict review. |
+| **Sync between devices** | Connect Dropbox once. Five-minute checks, notifications for projects found only in the backup, automatic incoming revisions for closed unchanged projects (the same project is updated in place, never duplicated), and protected conflict review. |
 | **Check your backup status** | See Codex, backup, and Voice status on the home page, and this project's confirmed backup age in the editor. |
 | **Use your existing tools** | Open the project folder, continue in an installed VS Code editor, and browse your installed Codex research skills. |
 
@@ -78,7 +78,7 @@ The first-run **Settings & setup** screen can be closed and reopened later. Edit
 | Optional setup | Where to find it |
 | --- | --- |
 | **Codex** | **Settings → Codex**: connect your Codex account and choose a model. Available models depend on your account. |
-| **Backup** | Click the backup status on the home page or editor, or open **Settings → Backup**. Pick your Dropbox folder (found automatically when the Dropbox app is installed) or any synced folder. No sign-in, token or account is needed inside Lemlio. |
+| **Backup** | Click the backup status on the home page or editor, or open **Settings → Backup** and press **Connect Dropbox**. A synced folder is available under Advanced. |
 | **MiKTeX / TeX Live** | **Settings → Compiler**: install MiKTeX using the provided link, then select the system compiler. Tectonic remains the fresh-install default. |
 | **Appearance and skills** | **Settings → General** and **Settings → Skills**. Version and source information are under **About**. |
 
@@ -175,12 +175,18 @@ See the [collaboration guide](docs/COLLABORATION.md) for host handoff, offline e
 
 The home page shows **Cloud backup** with a connection prompt beside the Codex status. Click it to open setup. Inside a project, the editor shows **Saved to backup … ago**, **Backup pending**, **Saving backup…**, or a failure that will retry. The timestamp belongs to that project and is recorded after the ZIP is written and verified in your backup folder.
 
-### Choose your folder once
+### Connect Dropbox once
 
-1. Install the Dropbox app on every computer and sign in with the same Dropbox account.
-2. In **Settings → Backup**, choose **Use my Dropbox folder** (Lemlio finds it automatically) or **Choose another folder…** for any synced folder such as OneDrive or Google Drive for desktop.
+1. Open **Settings → Backup** and press **Connect Dropbox**. Your browser opens Dropbox, where you approve access to a single app folder (Apps → Lemlio). Lemlio never sees your password and cannot see the rest of your Dropbox.
+2. Do the same on every computer, with the same Dropbox account.
 
-Lemlio creates a **Lemlio Backups** folder inside it and writes project ZIPs there; the Dropbox app does the syncing. Lemlio itself has no sign-in, API key, token or Google/Dropbox developer project, and nothing is stored in the system credential store. Your Dropbox plan provides the storage (the free plan includes 2 GB) and every backup adds a revision, so keep an eye on usage for large projects.
+If your browser cannot return to Lemlio, choose **Use a code instead**: Dropbox shows a short code that you paste into Lemlio.
+
+Only a refresh token is kept, in Windows Credential Manager or the macOS Keychain, never in project folders, logs or backups. **Disconnect** signs out at Dropbox and forgets the token; your backups stay in Dropbox. Releases that include a Dropbox app key work immediately; for a build without one, create a Dropbox app and enter its key under **Advanced** (see [Dropbox setup](docs/DROPBOX-SETUP.md)).
+
+**Advanced: synced folder.** If you prefer no sign-in at all, choose a folder inside your Dropbox (or OneDrive) folder instead. Lemlio writes a **Lemlio Backups** folder there and the sync app does the uploading, so it also works fully offline.
+
+Dropbox storage is your own (the free plan includes 2 GB) and every backup adds a revision, so keep an eye on usage for large projects.
 
 ### What happens automatically
 
@@ -198,7 +204,7 @@ Lemlio creates a **Lemlio Backups** folder inside it and writes project ZIPs the
 
 ### Moving to a new computer
 
-Install Lemlio and Dropbox, sign in to the **same Dropbox account**, and choose the same folder in **Settings → Backup**. Wait for Dropbox to finish syncing, then select **Restore projects from backup**, choose your projects, and restore. Nothing is downloaded merely by choosing the folder. If a project of the same title already exists on the new computer, use **Link to my project** instead of restoring: it becomes the same project, and newer backup revisions replace it in place with the previous files kept in a recovery folder. After restoration, edit the local copies normally; they become the source for future backups. On subsequent starts, unchanged closed projects receive newer revisions automatically. If both computers edited, review the versions first.
+Install Lemlio, press **Connect Dropbox** in **Settings → Backup** with the **same Dropbox account**, then select **Restore projects from backup**, choose your projects, and restore. Nothing is downloaded merely by connecting. If a project of the same title already exists on the new computer, use **Link to my project** instead of restoring: it becomes the same project, and newer backup revisions replace it in place with the previous files kept in a recovery folder. After restoration, edit the local copies normally; they become the source for future backups. On subsequent starts, unchanged closed projects receive newer revisions automatically. If both computers edited, review the versions first.
 
 ### Closing safely
 
@@ -206,7 +212,7 @@ When you close Lemlio, it saves open edits and checks every project against Driv
 
 Automatic backup is enabled by default, but requires a chosen backup folder and Lemlio to be running. This is a desktop backup workflow; live collaboration uses the desktop app, and there is no background upload service after the app closes. Changes that have not reached your backup folder are not protected against loss of the PC.
 
-Your backup folder uses your Dropbox storage. The Dropbox app, not Lemlio, uploads and downloads the files, so a computer can keep editing offline and the backup syncs when it is back online.
+Backups use your Dropbox storage. Editing always works offline; backups upload when Lemlio is online and retry otherwise.
 
 ### Fonts and EPS figures
 
@@ -218,8 +224,8 @@ The Windows and macOS releases include Latin Modern 2.005 under the GUST Font Li
 | --- | --- |
 | **Documents, figures, PDFs, and history** | Stay in local project folders and app-managed files. |
 | **Codex requests** | Prompts and files used by the agent are sent to the configured model provider. |
-| **Backups** | Project ZIPs are written to the backup folder you choose. If it is inside Dropbox (or another sync app), that app uploads them to your own account. Lemlio never contacts a cloud service for backups. |
-| **Backup folder setting** | The chosen path is saved in local app settings. It contains no password or token. |
+| **Backups** | Project ZIPs are stored in the Lemlio app folder of your own Dropbox (or in a synced folder you choose). |
+| **Dropbox sign-in** | Only a refresh token, in Windows Credential Manager or the macOS Keychain. No password is ever seen. The synced-folder path is saved in local settings. |
 | **Project identity** | Each project folder holds a small `.lemlio-project.json` with a random id so every computer recognizes the same project. Clones and imported ZIPs get their own id. |
 | **Installer and source repository** | Exclude personal projects, local build tools, and saved credentials. |
 

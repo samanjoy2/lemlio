@@ -2,9 +2,11 @@ import { backupProject } from "@/lib/collaboration/runtime";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as chooseFolder } from "@tauri-apps/plugin-dialog";
+import { open as openLink } from "@tauri-apps/plugin-shell";
 import { Button } from "./ui/button";
 import { ActivityOrb } from "./activity-feedback";
 import { DriveDiscoveryNotice } from "./drive-discovery-notice";
+import { DropboxSetupGuide } from "./dropbox-setup-guide";
 import { Switch } from "./panelui/switch";
 import { DriveBackupOverview } from "./drive-backup-overview";
 import { requestDriveRestore } from "./drive-restore-dialog";
@@ -26,10 +28,21 @@ import { useProjectStore } from "@/stores/project-store";
 import { projectPathKey, type ProjectCatalogData } from "@/lib/project-catalog";
 
 interface BackupStatus {
+  provider: "dropbox" | "folder" | null;
   configured: boolean;
   connected: boolean;
+  pending: boolean;
+  needsReconnect: boolean;
   error: string | null;
   lastBackup: number | null;
+  account: { id: string; name: string; email: string } | null;
+  dropboxReady: boolean;
+  dropboxSupported: boolean;
+  appKeyConfigured: boolean;
+  builtInAppKey: boolean;
+  ownAppKey: boolean;
+  redirectUris: string[];
+  permissions: string[];
   folderPath: string | null;
   suggestions?: { provider: string; path: string }[];
 }
@@ -40,22 +53,59 @@ export function DriveSettings() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [resetOpen, setResetOpen] = useState(false);
+  const [codeMode, setCodeMode] = useState(false);
+  const [code, setCode] = useState("");
   const auto = useSettingsStore((s) => s.autoDriveBackup);
   const setAuto = useSettingsStore((s) => s.setAutoDriveBackup);
   const refresh = () =>
     invoke<BackupStatus>("drive_status")
       .then((value) => {
         setStatus(value);
-        if (value.connected && !previousConnection.current)
+        if (value.connected && !previousConnection.current) {
+          setCodeMode(false);
           window.dispatchEvent(new Event("lemlio-drive-connected"));
+        }
         previousConnection.current = value.connected;
       })
       .catch((e) => setError(String(e)));
   useEffect(() => {
     void refresh();
-    const timer = setInterval(() => void refresh(), 5000);
+    const timer = setInterval(() => void refresh(), 3000);
     return () => clearInterval(timer);
   }, []);
+  const connectDropbox = async () => {
+    try {
+      setError("");
+      setCodeMode(false);
+      const url = await invoke<string>("drive_dropbox_connect");
+      await openLink(url);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const connectWithCode = async () => {
+    try {
+      setError("");
+      const url = await invoke<string>("drive_dropbox_connect_manual");
+      setCodeMode(true);
+      await openLink(url);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const submitCode = async () => {
+    try {
+      setError("");
+      await invoke("drive_dropbox_submit_code", { code });
+      setCode("");
+      setCodeMode(false);
+      window.dispatchEvent(new Event(DRIVE_UPDATED));
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
   const useFolder = async (folderPath: string) => {
     try {
       setError("");
@@ -74,6 +124,15 @@ export function DriveSettings() {
       multiple: false,
     });
     if (typeof path === "string") await useFolder(path);
+  };
+  const disconnect = async () => {
+    try {
+      await invoke("drive_disconnect");
+      window.dispatchEvent(new Event(DRIVE_UPDATED));
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
   };
   const backup = async (all: boolean) => {
     setBusy(true);
@@ -126,74 +185,115 @@ export function DriveSettings() {
       setBusy(false);
     }
   };
+  const viaDropbox = status?.provider === "dropbox";
+  const signedIn = viaDropbox && status?.connected;
   return (
     <div className="space-y-4">
-      <h3 className="font-medium">Backup folder</h3>
+      <h3 className="font-medium">Backup</h3>
       <p>
-        Lemlio saves versioned project ZIPs in a <strong>Lemlio Backups</strong>{" "}
-        folder inside the folder you choose. Pick your Dropbox folder and the
-        Dropbox app keeps it in sync across your computers. Lemlio needs no
-        sign-in, account or token of its own.
+        Lemlio saves versioned project ZIPs and keeps your computers in sync.
+        Every revision is kept; nothing is overwritten.
       </p>
       <div className="space-y-3 rounded-lg border p-4">
-        <strong className="block">1. Choose where backups go</strong>
-        {status?.connected && status.folderPath ? (
+        <strong className="block">Dropbox</strong>
+        {!status?.dropboxSupported ? (
+          <p className="text-muted-foreground text-xs">
+            Dropbox sign-in is available in the Windows and macOS apps. On this
+            computer, use a synced folder under Advanced.
+          </p>
+        ) : signedIn ? (
           <>
-            <p className="text-emerald-700 dark:text-emerald-400">Connected</p>
-            <p className="break-all text-muted-foreground text-xs">
-              {status.folderPath}
+            <p className="text-emerald-700 dark:text-emerald-400">
+              Connected
+              {status?.account?.name || status?.account?.email
+                ? ` as ${status.account.name || status.account.email}`
+                : ""}
             </p>
+            {status?.account?.email && status.account.name && (
+              <p className="text-muted-foreground text-xs">
+                {status.account.email}
+              </p>
+            )}
+            <p className="text-muted-foreground text-xs">
+              Backups are stored in the Lemlio app folder of your Dropbox (Apps
+              → Lemlio). Lemlio can only see that folder.
+            </p>
+            <Button variant="outline" onClick={() => void disconnect()}>
+              Disconnect
+            </Button>
+          </>
+        ) : status?.pending ? (
+          <>
+            <ActivityOrb compact label="Waiting for Dropbox sign-in…" />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  await invoke("drive_cancel");
+                  await refresh();
+                }}
+              >
+                Cancel
+              </Button>
+              <Button variant="ghost" onClick={() => void connectWithCode()}>
+                Use a code instead
+              </Button>
+            </div>
           </>
         ) : (
           <>
-            {status?.suggestions?.map((folder) => (
-              <Button
-                key={folder.path}
-                className="block h-auto whitespace-normal text-left"
-                onClick={() => void useFolder(folder.path)}
-              >
-                Use my {folder.provider} folder
-                <span className="block break-all font-normal text-xs opacity-80">
-                  {folder.path}
-                </span>
-              </Button>
-            ))}
-            {!status?.suggestions?.length && (
-              <p className="text-muted-foreground text-xs">
-                Dropbox was not found on this computer. Install the Dropbox app
-                and sign in, or choose any folder that you sync.
+            {viaDropbox && status?.needsReconnect && (
+              <p role="alert" className="text-destructive text-xs">
+                Dropbox needs you to sign in again. Your backups are safe.
               </p>
+            )}
+            <Button
+              disabled={!status?.dropboxReady}
+              onClick={() => void connectDropbox()}
+            >
+              {viaDropbox && status?.needsReconnect
+                ? "Reconnect Dropbox"
+                : "Connect Dropbox"}
+            </Button>
+            {status && !status.dropboxReady && (
+              <p className="text-muted-foreground text-xs">
+                Dropbox sign-in is not set up in this build yet. Follow the
+                setup guide below (one time), or use a synced folder.
+              </p>
+            )}
+            {status?.dropboxReady && (
+              <p className="text-muted-foreground text-xs">
+                Your browser opens Dropbox to approve access to one app folder.
+                Lemlio never sees your password.
+              </p>
+            )}
+            {status?.dropboxReady && !codeMode && (
+              <Button variant="ghost" onClick={() => void connectWithCode()}>
+                Browser did not return to Lemlio? Use a code
+              </Button>
             )}
           </>
         )}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant={status?.connected ? "outline" : "default"}
-            onClick={() => void pickFolder()}
-          >
-            {status?.connected ? "Change folder…" : "Choose another folder…"}
-          </Button>
-          {status?.configured && (
-            <Button
-              variant="outline"
-              onClick={async () => {
-                try {
-                  await invoke("drive_disconnect");
-                  window.dispatchEvent(new Event(DRIVE_UPDATED));
-                  await refresh();
-                } catch (e) {
-                  setError(String(e));
-                }
-              }}
-            >
-              Disconnect
-            </Button>
-          )}
-        </div>
-        <p className="text-muted-foreground text-xs">
-          Use the same Dropbox account on every computer, then choose its
-          Dropbox folder here. Disconnecting never deletes your backups.
-        </p>
+        {codeMode && (
+          <div className="space-y-2">
+            <p className="text-muted-foreground text-xs">
+              Approve access on Dropbox, then paste the code it shows here.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                className="h-9 min-w-0 flex-1 rounded-lg border bg-background px-3"
+                aria-label="Dropbox code"
+                value={code}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(e) => setCode(e.target.value)}
+              />
+              <Button disabled={!code.trim()} onClick={() => void submitCode()}>
+                Connect
+              </Button>
+            </div>
+          </div>
+        )}
         <label htmlFor="drive-auto-sync" className="flex items-center gap-2">
           <Switch
             size="sm"
@@ -211,9 +311,66 @@ export function DriveSettings() {
           files in a recovery folder. Open projects wait for review. If both
           copies changed, you choose which version to keep. Each revision is a
           separate ZIP, so earlier revisions remain and use Dropbox storage.
-          Update every computer to this version of Lemlio.
         </p>
       </div>
+      {status && (
+        <DropboxSetupGuide
+          status={status}
+          onChanged={refresh}
+          onTest={connectDropbox}
+        />
+      )}
+      <details
+        className="rounded-lg border p-4"
+        open={status?.provider === "folder"}
+      >
+        <summary className="cursor-pointer font-medium">
+          Advanced: use a synced folder instead
+        </summary>
+        <div className="mt-3 space-y-3">
+          <p className="text-muted-foreground text-xs">
+            Works offline and needs no sign-in. Lemlio writes a Lemlio Backups
+            folder inside the folder you choose, and the Dropbox app (or another
+            sync app) syncs it.
+          </p>
+          {status?.provider === "folder" && status.connected && (
+            <>
+              <p className="text-emerald-700 dark:text-emerald-400">
+                Connected
+              </p>
+              <p className="break-all text-muted-foreground text-xs">
+                {status.folderPath}
+              </p>
+            </>
+          )}
+          {status?.provider !== "folder" &&
+            status?.suggestions?.map((folder) => (
+              <Button
+                key={folder.path}
+                variant="outline"
+                className="block h-auto whitespace-normal text-left"
+                onClick={() => void useFolder(folder.path)}
+              >
+                Use my {folder.provider} folder
+                <span className="block break-all font-normal text-xs opacity-80">
+                  {folder.path}
+                </span>
+              </Button>
+            ))}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => void pickFolder()}>
+              {status?.provider === "folder"
+                ? "Change folder…"
+                : "Choose a folder…"}
+            </Button>
+            {status?.provider === "folder" && (
+              <Button variant="outline" onClick={() => void disconnect()}>
+                Disconnect
+              </Button>
+            )}
+          </div>
+        </div>
+      </details>
       <div className="flex flex-wrap gap-2">
         <Button
           disabled={
@@ -232,18 +389,20 @@ export function DriveSettings() {
         >
           Back up all projects
         </Button>
-        {status?.folderPath && status.connected && (
-          <Button
-            variant="outline"
-            onClick={() =>
-              void invoke("open_project_folder", {
-                projectPath: status.folderPath,
-              }).catch((e) => setError(String(e)))
-            }
-          >
-            Open backup folder
-          </Button>
-        )}
+        {status?.provider === "folder" &&
+          status.folderPath &&
+          status.connected && (
+            <Button
+              variant="outline"
+              onClick={() =>
+                void invoke("open_project_folder", {
+                  projectPath: status.folderPath,
+                }).catch((e) => setError(String(e)))
+              }
+            >
+              Open backup folder
+            </Button>
+          )}
       </div>
       <DriveDiscoveryNotice />
       <DriveBackupOverview />
@@ -260,7 +419,7 @@ export function DriveSettings() {
           disabled={busy}
           onClick={() => setResetOpen(true)}
         >
-          Reset backup folder
+          Reset backups
         </Button>
       )}
       <Dialog

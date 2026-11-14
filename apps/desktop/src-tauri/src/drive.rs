@@ -1,29 +1,64 @@
-//! Folder-based project backups. The backup folder lives inside any synced
-//! folder (Dropbox, OneDrive, Google Drive for desktop), so Lemlio needs no
-//! cloud sign-in, API key or token of its own.
+//! Project backups. Two interchangeable stores sit under the same sync logic:
+//! Dropbox through its API (the default; sign-in with PKCE, tokens in the OS
+//! credential store) and a plain folder that Dropbox, OneDrive or another sync
+//! app keeps in sync (Advanced; needs no sign-in at all).
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, OnceLock,
+    },
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::Mutex;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    sync::Mutex,
+};
 
 use crate::backup_store::{self, sha256_file, ROOT_NAME};
+use crate::dropbox::{self, Dropbox};
+use crate::remote::Remote;
 
+/// A sign-in the user finishes by pasting the code Dropbox shows on its page.
+struct ManualLogin {
+    verifier: String,
+}
 #[derive(Clone, Default)]
 pub struct DriveState {
     error: Arc<Mutex<Option<String>>>,
     upload: Arc<Mutex<()>>,
+    pending: Arc<AtomicBool>,
+    login: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    manual: Arc<Mutex<Option<ManualLogin>>>,
 }
-/// Which synced backup folder this computer uses. There is nothing secret here.
+/// The Dropbox account behind the saved connection (shown in settings).
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct DropboxAccount {
+    id: String,
+    name: String,
+    email: String,
+}
+/// Where this computer backs up. Nothing secret is stored here: the Dropbox
+/// tokens live in the operating system credential store.
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct Link {
     folder: Option<String>,
     last_backup: Option<u64>,
+    /// `dropbox` or `folder`. Older settings with only a folder mean `folder`.
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    dropbox: Option<DropboxAccount>,
+    /// Optional Dropbox app key entered by the user (a public identifier, not a secret).
+    #[serde(default)]
+    app_key: Option<String>,
+}
+fn uses_dropbox(link: &Link) -> bool {
+    link.provider.as_deref() == Some("dropbox") && link.dropbox.is_some()
 }
 fn now() -> u64 {
     SystemTime::now()
@@ -40,6 +75,8 @@ fn link_path() -> Result<PathBuf, String> {
 #[cfg(test)]
 pub(crate) static TEST_FOLDER: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 #[cfg(test)]
+pub(crate) static TEST_REMOTE: std::sync::Mutex<Option<Remote>> = std::sync::Mutex::new(None);
+#[cfg(test)]
 fn override_folder() -> Option<String> {
     TEST_FOLDER
         .lock()
@@ -51,40 +88,56 @@ fn override_folder() -> Option<String> {
 fn override_folder() -> Option<String> {
     None
 }
+#[cfg(test)]
+fn override_remote() -> Option<Remote> {
+    TEST_REMOTE.lock().ok().and_then(|remote| remote.clone())
+}
+#[cfg(not(test))]
+fn override_remote() -> Option<Remote> {
+    None
+}
 fn link() -> Result<Link, String> {
+    if override_remote().is_some() {
+        return Ok(Link {
+            provider: Some("dropbox".into()),
+            dropbox: Some(DropboxAccount {
+                id: "test".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+    }
     if let Some(folder) = override_folder() {
         return Ok(Link {
             folder: Some(folder),
-            last_backup: None,
+            ..Default::default()
         });
     }
     match std::fs::read(link_path()?) {
-        Ok(raw) => {
-            serde_json::from_slice(&raw).map_err(|_| "Invalid backup folder settings".into())
-        }
+        Ok(raw) => serde_json::from_slice(&raw).map_err(|_| "Invalid backup settings".into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Link::default()),
-        Err(_) => Err("Cannot read the backup folder settings".into()),
+        Err(_) => Err("Cannot read the backup settings".into()),
     }
 }
 fn save_link(link: &Link) -> Result<(), String> {
-    if override_folder().is_some() {
+    if override_folder().is_some() || override_remote().is_some() {
         return Ok(());
     }
     let path = link_path()?;
     let parent = path.parent().ok_or("Invalid settings folder")?;
     std::fs::create_dir_all(parent).map_err(|_| "Cannot create app settings")?;
     let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "Cannot save the backup folder")?;
-    serde_json::to_writer(&mut temporary, link).map_err(|_| "Cannot save the backup folder")?;
+        tempfile::NamedTempFile::new_in(parent).map_err(|_| "Cannot save the backup settings")?;
+    serde_json::to_writer(&mut temporary, link).map_err(|_| "Cannot save the backup settings")?;
     temporary
         .persist(path)
-        .map_err(|_| "Cannot save the backup folder")?;
+        .map_err(|_| "Cannot save the backup settings")?;
     Ok(())
 }
 fn linked() -> Result<Link, String> {
     let link = link()?;
-    if link.folder.is_none() {
-        return Err("Choose your Dropbox backup folder first".into());
+    if !uses_dropbox(&link) && link.folder.is_none() {
+        return Err("Connect Dropbox or choose a backup folder first".into());
     }
     Ok(link)
 }
@@ -116,6 +169,35 @@ fn existing_backup_root(link: &Link) -> Result<Option<PathBuf>, String> {
         .filter(|root| root.is_dir()))
 }
 
+/// One Dropbox client for the whole app, so token renewal is shared.
+fn dropbox_client() -> Dropbox {
+    static CLIENT: OnceLock<Dropbox> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| Dropbox::new(Arc::new(dropbox::KeyringStore)))
+        .clone()
+}
+/// The store for this link. With `create`, a deleted backup folder is rebuilt.
+fn open_remote(link: &Link, create: bool) -> Result<Option<Remote>, String> {
+    if let Some(remote) = override_remote() {
+        return Ok(Some(remote));
+    }
+    if uses_dropbox(link) {
+        let account = link
+            .dropbox
+            .as_ref()
+            .map(|a| a.id.clone())
+            .ok_or("Connect Dropbox first")?;
+        return Ok(Some(Remote::Dropbox {
+            client: dropbox_client(),
+            account,
+        }));
+    }
+    if create {
+        return backup_root(link).map(|root| Some(Remote::Folder(root)));
+    }
+    Ok(existing_backup_root(link)?.map(Remote::Folder))
+}
+
 /// Choose the synced folder. `Lemlio Backups` is created inside it.
 pub fn set_backup_folder(chosen: &Path) -> Result<String, String> {
     if !chosen.is_absolute() || !chosen.is_dir() {
@@ -139,19 +221,27 @@ pub fn set_backup_folder(chosen: &Path) -> Result<String, String> {
         .map_err(|_| "Lemlio cannot write to that folder")?;
     let text = backup_store::root_id(&root);
     let mut link = link()?;
-    if link.folder.as_deref() != Some(text.as_str()) {
+    if link.folder.as_deref() != Some(text.as_str()) || link.provider.as_deref() == Some("dropbox")
+    {
         link.last_backup = None;
     }
+    // Leaving Dropbox for a folder forgets the saved Dropbox sign-in on this computer.
+    if uses_dropbox(&link) {
+        let _ = dropbox::TokenStore::clear(&dropbox::KeyringStore);
+    }
     link.folder = Some(text.clone());
+    link.provider = Some("folder".into());
+    link.dropbox = None;
     save_link(&link)?;
     Ok(text)
 }
 
 pub fn clear_local_setup() -> Result<(), String> {
+    let _ = dropbox::TokenStore::clear(&dropbox::KeyringStore);
     match std::fs::remove_file(link_path()?) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err("Cannot remove the backup folder setting".into()),
+        Err(_) => Err("Cannot remove the backup setting".into()),
     }
 }
 #[tauri::command]
@@ -163,28 +253,289 @@ pub async fn drive_set_folder(folder_path: String) -> Result<String, String> {
     set_backup_folder(Path::new(&folder_path))
 }
 
+// ---- Dropbox sign-in ----------------------------------------------------------
+/// Lemlio's public Dropbox app key. An app key is a public identifier, not a secret
+/// (the app secret is never used). A build can override it with LEMLIO_DROPBOX_APP_KEY.
+const BUILT_IN_APP_KEY: Option<&str> = match option_env!("LEMLIO_DROPBOX_APP_KEY") {
+    Some(key) => Some(key),
+    None => Some("7hq6lelbqfmmavq"),
+};
+const NO_APP_KEY: &str = "Dropbox sign-in is not set up in this build yet. Enter your Dropbox app key under Advanced, or choose a synced folder instead.";
+/// The Dropbox app key: the one the user entered, else the one built into this release.
+fn app_key(link: &Link) -> Option<String> {
+    link.app_key
+        .clone()
+        .or_else(|| BUILT_IN_APP_KEY.map(str::to_string))
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty())
+}
+const SIGN_IN_SUPPORTED: bool = cfg!(any(target_os = "windows", target_os = "macos"));
+
+/// Save the Dropbox connection after the code was exchanged.
+async fn finish_login(code: &str, verifier: &str, redirect: Option<&str>) -> Result<(), String> {
+    let current = link()?;
+    let key = app_key(&current).ok_or(NO_APP_KEY)?;
+    let client = dropbox_client();
+    let tokens = client.exchange_code(&key, code, verifier, redirect).await?;
+    let account = client.account().await.unwrap_or(Value::Null);
+    let text = |field: &str| account[field].as_str().unwrap_or_default().to_string();
+    let id = if tokens.account_id.is_empty() {
+        text("id")
+    } else {
+        tokens.account_id.clone()
+    };
+    let mut link = link()?;
+    if link.dropbox.as_ref().map(|a| a.id.as_str()) != Some(id.as_str()) {
+        link.last_backup = None;
+    }
+    link.provider = Some("dropbox".into());
+    link.dropbox = Some(DropboxAccount {
+        id,
+        name: text("name"),
+        email: text("email"),
+    });
+    save_link(&link)
+}
+
+fn page(message: &str) -> String {
+    let body = format!("<!doctype html><meta charset=utf-8><title>Lemlio</title><p>{message}</p>");
+    format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    )
+}
+/// Open the first free registered loopback port and wait for Dropbox to redirect to it.
+async fn begin_login(state: &DriveState) -> Result<String, String> {
+    if !SIGN_IN_SUPPORTED {
+        return Err(
+            "Dropbox sign-in is supported on Windows and macOS. Use a synced folder instead."
+                .into(),
+        );
+    }
+    let key = app_key(&link()?).ok_or(NO_APP_KEY)?;
+    if let Some(task) = state.login.lock().await.take() {
+        task.abort();
+    }
+    *state.error.lock().await = None;
+    let mut bound = None;
+    for port in dropbox::LOOPBACK_PORTS {
+        if let Ok(listener) = tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            bound = Some((listener, port));
+            break;
+        }
+    }
+    let (listener, port) = bound.ok_or(
+        "Lemlio could not open its local sign-in address. Close other programs using it, or use the code option.",
+    )?;
+    let redirect = dropbox::redirect_uri(port);
+    let verifier = dropbox::new_verifier();
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let url = dropbox::authorization_url(
+        &key,
+        Some(&redirect),
+        &dropbox::challenge(&verifier),
+        &nonce,
+    )?;
+    state.pending.store(true, Ordering::SeqCst);
+    let current = state.clone();
+    let task = tokio::spawn(async move {
+        let result = tokio::time::timeout(Duration::from_secs(300), async {
+            loop {
+                let (mut stream, _) = listener
+                    .accept()
+                    .await
+                    .map_err(|_| "The Dropbox callback failed".to_string())?;
+                let mut buffer = vec![0; 16384];
+                let count = tokio::time::timeout(Duration::from_secs(10), stream.read(&mut buffer))
+                    .await
+                    .map_err(|_| "The Dropbox callback timed out")?
+                    .map_err(|_| "Cannot read the Dropbox callback")?;
+                let request = String::from_utf8_lossy(&buffer[..count]);
+                let target = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let Some(parameters) = dropbox::callback_parameters(target, &nonce) else {
+                    let _ = stream
+                        .write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                        .await;
+                    continue;
+                };
+                let exchange = async {
+                    if let Some(problem) = parameters.get("error") {
+                        let reason = parameters.get("error_description").map_or("", String::as_str);
+                        return Err(dropbox::explain_sign_in_error(
+                            &json!({"error": problem, "error_description": reason}),
+                            Some(&redirect),
+                        ));
+                    }
+                    let code = parameters.get("code").ok_or("Dropbox sign-in was cancelled")?;
+                    finish_login(code, &verifier, Some(&redirect)).await
+                }
+                .await;
+                let message = if exchange.is_ok() {
+                    "Lemlio is connected to Dropbox. You can close this tab."
+                } else {
+                    "Lemlio could not connect. Return to the app to check the connection."
+                };
+                let _ = stream.write_all(page(message).as_bytes()).await;
+                return exchange;
+            }
+        })
+        .await;
+        current.pending.store(false, Ordering::SeqCst);
+        *current.error.lock().await = match result {
+            Ok(Ok(())) => None,
+            Ok(Err(error)) => Some(error),
+            Err(_) => Some("Dropbox sign-in timed out. Try Connect again.".into()),
+        };
+    });
+    *state.login.lock().await = Some(task);
+    Ok(url.to_string())
+}
+/// Opens in the browser: the Dropbox page that approves Lemlio's access.
+#[tauri::command]
+pub async fn drive_dropbox_connect(state: tauri::State<'_, DriveState>) -> Result<String, String> {
+    begin_login(&state).await
+}
+/// For a browser or network where the local callback does not work: Dropbox shows a
+/// code, which the user pastes into `drive_dropbox_submit_code`.
+#[tauri::command]
+pub async fn drive_dropbox_connect_manual(
+    state: tauri::State<'_, DriveState>,
+) -> Result<String, String> {
+    if !SIGN_IN_SUPPORTED {
+        return Err(
+            "Dropbox sign-in is supported on Windows and macOS. Use a synced folder instead."
+                .into(),
+        );
+    }
+    let key = app_key(&link()?).ok_or(NO_APP_KEY)?;
+    let verifier = dropbox::new_verifier();
+    let url = dropbox::authorization_url(
+        &key,
+        None,
+        &dropbox::challenge(&verifier),
+        &uuid::Uuid::new_v4().to_string(),
+    )?;
+    *state.manual.lock().await = Some(ManualLogin { verifier });
+    *state.error.lock().await = None;
+    Ok(url.to_string())
+}
+#[tauri::command]
+pub async fn drive_dropbox_submit_code(
+    state: tauri::State<'_, DriveState>,
+    code: String,
+) -> Result<(), String> {
+    let pending = state
+        .manual
+        .lock()
+        .await
+        .take()
+        .ok_or("Press Connect with a code first, then paste the code from Dropbox")?;
+    let code = code.trim().to_string();
+    if code.is_empty() || code.len() > 512 || code.chars().any(char::is_whitespace) {
+        *state.manual.lock().await = Some(pending);
+        return Err("Paste the code exactly as Dropbox shows it".into());
+    }
+    finish_login(&code, &pending.verifier, None).await
+}
+#[tauri::command]
+pub async fn drive_cancel(state: tauri::State<'_, DriveState>) -> Result<(), String> {
+    if let Some(task) = state.login.lock().await.take() {
+        task.abort();
+    }
+    *state.manual.lock().await = None;
+    state.pending.store(false, Ordering::SeqCst);
+    Ok(())
+}
+/// A Dropbox app key typed in settings. An empty value goes back to the built-in key.
+#[tauri::command]
+pub fn drive_set_app_key(app_key: String) -> Result<(), String> {
+    let key = app_key.trim();
+    // The value is never repeated in an error or logged: it may be a secret pasted by mistake.
+    if !key.is_empty() && !dropbox::valid_app_key(key) {
+        return Err("That does not look like a Dropbox app key. The App key is a short string of letters and digits; the App secret is not needed and must never be pasted here.".into());
+    }
+    let mut link = link()?;
+    link.app_key = (!key.is_empty()).then(|| key.to_string());
+    save_link(&link)
+}
+
 #[tauri::command]
 pub async fn drive_status(state: tauri::State<'_, DriveState>) -> Result<Value, String> {
     status(&state).await
 }
 async fn status(state: &DriveState) -> Result<Value, String> {
     let link = link()?;
-    let available = link
+    let dropbox_mode = uses_dropbox(&link);
+    let folder_ok = link
         .folder
         .as_deref()
         .is_some_and(|folder| Path::new(folder).is_dir());
+    let signed_in = dropbox_mode
+        && !dropbox::NEEDS_RECONNECT.load(Ordering::SeqCst)
+        && (override_remote().is_some()
+            || dropbox::TokenStore::load(&dropbox::KeyringStore)
+                .ok()
+                .flatten()
+                .is_some());
+    let connected = if dropbox_mode { signed_in } else { folder_ok };
     let mut error = state.error.lock().await.clone();
-    if link.folder.is_some() && !available && error.is_none() {
-        error = Some(UNAVAILABLE.to_string());
+    if error.is_none() {
+        if dropbox_mode && !signed_in {
+            error = Some("Dropbox needs you to sign in again. Press Connect Dropbox.".to_string());
+        } else if !dropbox_mode && link.folder.is_some() && !folder_ok {
+            error = Some(UNAVAILABLE.to_string());
+        }
     }
-    Ok(
-        json!({"configured":link.folder.is_some(),"connected":available,"pending":false,"error":error,"lastBackup":link.last_backup,"folderPath":link.folder,"folderUrl":link.folder,"suggestions":backup_store::detect_sync_folders()}),
-    )
+    let folder = if dropbox_mode {
+        None
+    } else {
+        link.folder.clone()
+    };
+    Ok(json!({
+        "provider": if dropbox_mode { json!("dropbox") } else if link.folder.is_some() { json!("folder") } else { Value::Null },
+        "configured": dropbox_mode || link.folder.is_some(),
+        "connected": connected,
+        "pending": state.pending.load(Ordering::SeqCst),
+        "needsReconnect": dropbox_mode && !signed_in,
+        "error": error,
+        "lastBackup": link.last_backup,
+        "account": link.dropbox,
+        "dropboxReady": SIGN_IN_SUPPORTED && app_key(&link).is_some(),
+        "dropboxSupported": SIGN_IN_SUPPORTED,
+        "appKeyConfigured": app_key(&link).is_some(),
+        "builtInAppKey": BUILT_IN_APP_KEY.is_some_and(|k| !k.trim().is_empty()),
+        "ownAppKey": link.app_key.is_some(),
+        "redirectUris": dropbox::redirect_uris(),
+        "permissions": dropbox::permissions(),
+        "folderPath": folder,
+        "folderUrl": folder,
+        "suggestions": backup_store::detect_sync_folders(),
+    }))
 }
-/// Forget the folder on this computer. Backups already in it are left untouched.
+/// Forget the connection on this computer. Backups already stored are left untouched.
 #[tauri::command]
-pub async fn drive_disconnect(_state: tauri::State<'_, DriveState>) -> Result<(), String> {
-    save_link(&Link::default())
+pub async fn drive_disconnect(state: tauri::State<'_, DriveState>) -> Result<(), String> {
+    disconnect(&state).await
+}
+async fn disconnect(state: &DriveState) -> Result<(), String> {
+    if let Some(task) = state.login.lock().await.take() {
+        task.abort();
+    }
+    state.pending.store(false, Ordering::SeqCst);
+    *state.manual.lock().await = None;
+    let current = link()?;
+    if uses_dropbox(&current) {
+        dropbox_client().disconnect().await?;
+    }
+    save_link(&Link {
+        app_key: current.app_key,
+        ..Default::default()
+    })
 }
 
 // ---- Project identity -------------------------------------------------------
@@ -278,22 +629,39 @@ fn validate_backup_root(root: &Path) -> Result<(), String> {
 pub async fn reset_backups(state: &DriveState) -> Result<Value, String> {
     let _upload = state.upload.lock().await;
     let mut link = linked()?;
-    let folder = PathBuf::from(
-        link.folder
-            .clone()
-            .ok_or("Choose your Dropbox backup folder first")?,
-    );
-    let mut retired = None;
-    if folder.is_dir() {
-        validate_backup_root(&folder)?;
-        retired = Some(backup_store::retire_root(&folder)?);
+    let remote = open_remote(&link, false)?;
+    let mut retired: Option<String> = None;
+    let mut fresh: Option<String> = None;
+    match remote {
+        Some(Remote::Dropbox { client, .. }) => {
+            retired = client.reset().await?;
+        }
+        _ => {
+            let folder = PathBuf::from(
+                link.folder
+                    .clone()
+                    .ok_or("Choose your Dropbox backup folder first")?,
+            );
+            if folder.is_dir() {
+                validate_backup_root(&folder)?;
+                retired = Some(
+                    backup_store::retire_root(&folder)?
+                        .to_string_lossy()
+                        .to_string(),
+                );
+            }
+            link.last_backup = None;
+            save_link(&link)?;
+            fresh = Some(backup_root(&link)?.to_string_lossy().to_string());
+        }
     }
-    link.last_backup = None;
-    save_link(&link)?;
-    let fresh = backup_root(&link)?;
+    if uses_dropbox(&link) {
+        link.last_backup = None;
+        save_link(&link)?;
+    }
     *state.error.lock().await = None;
     Ok(
-        json!({"retiredPreviousFolder":retired.as_ref().map(|p|p.to_string_lossy().to_string()),"trashedPreviousFolder":retired.is_some(),"folderPath":fresh.to_string_lossy(),"folderUrl":fresh.to_string_lossy()}),
+        json!({"retiredPreviousFolder":retired,"trashedPreviousFolder":retired.is_some(),"folderPath":fresh,"folderUrl":fresh}),
     )
 }
 
@@ -420,17 +788,14 @@ fn revision_choices(heads: &[&Value]) -> Value {
         .map(|f| conflict_details(f, heads.len()))
         .collect::<Vec<_>>())
 }
-/// Complete revisions in the backup folder, or `None` when the folder is missing.
-async fn remote_files() -> Result<Option<(PathBuf, Vec<Value>)>, String> {
+/// The backup store and its complete revisions, or `None` when the folder is missing.
+async fn remote_files() -> Result<Option<(Remote, Vec<Value>)>, String> {
     let link = linked()?;
-    let Some(root) = existing_backup_root(&link)? else {
+    let Some(remote) = open_remote(&link, false)? else {
         return Ok(None);
     };
-    let listing = root.clone();
-    let files = tokio::task::spawn_blocking(move || backup_store::list(&listing))
-        .await
-        .map_err(|e| e.to_string())??;
-    Ok(Some((root, files)))
+    let files = remote.list().await?;
+    Ok(Some((remote, files)))
 }
 
 /// Link a local project to its backup history by identity when this computer has
@@ -439,7 +804,7 @@ async fn remote_files() -> Result<Option<(PathBuf, Vec<Value>)>, String> {
 /// that project, so the revisions after it are provably newer and may replace it.
 fn adopt_receipt(
     path: &str,
-    root: &Path,
+    root: &str,
     files: &[Value],
 ) -> Result<Option<crate::drive_receipts::Receipt>, String> {
     if let Some(existing) = crate::drive_receipts::load(path)? {
@@ -485,7 +850,7 @@ fn adopt_receipt(
             archive_hash: hash.to_string(),
             source_revision: local_revision(source)?,
             content_revision: content,
-            folder_id: backup_store::root_id(root),
+            folder_id: root.to_string(),
             last_backup: now(),
         };
         crate::drive_receipts::save(path, receipt.clone())?;
@@ -516,9 +881,9 @@ async fn sync_project(
     project_path: String,
     expected: String,
 ) -> Result<Value, String> {
-    let (root, files) = remote_files().await?.ok_or("No backup folder")?;
-    let receipt =
-        adopt_receipt(&project_path, &root, &files)?.ok_or("Project is not linked to a backup")?;
+    let (remote, files) = remote_files().await?.ok_or("No backup folder")?;
+    let receipt = adopt_receipt(&project_path, &remote.id(), &files)?
+        .ok_or("Project is not linked to a backup")?;
     if !receipt_unchanged(Path::new(&project_path), &receipt)? {
         return Err("Local files changed too. Review both versions; nothing was replaced".into());
     }
@@ -600,7 +965,7 @@ async fn link_project(
     archive_id: String,
 ) -> Result<Value, String> {
     let _lock = state.upload.lock().await;
-    let (root, files) = remote_files().await?.ok_or("No backup folder")?;
+    let (remote, files) = remote_files().await?.ok_or("No backup folder")?;
     let key = files
         .iter()
         .find(|f| f["id"] == archive_id.as_str())
@@ -619,7 +984,7 @@ async fn link_project(
     } else {
         write_project_id(source, &key)?;
     }
-    let adopted = adopt_receipt(&project_path, &root, &files)?;
+    let adopted = adopt_receipt(&project_path, &remote.id(), &files)?;
     Ok(json!({"linked":true,"provablyRelated":adopted.is_some(),"projectKey":key}))
 }
 
@@ -689,17 +1054,15 @@ async fn backup_project_with_collaboration(
     .await
     .map_err(|_| "Cannot prepare backup files")??;
     // A deleted backup folder is recreated without touching any old backup files.
-    let root_path = backup_root(&link)?;
-    let root_text = backup_store::root_id(&root_path);
+    let remote =
+        open_remote(&link, true)?.ok_or("Connect Dropbox or choose a backup folder first")?;
+    let root_text = remote.id();
     let root = root_text.as_str();
-    let listing = root_path.clone();
-    let children = tokio::task::spawn_blocking(move || backup_store::list(&listing))
-        .await
-        .map_err(|e| e.to_string())??;
+    let children = remote.list().await?;
     // A project copied from another PC already carries its identity: recognize it.
     let receipt = match snapshot.5.clone() {
         Some(record) => Some(record),
-        None => adopt_receipt(&snapshot.6, &root_path, &children)?,
+        None => adopt_receipt(&snapshot.6, root, &children)?,
     };
     let heads = crate::drive_sync::heads(&children, &snapshot.2);
     if heads.len() > 16 {
@@ -801,25 +1164,10 @@ async fn backup_project_with_collaboration(
             .ok_or("Missing backup archive ID")?
             .to_string()
     } else {
-        let (store_root, store_name, store_archive, store_key, store_properties) = (
-            root_path.clone(),
-            archive_name.clone(),
-            archive.clone(),
-            snapshot.2.clone(),
-            properties.clone(),
-        );
         // Immutable revision: another device can never overwrite this upload.
-        let result = tokio::task::spawn_blocking(move || {
-            backup_store::put(
-                &store_root,
-                &store_name,
-                &store_archive,
-                &store_key,
-                &store_properties,
-            )
-        })
-        .await
-        .map_err(|_| "Cannot write the backup")??;
+        let result = remote
+            .put(&archive_name, &archive, &snapshot.2, &properties)
+            .await?;
         if result["sha256Checksum"].as_str() != Some(hash.as_str()) {
             return Err("The backup ZIP failed verification; backup will retry".into());
         }
@@ -850,7 +1198,7 @@ async fn backup_project_with_collaboration(
         },
     )?;
     Ok(
-        json!({"name":snapshot.3,"format":"zip","sourceFiles":snapshot.1,"sourceRevision":snapshot.4,"uploadedFiles":if reused {0} else {1},"unchangedFiles":if reused {1} else {0},"deviceName":device["name"],"lastBackup":link.last_backup,"archivePath":root_path.join(format!("{archive_id}.zip")).to_string_lossy(),"folderPath":root,"folderUrl":root}),
+        json!({"name":snapshot.3,"format":"zip","sourceFiles":snapshot.1,"sourceRevision":snapshot.4,"uploadedFiles":if reused {0} else {1},"unchangedFiles":if reused {1} else {0},"deviceName":device["name"],"lastBackup":link.last_backup,"archiveId":archive_id,"provider":if remote.is_dropbox() {"dropbox"} else {"folder"},"folderPath":if remote.is_dropbox() {Value::Null} else {json!(root)}}),
     )
 }
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
@@ -869,7 +1217,7 @@ pub async fn drive_collaboration_updates(
     let shared = crate::collaboration::manifest(Path::new(&project_path))?
         .ok_or("This is not a shared project")?;
     let receipt = crate::drive_receipts::load(&project_path)?;
-    let Some((root_path, children)) = remote_files().await? else {
+    let Some((remote, children)) = remote_files().await? else {
         return Ok(json!({"heads":[]}));
     };
     let heads = crate::drive_sync::heads(&children, &shared.drive_project_id);
@@ -886,12 +1234,7 @@ pub async fn drive_collaboration_updates(
         if head["appProperties"]["lemlioArchiveHash"] != hash {
             return Err(conflict_error(head, 1));
         }
-        let (read_root, read_id) = (root_path.clone(), id.to_string());
-        let bytes = tokio::task::spawn_blocking(move || {
-            backup_store::read_archive(&read_root, &read_id, 160 * 1024 * 1024)
-        })
-        .await
-        .map_err(|_| "Cannot read the shared backup")??;
+        let bytes = remote.read(id, 160 * 1024 * 1024).await?;
         if format!("{:x}", Sha256::digest(&bytes)) != hash {
             return Err("Shared backup checksum failed; local edits were kept".into());
         }
@@ -1210,17 +1553,17 @@ async fn restore_snapshot_with_target(
             );
         }
     }
-    let (root_path, files) = remote_files()
+    let (remote, files) = remote_files()
         .await?
         .ok_or("No backup folder was found on this computer")?;
-    let root = backup_store::root_id(&root_path);
+    let root = remote.id();
     let metadata = files
         .iter()
         .find(|f| f["id"] == archive_id.as_str())
         .cloned()
         .ok_or("That backup revision is not in the folder yet (it may still be syncing)")?;
     if !managed_archive(&metadata, &root) {
-        return Err("Choose a ZIP from this computer's Lemlio backup folder".into());
+        return Err("Choose a ZIP from your Lemlio backups".into());
     }
     let project_key = metadata["appProperties"]["lemlioProject"]
         .as_str()
@@ -1271,13 +1614,14 @@ async fn restore_snapshot_with_target(
             safe.trim()
         }
     ));
-    let stored = backup_store::archive_path(&root_path, &archive_id)?;
-    let (copy_from, copy_to, copy_hash) = (stored, archive.clone(), expected_hash.clone());
-    tokio::task::spawn_blocking(move || {
-        backup_store::copy_verified(&copy_from, &copy_to, &copy_hash, 2 * 1024 * 1024 * 1024)
-    })
-    .await
-    .map_err(|_| "Backup copy was interrupted; local projects were kept")??;
+    remote
+        .fetch(
+            &archive_id,
+            &archive,
+            &expected_hash,
+            2 * 1024 * 1024 * 1024,
+        )
+        .await?;
     let staging = if let Some((path, _)) = &sync_target {
         Some(
             tempfile::Builder::new()
@@ -1390,9 +1734,10 @@ pub async fn backup_summary(
     }
     let mut available_projects = Vec::new();
     let verified = async {
-        let Some((root_path, remote)) = remote_files().await? else {
+        let Some((store, remote)) = remote_files().await? else {
             return Err("No backup folder is available".to_string());
         };
+        let root_text = store.id();
         // A project that shares its identity with a backed-up project is the same
         // project (for example a copy from another PC): link it, never duplicate it.
         for row in &mut rows {
@@ -1402,7 +1747,7 @@ pub async fn backup_summary(
             let Some(path) = row["path"].as_str().map(str::to_string) else {
                 continue;
             };
-            if let Ok(Some(adopted)) = adopt_receipt(&path, &root_path, &remote) {
+            if let Ok(Some(adopted)) = adopt_receipt(&path, &root_text, &remote) {
                 row["status"] = json!("saved");
                 row["lastBackup"] = json!(adopted.last_backup);
                 row["sourceRevision"] = json!(adopted.source_revision);
@@ -1528,6 +1873,7 @@ mod folder_sync_tests {
     impl Drop for Sandbox {
         fn drop(&mut self) {
             *TEST_FOLDER.lock().unwrap_or_else(|p| p.into_inner()) = None;
+            *TEST_REMOTE.lock().unwrap_or_else(|p| p.into_inner()) = None;
             *crate::projects::TEST_LIBRARY
                 .lock()
                 .unwrap_or_else(|p| p.into_inner()) = None;
@@ -1640,6 +1986,65 @@ mod folder_sync_tests {
     }
 
     #[test]
+    fn the_same_project_is_updated_in_place_when_backups_live_in_dropbox() {
+        let sandbox = Sandbox::new();
+        run(async {
+            let fake = crate::dropbox::fake::Fake::start().await;
+            let (client, _store) =
+                crate::dropbox::fake::client(&fake, crate::dropbox::fake::quick());
+            *TEST_REMOTE.lock().unwrap() = Some(Remote::Dropbox {
+                client,
+                account: "dbid:acct".into(),
+            });
+            let state = DriveState::default();
+            sandbox.computer("a");
+            let a = sandbox.project("a", "version one");
+            let a_path = a.to_string_lossy().to_string();
+            let first = backup_project(&state, a_path.clone()).await.unwrap();
+            assert_eq!(first["provider"], "dropbox");
+
+            // The same project, an older copy, on another computer.
+            sandbox.computer("b");
+            let b = sandbox.temp.path().join("b").join("Paper");
+            copy_dir(&a, &b);
+            let b_path = b.to_string_lossy().to_string();
+            let summary = backup_summary(&state, vec![b_path.clone()]).await.unwrap();
+            assert_eq!(summary["projects"][0]["status"], "saved", "{summary}");
+            assert!(
+                summary["availableProjects"].as_array().unwrap().is_empty(),
+                "{summary}"
+            );
+
+            sandbox.computer("a");
+            std::fs::write(a.join("main.tex"), "version two from PC A").unwrap();
+            backup_project(&state, a_path.clone()).await.unwrap();
+            let head = crate::drive_receipts::load(&a_path).unwrap().unwrap();
+            assert_eq!(head.folder_id, "dropbox:dbid:acct");
+
+            sandbox.computer("b");
+            let summary = backup_summary(&state, vec![b_path.clone()]).await.unwrap();
+            assert_eq!(summary["projects"][0]["status"], "incoming", "{summary}");
+            let synced = sync_project(&state, b_path.clone(), head.archive_hash.clone())
+                .await
+                .unwrap();
+            assert_eq!(text(&b), "version two from PC A");
+            assert_eq!(
+                text(Path::new(synced["recoveryPath"].as_str().unwrap())),
+                "version one"
+            );
+            assert_eq!(
+                visible_entries(b.parent().unwrap()),
+                ["Paper"],
+                "no second project"
+            );
+            let settled = backup_summary(&state, vec![b_path]).await.unwrap();
+            assert_eq!(settled["projects"][0]["status"], "saved", "{settled}");
+            // Both revisions are still in Dropbox; none was overwritten.
+            assert_eq!(remote_files().await.unwrap().unwrap().1.len(), 2);
+        });
+    }
+
+    #[test]
     fn a_project_without_an_id_is_linked_after_confirmation_never_duplicated() {
         let sandbox = Sandbox::new();
         run(async {
@@ -1742,7 +2147,7 @@ mod folder_sync_tests {
         std::fs::remove_dir_all(&root).unwrap();
         let link = Link {
             folder: Some(root.to_string_lossy().to_string()),
-            last_backup: None,
+            ..Default::default()
         };
         assert_eq!(backup_root(&link).unwrap(), root);
         assert!(root.is_dir());

@@ -1,6 +1,6 @@
 [package]
 name = "prismpro-desktop"
-version = "1.6.0"
+version = "1.6.1"
 description = "AI-powered LaTeX writing workspace"
 edition = "2021"
 
@@ -50,11 +50,13 @@ unwrap_used = "deny"
 expect_used = "deny"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSRunningApplication"] }
 objc2-foundation = { version = "0.3", features = ["NSData", "NSString"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
 winreg = "0.55"
 windows-sys = { version = "0.52", features = ["Win32_System_Environment"] }
 

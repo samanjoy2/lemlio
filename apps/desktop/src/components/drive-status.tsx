@@ -85,7 +85,7 @@ export function DriveStatus({ projectPath }: { projectPath?: string | null }) {
 
   const project = projectPath ? projectDriveStatus(projectPath) : undefined;
 
-  let label = "Backup · Choose a folder";
+  let label = "Backup · Connect Dropbox";
 
   if (connection?.connected) {
     if (!projectPath) label = "Backup connected";

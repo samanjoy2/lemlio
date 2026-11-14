@@ -5,6 +5,7 @@ mod collaboration;
 mod drive;
 mod drive_receipts;
 mod drive_sync;
+mod dropbox;
 mod eps;
 mod fonts;
 mod history;
@@ -13,6 +14,7 @@ mod latex_compat;
 mod previews;
 mod project_delete;
 mod projects;
+mod remote;
 mod slash_commands;
 mod speech;
 mod tools;
@@ -495,6 +497,11 @@ pub fn run() {
             claude::load_claude_session_history,
             projects::list_imported_projects,
             drive::drive_status,
+            drive::drive_dropbox_connect,
+            drive::drive_dropbox_connect_manual,
+            drive::drive_dropbox_submit_code,
+            drive::drive_cancel,
+            drive::drive_set_app_key,
             drive::drive_detect_folders,
             drive::drive_set_folder,
             drive::drive_disconnect,

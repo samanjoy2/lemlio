@@ -39,7 +39,7 @@ export function DriveRestoreDialog() {
       setMessage(
         result.projects.length
           ? ""
-          : "No Lemlio backups were found. Choose the same Dropbox folder you use on your other computer and wait for it to finish syncing.",
+          : "No Lemlio backups were found. Connect the same Dropbox account you use on your other computer. If you back up to a synced folder, choose the same folder and wait for it to finish syncing.",
       );
     } catch (e) {
       setError(String(e));

@@ -96,8 +96,8 @@ fn meta_path(root: &Path, id: &str) -> PathBuf {
     root.join(format!("{id}.json"))
 }
 
-fn entry(
-    root: &Path,
+pub(crate) fn entry(
+    root_text: &str,
     id: &str,
     name: &str,
     size: u64,
@@ -113,7 +113,7 @@ fn entry(
         "sha256Checksum": hash,
         "appProperties": properties,
         "modifiedTime": rfc3339(saved),
-        "parents": [root_id(root)],
+        "parents": [root_text],
         "trashed": false,
     })
 }
@@ -160,7 +160,15 @@ pub fn list(root: &Path) -> Result<Vec<Value>, String> {
         let saved = meta["savedAt"].as_u64().unwrap_or(0);
         files.push((
             saved,
-            entry(root, &id, name, size, &hash, &meta["appProperties"], saved),
+            entry(
+                &root_id(root),
+                &id,
+                name,
+                size,
+                &hash,
+                &meta["appProperties"],
+                saved,
+            ),
         ));
     }
     files.sort_by(|a, b| {
@@ -215,7 +223,15 @@ pub fn put(
         sidecar
             .persist(meta_path(root, &id))
             .map_err(|e| e.error.to_string())?;
-        Ok::<_, String>(entry(root, &id, name, size, &expected, &merged, saved))
+        Ok::<_, String>(entry(
+            &root_id(root),
+            &id,
+            name,
+            size,
+            &expected,
+            &merged,
+            saved,
+        ))
     })();
     if outcome.is_err() {
         let _ = std::fs::remove_file(&zip);
