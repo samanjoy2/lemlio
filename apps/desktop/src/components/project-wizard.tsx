@@ -28,7 +28,7 @@ import {
   getTemplateSkeleton,
   BIB_TEMPLATE,
 } from "@/lib/template-registry";
-import { TemplateGallery } from "@/components/template-gallery";
+import { TemplatePacks } from "@/components/template-packs";
 import { DEFAULT_AGENTS_MD } from "@/lib/default-agents-md";
 
 // ─── Helpers ───
@@ -91,7 +91,7 @@ export function ProjectWizard({ mode, onBack }: ProjectWizardProps) {
           <span className="font-semibold text-sm">Choose a Template</span>
         </div>
         <div className="flex-1 overflow-hidden">
-          <TemplateGallery />
+          <TemplatePacks />
         </div>
       </div>
     );

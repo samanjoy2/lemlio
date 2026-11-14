@@ -94,7 +94,7 @@ fn has_real_errors(log: &str) -> bool {
         .any(|l| l.starts_with('!') || l.contains("Error:"))
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum TexEngine {
     Latex,
     XeLaTeX,
@@ -155,6 +155,25 @@ fn detect_bib_tool(content: &str) -> BibTool {
         }
     }
     BibTool::None
+}
+
+/// Tectonic cannot build every font: for example fonts that exist only as METAFONT
+/// sources (BangTeX, used for Bengali) have no usable metric or outline files.
+/// A full TeX installation can generate them, so these messages mean "try that".
+pub(crate) fn tectonic_font_gap(output: &str) -> bool {
+    let text = output.to_lowercase();
+    text.contains("unable to generate pk font")
+        || text.contains("could not locate a virtual/physical font")
+        || text.contains("cannot proceed without .vf or \"physical\" font")
+        || text.contains("not loadable: metric (tfm) file")
+}
+
+/// The folder of an installed MiKTeX or TeX Live, if any, so an AI assistant can
+/// run its tools (pdflatex, mf, mpm, tlmgr) itself.
+pub(crate) fn system_tex_bin_dir() -> Option<PathBuf> {
+    find_texlive_binary("pdflatex")
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf))
 }
 
 /// Resolve an installed MiKTeX or TeX Live engine to its full path.
@@ -1091,7 +1110,7 @@ pub(crate) async fn compile_project(
         Some(TexEngine::Latex) => "pdflatex",
         Some(TexEngine::LuaLaTeX) => "lualatex",
     };
-    let backend_label = if use_texlive {
+    let mut backend_label = if use_texlive {
         let distribution = find_texlive_binary(engine_name_for_label)
             .ok()
             .map(|path| {
@@ -1118,7 +1137,8 @@ pub(crate) async fn compile_project(
         }
     }
 
-    let compile_result = if use_texlive {
+    let main_tex_for_fallback = main_tex_content.clone();
+    let mut compile_result = if use_texlive {
         let work_dir_clone = work_dir.clone();
         let main_file_clone = main_file.clone();
         let result = tokio::task::spawn_blocking(move || {
@@ -1152,6 +1172,41 @@ pub(crate) async fn compile_project(
     };
 
     let log_path = work_dir.join(format!("{}.log", main_file_name));
+
+    // Tectonic stays the default. Only when it cannot build a font of this document
+    // does an installed MiKTeX or TeX Live take over, and nothing in the document
+    // is changed. Without such an installation the original error is shown.
+    if !use_texlive && !pdf_path.exists() {
+        let tectonic_log = std::fs::read_to_string(&log_path).unwrap_or_default();
+        let failure = compile_result.as_ref().err().cloned().unwrap_or_default();
+        if tectonic_font_gap(&failure) || tectonic_font_gap(&tectonic_log) {
+            if let Ok(system_engine) = find_texlive_binary(engine_name_for_label) {
+                eprintln!(
+                    "[latex] Tectonic cannot build a font of this document; retrying with {}",
+                    system_engine.display()
+                );
+                let work_dir_clone = work_dir.clone();
+                let main_file_clone = main_file.clone();
+                let content = main_tex_for_fallback;
+                let result = tokio::task::spawn_blocking(move || {
+                    lower_thread_priority();
+                    compile_with_texlive(&work_dir_clone, &main_file_clone, engine, &content)
+                })
+                .await
+                .map_err(|e| format!("Compilation task panicked: {}", e))?;
+                backend_label = format!(
+                    "{}/{} used automatically because Tectonic cannot build this document's fonts",
+                    if is_miktex_binary(&system_engine) {
+                        "MiKTeX"
+                    } else {
+                        "TeX Live"
+                    },
+                    engine_name_for_label
+                );
+                compile_result = result;
+            }
+        }
+    }
 
     // Handle "No pages of output" — retry with \AtEndDocument{\null} injection (Tectonic only).
     // TeXLive multi-pass handles this differently; the injection is Tectonic-specific.
@@ -1319,6 +1374,21 @@ pub async fn cleanup_all_builds(state: &LatexCompilerState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tectonic_font_gaps_are_recognised_and_ordinary_errors_are_not() {
+        assert!(tectonic_font_gap(
+            "warning: Tectonic unable to generate PK font \"bang10\" (dpi 600) on-the-fly"
+        ));
+        assert!(tectonic_font_gap(
+            "caused by: Cannot proceed without .vf or \"physical\" font for PDF output..."
+        ));
+        assert!(tectonic_font_gap(
+            "Font \\x=bang10 at 10pt not loadable: Metric (TFM) file not found"
+        ));
+        assert!(!tectonic_font_gap("! Undefined control sequence."));
+        assert!(!tectonic_font_gap("LaTeX Warning: File `a.pdf' not found"));
+    }
 
     // --- detect_bib_tool ---
 

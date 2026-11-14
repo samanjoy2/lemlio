@@ -284,3 +284,12 @@
 .home-project-backup.is-ok { color: var(--success); }
 .home-project-backup.is-incoming { color: var(--primary); font-weight: 600; }
 .home-project-backup.is-attention { color: var(--warning); font-weight: 600; }
+
+/* Which collection a project is in: a small tag at the bottom-left of its cover. */
+.home-project-collection { position: absolute; left: 12px; bottom: 10px; z-index: 2; display: inline-flex; align-items: center; gap: 5px; max-width: calc(100% - 24px); padding: 3px 10px 3px 8px; border-radius: 999px; background: var(--glass); -webkit-backdrop-filter: blur(14px) saturate(180%); backdrop-filter: blur(14px) saturate(180%); box-shadow: 0 0 0 .5px var(--border), var(--shadow-xs); color: var(--primary); font-size: 11.5px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+.home-project-collection > svg { flex-shrink: 0; }
+.home-project-collection > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-project-collection > em { flex-shrink: 0; font-style: normal; font-weight: 500; color: var(--home-secondary); }
+.home-inline-collection { display: none; }
+.is-list .home-project-collection { display: none; }
+.is-list .home-inline-collection { display: inline; color: var(--primary); font-weight: 500; }

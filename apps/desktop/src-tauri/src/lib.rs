@@ -17,6 +17,7 @@ mod projects;
 mod remote;
 mod slash_commands;
 mod speech;
+mod templates;
 mod tools;
 mod updates;
 mod uv;
@@ -495,6 +496,10 @@ pub fn run() {
             claude::cancel_claude_execution,
             claude::list_claude_sessions,
             claude::load_claude_session_history,
+            templates::template_packs,
+            templates::template_check_updates,
+            templates::template_install,
+            templates::template_create_project,
             projects::list_imported_projects,
             drive::drive_status,
             drive::drive_dropbox_connect,

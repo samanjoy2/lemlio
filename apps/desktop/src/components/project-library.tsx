@@ -120,6 +120,7 @@ export function ProjectCard({
   const memberOf = collections.filter((c) =>
     members[c.id]?.includes(projectKey),
   );
+  const CollectionBadgeIcon = collectionIcon(memberOf[0]?.name ?? "");
   const card = useRef<HTMLElement>(null);
   const [thumbnail, setThumbnail] = useState<string>();
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -232,12 +233,19 @@ export function ProjectCard({
                 <span />
                 <span />
               </div>
-              <span
-                className="home-project-kind"
-                style={thumbnail ? { display: "none" } : undefined}
-              >
-                {archive ? "Conversations" : (memberOf[0]?.name ?? "Project")}
-              </span>
+              {archive && !thumbnail && (
+                <span className="home-project-kind">Conversations</span>
+              )}
+              {memberOf.length > 0 && (
+                <span
+                  className="home-project-collection"
+                  title={`In ${memberOf.map((c) => c.name).join(", ")}`}
+                >
+                  <CollectionBadgeIcon size={12} aria-hidden />
+                  <span>{memberOf[0].name}</span>
+                  {memberOf.length > 1 && <em>+{memberOf.length - 1}</em>}
+                </span>
+              )}
             </div>
             <div className="home-project-body">
               <h3 title={details.name || project.name}>
@@ -256,6 +264,12 @@ export function ProjectCard({
                 {!archive && project.mainFile
                   ? ` · ${project.mainFile.split(/[/\\]/).pop()}`
                   : ""}
+                {memberOf.length > 0 && (
+                  <span className="home-inline-collection">
+                    {" · "}
+                    {memberOf.map((c) => c.name).join(", ")}
+                  </span>
+                )}
               </p>
               {backup && (
                 <p

@@ -1,4 +1,5 @@
 import { MotionConfig } from "motion/react";
+import { useTemplateUpdateCount } from "@/lib/templates";
 import { ProjectGroups, requestProjectGroups } from "./project-groups";
 import { LayersIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -101,6 +102,7 @@ export function ProjectPicker() {
   const collections = useCollectionsStore((state) => state.collections);
   const members = useCollectionsStore((state) => state.members);
   const collection = collections.find((c) => c.id === collectionId);
+  const templateUpdates = useTemplateUpdateCount();
   const groups = useProjectGroups((state) => state.groups);
   const codexStatus = useCodexSetupStore((state) => state.status);
   const checkCodex = useCodexSetupStore((state) => state.checkStatus);
@@ -435,7 +437,13 @@ export function ProjectPicker() {
           <button type="button" onClick={() => chooseMode("template")}>
             <PanelsTopLeftIcon size={16} />
             <span>Templates</span>
-            <ArrowUpRightIcon size={13} />
+            {templateUpdates > 0 ? (
+              <small className="rounded-full bg-primary px-1.5 py-px font-semibold text-[10px] text-primary-foreground">
+                Update
+              </small>
+            ) : (
+              <ArrowUpRightIcon size={13} />
+            )}
           </button>
           <button type="button" onClick={openFolder}>
             <FolderOpenIcon size={16} />
