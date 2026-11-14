@@ -22,12 +22,7 @@ import {
   toggleComment,
 } from "@codemirror/commands";
 import { syntaxHighlighting, syntaxTreeAvailable } from "@codemirror/language";
-import {
-  appleDarkHighlight,
-  appleDarkTheme,
-  appleLightHighlight,
-  appleLightTheme,
-} from "./apple-editor-theme";
+import { editorThemeExtensions } from "./apple-editor-theme";
 import { useTheme } from "next-themes";
 import {
   search,
@@ -173,6 +168,7 @@ export function LatexEditor() {
   const parentRef = useRef<HTMLDivElement>(null);
 
   const { resolvedTheme } = useTheme();
+  const editorTheme = useSettingsStore((state) => state.editorTheme);
 
   const compileRef = useRef<() => void>(() => {});
   const isSearchOpenRef = useRef(false);
@@ -679,9 +675,10 @@ export function LatexEditor() {
             ]
           : []),
         themeCompartmentRef.current.of(
-          resolvedTheme === "dark"
-            ? [appleDarkTheme, syntaxHighlighting(appleDarkHighlight)]
-            : [appleLightTheme, syntaxHighlighting(appleLightHighlight)],
+          editorThemeExtensions(
+            useSettingsStore.getState().editorTheme,
+            resolvedTheme === "dark",
+          ),
         ),
         search(),
         highlightSelectionMatches(),
@@ -692,7 +689,7 @@ export function LatexEditor() {
         EditorView.theme({
           "&": {
             height: "100%",
-            fontSize: "13.5px",
+            fontSize: "var(--editor-font-size, 13.5px)",
             color: "var(--foreground)",
             backgroundColor: "var(--background)",
             WebkitBackfaceVisibility: "hidden",
@@ -830,14 +827,14 @@ export function LatexEditor() {
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    const extensions =
-      resolvedTheme === "dark"
-        ? [appleDarkTheme, syntaxHighlighting(appleDarkHighlight)]
-        : [appleLightTheme, syntaxHighlighting(appleLightHighlight)];
+    const extensions = editorThemeExtensions(
+      editorTheme,
+      resolvedTheme === "dark",
+    );
     view.dispatch({
       effects: themeCompartmentRef.current.reconfigure(extensions),
     });
-  }, [resolvedTheme]);
+  }, [resolvedTheme, editorTheme]);
 
   useEffect(() => {
     const view = viewRef.current;

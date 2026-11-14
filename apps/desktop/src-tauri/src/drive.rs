@@ -1075,7 +1075,7 @@ async fn backup_project_with_collaboration(
     let heads = crate::drive_sync::heads(&children, &snapshot.2);
     if heads.len() > 16 {
         return Err(
-            "Too many concurrent Drive versions; export local files before resolving in Drive"
+            "Too many concurrent backup versions; export local files before resolving them"
                 .into(),
         );
     }
@@ -1094,13 +1094,13 @@ async fn backup_project_with_collaboration(
             .map(|h| (h.id.clone(), h.hash.clone()))
             .collect();
         if actual != reviewed {
-            return Err("Shared Drive history changed during merging; backup will retry".into());
+            return Err("Shared backup history changed during merging; backup will retry".into());
         }
     } else if heads
         .iter()
         .any(|f| f["appProperties"]["lemlioCollaboration"].is_string())
     {
-        return Err("This project now has a shared history. Join the shared version before replacing its Drive backup.".into());
+        return Err("This project now has a shared history. Join the shared version before replacing its backup.".into());
     }
     let existing = heads
         .iter()
@@ -1111,7 +1111,7 @@ async fn backup_project_with_collaboration(
         if !heads.iter().any(|f| f["sha256Checksum"] == expected) {
             return Err(existing
                 .map(|f| conflict_error(f, heads.len()))
-                .unwrap_or("Drive revision was removed; refresh first".into()));
+                .unwrap_or("Backup revision was removed; refresh first".into()));
         }
     }
     if heads.len() > 1 && expected_remote_hash.is_none() && collaboration_heads.is_none() {
@@ -1257,7 +1257,7 @@ pub async fn drive_collaboration_updates(
                 result.push(json!({"id":id,"hash":hash}));
                 continue;
             }
-            return Err("A Drive revision has no collaboration history. Restore it into a separate folder for review.".into());
+            return Err("A backup revision has no collaboration history. Restore it into a separate folder for review.".into());
         }
         let mut metadata = Vec::new();
         std::io::Read::read_to_end(
@@ -1273,11 +1273,11 @@ pub async fn drive_collaboration_updates(
         let m: crate::collaboration::Manifest =
             serde_json::from_slice(&metadata).map_err(|_| "Invalid shared backup identity")?;
         if m.id != shared.id || m.schema != 1 {
-            return Err("Drive contains history from a different shared project".into());
+            return Err("The backup contains history from a different shared project".into());
         }
         let source = crate::collaboration::files_from_archive(&mut archive)?;
         if m.source_hash.as_deref() != Some(crate::collaboration::source_hash(&source)?.as_str()) {
-            return Err("Drive source files changed outside the shared history. Restore that ZIP separately for review; local edits were kept.".into());
+            return Err("Backup source files changed outside the shared history. Restore that ZIP separately for review; local edits were kept.".into());
         }
 
         let mut update = Vec::new();
@@ -1504,7 +1504,7 @@ pub async fn drive_download_conflict(
     expected_remote_hash: String,
 ) -> Result<Value, String> {
     let receipt = crate::drive_receipts::load(&project_path)?
-        .ok_or("This project has no linked Drive backup")?;
+        .ok_or("This project has no linked backup")?;
     let mut restored = restore_project_into_with_binding(
         &state,
         conflict_archive(&receipt.project_key, &expected_remote_hash).await?,
@@ -1668,7 +1668,7 @@ async fn restore_snapshot_with_target(
             || manifest["projectId"] != project_key
             || manifest["contentHash"] != metadata["appProperties"]["lemlioContent"]
         {
-            return Err("Revision manifest does not match the Drive backup".into());
+            return Err("Revision manifest does not match the backup".into());
         }
         manifest["title"]
             .as_str()
@@ -1683,7 +1683,7 @@ async fn restore_snapshot_with_target(
         && metadata["appProperties"]["lemlioContent"] != portable
     {
         return Err(
-            "Drive revision metadata does not match its source files; local files were kept".into(),
+            "Backup revision metadata does not match its source files; local files were kept".into(),
         );
     }
     let mut recovery = None;

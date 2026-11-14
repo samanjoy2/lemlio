@@ -17,6 +17,7 @@ import { useDocumentStore } from "@/stores/document-store";
 import { useCodexChatStore } from "@/stores/codex-chat-store";
 import { ProjectPicker } from "@/components/project-picker";
 import { useDriveBackup } from "@/hooks/use-drive-backup";
+import { useAppearance } from "@/lib/appearance";
 import { WorkspaceLayout } from "@/components/workspace/workspace-layout";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -61,6 +62,7 @@ function WorkspaceWithCodex() {
 }
 
 export function App({ onReady }: { onReady?: () => void }) {
+  useAppearance();
   useDriveBackup();
   useCollaboration();
   const projectRoot = useDocumentStore((s) => s.projectRoot);

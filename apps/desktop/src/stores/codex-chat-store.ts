@@ -694,8 +694,11 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
 // Each provider keeps its own model choice; switching provider swaps it in.
 useSettingsStore.subscribe((state, prev) => {
   if (state.agentProvider === prev.agentProvider) return;
-  useCodexChatStore.setState({
+  // A session id belongs to one provider: resuming it with the other fails.
+  useCodexChatStore.setState((current) => ({
     selectedModel: savedModel(state.agentProvider),
     effortLevel: "",
-  });
+    sessionId: null,
+    tabs: current.tabs.map((tab) => ({ ...tab, sessionId: null })),
+  }));
 });

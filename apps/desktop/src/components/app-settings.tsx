@@ -1,5 +1,6 @@
 import { AppUpdates } from "./app-updates";
 import { DriveSettings } from "./drive-settings";
+import { AppearanceSettings } from "./appearance-settings";
 import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useState } from "react";
 import { SettingsIcon } from "lucide-react";
@@ -99,6 +100,7 @@ export function AppSettings() {
             <Tabs.List aria-label="Settings sections">
               {[
                 "General",
+                "Appearance",
                 "Assistant",
                 "Compiler",
                 "Tools",
@@ -112,6 +114,7 @@ export function AppSettings() {
               ))}
             </Tabs.List>
             <Tabs.Content value={tab} className="space-y-4 py-4 text-sm">
+              {tab === "Appearance" && <AppearanceSettings />}
               {tab === "General" && (
                 <div className="space-y-4">
                   <label>
