@@ -10,6 +10,7 @@ const { mockDocumentState, getDocumentState, createSnapshotMock } = vi.hoisted(
 );
 
 vi.mock("@/stores/document-store", () => ({
+  hasPdfData: () => false,
   useDocumentStore: {
     getState: getDocumentState,
   },

@@ -1,4 +1,10 @@
-import { ProjectGroups } from "./project-groups";
+import { MotionConfig } from "motion/react";
+import { useTemplateUpdateCount } from "@/lib/templates";
+import { ProjectGroups, requestProjectGroups } from "./project-groups";
+import { LayersIcon } from "lucide-react";
+import { toast } from "sonner";
+import { openGroupWorkspace } from "@/lib/project-group-actions";
+import { useProjectGroups } from "@/stores/project-groups-store";
 import { openCollaboration } from "./collaboration-dialog";
 import { AppSettings } from "@/components/app-settings";
 import { DriveStatus } from "@/components/drive-status";
@@ -14,12 +20,13 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useTheme } from "next-themes";
 import {
   ArrowUpRightIcon,
+  PencilIcon,
+  Trash2Icon,
   BookOpenIcon,
   TerminalSquareIcon,
   Clock3Icon,
   FileTextIcon,
   FolderOpenIcon,
-  GraduationCapIcon,
   LayoutGridIcon,
   ListIcon,
   MoonIcon,
@@ -28,8 +35,7 @@ import {
   StarIcon,
   SunIcon,
   PanelsTopLeftIcon,
-  PresentationIcon,
-  FlaskConicalIcon,
+  ArchiveIcon,
   XIcon,
   UploadIcon,
   UsersIcon,
@@ -39,11 +45,13 @@ import { useDocumentStore } from "@/stores/document-store";
 import { useCodexSetupStore } from "@/stores/codex-setup-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useProjectCatalog } from "@/hooks/use-project-catalog";
+import { projectPathKey, type CatalogProject } from "@/lib/project-catalog";
+import { collectionIcon } from "@/lib/collection-icons";
+import { useCollectionsStore } from "@/stores/collections-store";
 import {
-  projectPathKey,
-  type CatalogProject,
-  type ProjectCategory,
-} from "@/lib/project-catalog";
+  CollectionDialog,
+  type CollectionDialogState,
+} from "./collection-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -55,32 +63,27 @@ import {
 import { ProjectWizard, type CreationMode } from "./project-wizard";
 import { CodexSetup } from "./codex-setup";
 import { ProjectCard } from "./project-library";
-import { SkillsLibraryDialog, useInstalledSkills } from "./skills-library";
+import { ToolsDialog, useTools } from "./tools-library";
 import {
   ImportProjectDialog,
   useProjectZipExport,
 } from "./project-zip-transfer";
 import "./project-home.css";
 
-type ProjectView = "all" | "recent" | "starred";
-const categories: { label: ProjectCategory; icon: typeof FileTextIcon }[] = [
-  { label: "Papers", icon: FileTextIcon },
-  { label: "CVs", icon: GraduationCapIcon },
-  { label: "Proposals", icon: FlaskConicalIcon },
-  { label: "Posters", icon: PresentationIcon },
-  { label: "Other", icon: FolderOpenIcon },
-];
+type ProjectView = "all" | "recent" | "starred" | "archived";
 
 export function ProjectPicker() {
   const [showModeDialog, setShowModeDialog] = useState(false);
   const [wizardMode, setWizardMode] = useState<CreationMode | null>(null);
   const [version, setVersion] = useState("");
   const [view, setView] = useState<ProjectView>("all");
-  const [category, setCategory] = useState<ProjectCategory | null>(null);
+  const [collectionId, setCollectionId] = useState<string | null>(null);
+  const [collectionDialog, setCollectionDialog] =
+    useState<CollectionDialogState>(null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("recent");
   const [layout, setLayout] = useState<"grid" | "list">("grid");
-  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
 
   const [importOpen, setImportOpen] = useState(false);
   const { exportingPath, exportZip } = useProjectZipExport();
@@ -88,12 +91,19 @@ export function ProjectPicker() {
   const [openError, setOpenError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const { projects, loading, error, refresh } = useProjectCatalog();
-  const { skills } = useInstalledSkills(null);
+  const { tools } = useTools();
   const recent = useProjectStore((state) => state.recentProjects);
   const starred = useProjectStore((state) => state.starredPaths);
   const addRecent = useProjectStore((state) => state.addRecentProject);
   const removeRecent = useProjectStore((state) => state.removeRecentProject);
   const toggleStar = useProjectStore((state) => state.toggleStarred);
+  const archivedPaths = useProjectStore((state) => state.archivedPaths);
+  const toggleArchive = useProjectStore((state) => state.toggleArchived);
+  const collections = useCollectionsStore((state) => state.collections);
+  const members = useCollectionsStore((state) => state.members);
+  const collection = collections.find((c) => c.id === collectionId);
+  const templateUpdates = useTemplateUpdateCount();
+  const groups = useProjectGroups((state) => state.groups);
   const codexStatus = useCodexSetupStore((state) => state.status);
   const checkCodex = useCodexSetupStore((state) => state.checkStatus);
   const account = useCodexSetupStore((state) => state.accountEmail);
@@ -117,7 +127,7 @@ export function ProjectPicker() {
       if (
         (event.ctrlKey || event.metaKey) &&
         event.key.toLowerCase() === "k" &&
-        !skillsOpen &&
+        !toolsOpen &&
         !importOpen &&
         !showModeDialog &&
         !wizardMode
@@ -128,18 +138,40 @@ export function ProjectPicker() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [skillsOpen, importOpen, showModeDialog, wizardMode]);
+  }, [toolsOpen, importOpen, showModeDialog, wizardMode]);
 
   useEffect(() => {
     const cloned = () => {
       setSort("recent");
       setView("all");
-      setCategory(null);
+      setCollectionId(null);
       setQuery("");
     };
     window.addEventListener("lemlio-project-cloned", cloned);
     return () => window.removeEventListener("lemlio-project-cloned", cloned);
   }, []);
+  useEffect(() => {
+    const open = (event: Event) =>
+      setCollectionDialog({
+        mode: "create",
+        projectPath: (event as CustomEvent<{ projectPath?: string }>).detail
+          ?.projectPath,
+      });
+    window.addEventListener("lemlio-new-collection", open);
+    return () => window.removeEventListener("lemlio-new-collection", open);
+  }, []);
+  // A collection that was deleted can no longer be the one on screen.
+  useEffect(() => {
+    if (collectionId && !collections.some((c) => c.id === collectionId))
+      setCollectionId(null);
+  }, [collections, collectionId]);
+  const archivedKeys = useMemo(() => new Set(archivedPaths), [archivedPaths]);
+  const activeProjects = useMemo(
+    () => projects.filter((p) => !archivedKeys.has(projectPathKey(p.path))),
+    [projects, archivedKeys],
+  );
+  const inCollection = (path: string) =>
+    !collectionId || !!members[collectionId]?.includes(projectPathKey(path));
   const recentKeys = useMemo(
     () => new Set(recent.map((project) => projectPathKey(project.path))),
     [recent],
@@ -149,11 +181,16 @@ export function ProjectPicker() {
       projects
         .filter((project) => {
           const key = projectPathKey(project.path);
+          const names = collections
+            .filter((c) => members[c.id]?.includes(key))
+            .map((c) => c.name)
+            .join(" ");
           return (
-            (!category || project.category === category) &&
+            archivedKeys.has(key) === (view === "archived") &&
+            inCollection(project.path) &&
             (view !== "recent" || recentKeys.has(key)) &&
             (view !== "starred" || starred.includes(key)) &&
-            `${project.name} ${project.category} ${project.mainFile ?? ""}`
+            `${project.name} ${names} ${project.mainFile ?? ""}`
               .toLowerCase()
               .includes(query.trim().toLowerCase())
           );
@@ -163,14 +200,25 @@ export function ProjectPicker() {
             ? a.name.localeCompare(b.name)
             : b.lastOpened - a.lastOpened || a.name.localeCompare(b.name),
         ),
-    [projects, category, view, recentKeys, starred, query, sort],
+    [
+      projects,
+      collectionId,
+      collections,
+      members,
+      archivedKeys,
+      view,
+      recentKeys,
+      starred,
+      query,
+      sort,
+    ],
   );
   const navigate = (
     next: ProjectView,
-    nextCategory: ProjectCategory | null = null,
+    nextCollection: string | null = null,
   ) => {
     setView(next);
-    setCategory(nextCategory);
+    setCollectionId(nextCollection);
     setQuery("");
   };
   const openProject = async (
@@ -236,12 +284,14 @@ export function ProjectPicker() {
       <ProjectWizard mode={wizardMode} onBack={() => setWizardMode(null)} />
     );
   const heading =
-    category ??
+    collection?.name ??
     (view === "recent"
       ? "Recent projects"
       : view === "starred"
         ? "Starred projects"
-        : "All projects");
+        : view === "archived"
+          ? "Archived projects"
+          : "All projects");
 
   return (
     <div className="project-home">
@@ -257,16 +307,16 @@ export function ProjectPicker() {
         <nav className="home-navigation">
           <button
             type="button"
-            className={!category && view === "all" ? "is-active" : ""}
+            className={!collectionId && view === "all" ? "is-active" : ""}
             onClick={() => navigate("all")}
           >
             <LayoutGridIcon size={16} />
             <span>All projects</span>
-            <small>{projects.length}</small>
+            <small>{activeProjects.length}</small>
           </button>
           <button
             type="button"
-            className={!category && view === "recent" ? "is-active" : ""}
+            className={!collectionId && view === "recent" ? "is-active" : ""}
             onClick={() => navigate("recent")}
           >
             <Clock3Icon size={16} />
@@ -275,7 +325,7 @@ export function ProjectPicker() {
           </button>
           <button
             type="button"
-            className={!category && view === "starred" ? "is-active" : ""}
+            className={!collectionId && view === "starred" ? "is-active" : ""}
             onClick={() => navigate("starred")}
           >
             <StarIcon size={16} />
@@ -288,38 +338,112 @@ export function ProjectPicker() {
               }
             </small>
           </button>
-          <p className="home-nav-label">Collections</p>
-          {categories.map(({ label, icon: Icon }) => (
+          <button
+            type="button"
+            className={view === "archived" ? "is-active" : ""}
+            onClick={() => navigate("archived")}
+          >
+            <ArchiveIcon size={16} />
+            <span>Archived</span>
+            <small>{projects.length - activeProjects.length}</small>
+          </button>
+          <div className="home-nav-label-row">
+            <p className="home-nav-label">Project groups</p>
             <button
               type="button"
-              key={label}
-              className={category === label ? "is-active" : ""}
-              onClick={() => navigate("all", label)}
+              aria-label="New project group"
+              title="New project group"
+              onClick={() => requestProjectGroups(true)}
             >
-              <Icon size={16} />
-              <span>{label}</span>
-              <small>
-                {
-                  projects.filter((project) => project.category === label)
-                    .length
-                }
-              </small>
+              <PlusIcon size={14} />
+            </button>
+          </div>
+          {groups.length === 0 && (
+            <p className="home-nav-hint">
+              Work on related projects together, such as several versions of a
+              CV. Press + to make a group.
+            </p>
+          )}
+          {groups.map((group) => (
+            <button
+              type="button"
+              key={group.id}
+              onClick={() =>
+                void openGroupWorkspace(group.id).catch((error) =>
+                  toast.error("Could not open the group", {
+                    description: String(error?.message ?? error),
+                  }),
+                )
+              }
+            >
+              <LayersIcon size={16} />
+              <span>{group.name}</span>
+              <small>{group.paths.length}</small>
             </button>
           ))}
+          {groups.length > 0 && (
+            <button type="button" onClick={() => requestProjectGroups(false)}>
+              <PencilIcon size={16} />
+              <span>Manage groups</span>
+            </button>
+          )}
+          <div className="home-nav-label-row">
+            <p className="home-nav-label">Collections</p>
+            <button
+              type="button"
+              aria-label="New collection"
+              title="New collection"
+              onClick={() => setCollectionDialog({ mode: "create" })}
+            >
+              <PlusIcon size={14} />
+            </button>
+          </div>
+          {collections.length === 0 && (
+            <p className="home-nav-hint">
+              Group projects your own way. Press + to make a collection.
+            </p>
+          )}
+          {collections.map((item) => {
+            const Icon = collectionIcon(item.name);
+            return (
+              <button
+                type="button"
+                key={item.id}
+                className={collectionId === item.id ? "is-active" : ""}
+                onClick={() => navigate("all", item.id)}
+              >
+                <Icon size={16} />
+                <span>{item.name}</span>
+                <small>
+                  {
+                    activeProjects.filter((project) =>
+                      members[item.id]?.includes(projectPathKey(project.path)),
+                    ).length
+                  }
+                </small>
+              </button>
+            );
+          })}
           <p className="home-nav-label">Workspace</p>
           <button type="button" onClick={() => openCollaboration(true)}>
             <UsersIcon size={16} />
             <span>Join shared project</span>
           </button>
-          <button type="button" onClick={() => setSkillsOpen(true)}>
+          <button type="button" onClick={() => setToolsOpen(true)}>
             <BookOpenIcon size={16} />
-            <span>Skills</span>
-            <small>{skills.length}</small>
+            <span>AI tools</span>
+            <small>{tools.length}</small>
           </button>
           <button type="button" onClick={() => chooseMode("template")}>
             <PanelsTopLeftIcon size={16} />
             <span>Templates</span>
-            <ArrowUpRightIcon size={13} />
+            {templateUpdates > 0 ? (
+              <small className="rounded-full bg-primary px-1.5 py-px font-semibold text-[10px] text-primary-foreground">
+                Update
+              </small>
+            ) : (
+              <ArrowUpRightIcon size={13} />
+            )}
           </button>
           <button type="button" onClick={openFolder}>
             <FolderOpenIcon size={16} />
@@ -383,7 +507,7 @@ export function ProjectPicker() {
               <span className="home-connection-icon">
                 <UploadIcon size={15} className="rotate-180" />
               </span>
-              <span className="home-connection-name">Restore from Drive</span>
+              <span className="home-connection-name">Restore from backup</span>
             </button>
             <VoiceStatus />
           </section>
@@ -441,7 +565,50 @@ export function ProjectPicker() {
         <div className="home-content">
           <div className="home-heading">
             <div>
-              <h1>Projects</h1>
+              <div className="flex items-center gap-2">
+                <h1>
+                  {collection?.name ??
+                    (view === "archived" ? "Archived" : "Projects")}
+                </h1>
+                {collection && (
+                  <>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="Rename collection"
+                      title="Rename collection"
+                      onClick={() =>
+                        setCollectionDialog({
+                          mode: "rename",
+                          id: collection.id,
+                        })
+                      }
+                    >
+                      <PencilIcon />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="Delete collection"
+                      title="Delete collection"
+                      onClick={() =>
+                        setCollectionDialog({
+                          mode: "delete",
+                          id: collection.id,
+                        })
+                      }
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  </>
+                )}
+              </div>
+              {view === "archived" && !collection && (
+                <p>
+                  Archived projects are tucked away from your other lists.
+                  Nothing is deleted, and backups keep working.
+                </p>
+              )}
             </div>
             <div className="home-heading-actions">
               <Button variant="outline" onClick={() => setImportOpen(true)}>
@@ -471,28 +638,28 @@ export function ProjectPicker() {
               <button
                 type="button"
                 className={view === "all" ? "is-active" : ""}
-                onClick={() => navigate("all", category)}
+                onClick={() => navigate("all", collectionId)}
               >
-                {category ?? "All projects"}
+                {collection?.name ?? "All projects"}
                 <span>
-                  {category
-                    ? projects.filter(
-                        (project) => project.category === category,
-                      ).length
-                    : projects.length}
+                  {
+                    activeProjects.filter((project) =>
+                      inCollection(project.path),
+                    ).length
+                  }
                 </span>
               </button>
               <button
                 type="button"
                 className={view === "recent" ? "is-active" : ""}
-                onClick={() => navigate("recent", category)}
+                onClick={() => navigate("recent", collectionId)}
               >
                 Recent
               </button>
               <button
                 type="button"
                 className={view === "starred" ? "is-active" : ""}
-                onClick={() => navigate("starred", category)}
+                onClick={() => navigate("starred", collectionId)}
               >
                 Starred
               </button>
@@ -524,9 +691,9 @@ export function ProjectPicker() {
               {loading
                 ? "Loading your workspace…"
                 : `${visible.length} ${visible.length === 1 ? "project" : "projects"}`}
-              {category && (
-                <button type="button" onClick={() => setCategory(null)}>
-                  in {category}
+              {collection && (
+                <button type="button" onClick={() => setCollectionId(null)}>
+                  in {collection.name}
                   <XIcon size={11} />
                 </button>
               )}
@@ -574,72 +741,89 @@ export function ProjectPicker() {
               {openError || error}
             </p>
           )}
-          <section
-            aria-label={heading}
-            className={`home-project-grid ${layout === "list" ? "is-list" : ""}`}
-          >
-            {!loading && !query && view === "all" && !category && (
-              <button
-                type="button"
-                className="home-new-project-card"
-                onClick={() => setShowModeDialog(true)}
-              >
-                <span>
-                  <PlusIcon size={22} strokeWidth={1.5} />
-                </span>
-                <strong>Create a project</strong>
-              </button>
-            )}
-            {visible.map((project) => (
-              <ProjectCard
-                key={projectPathKey(project.path)}
-                project={project}
-                starred={starred.includes(projectPathKey(project.path))}
-                busy={opening !== null || exportingPath !== null}
-                opening={opening === project.path}
-                onOpen={() => openProject(project)}
-                onStar={() => toggleStar(project.path)}
-                onExport={() => exportZip(project.path, project.name)}
-                exporting={exportingPath === project.path}
-                onRemoveRecent={
-                  view === "recent"
-                    ? () => removeRecent(project.path)
-                    : undefined
-                }
-              />
-            ))}
-            {loading &&
-              [0, 1, 2, 3, 4, 5].map((id) => (
-                <div key={id} className="home-project-skeleton" />
+          <MotionConfig reducedMotion="user">
+            <section
+              aria-label={heading}
+              className={`home-project-grid ${layout === "list" ? "is-list" : ""}`}
+            >
+              {!loading && !query && view === "all" && !collectionId && (
+                <button
+                  type="button"
+                  className="home-new-project-card"
+                  onClick={() => setShowModeDialog(true)}
+                >
+                  <span>
+                    <PlusIcon size={22} strokeWidth={1.5} />
+                  </span>
+                  <strong>Create a project</strong>
+                </button>
+              )}
+              {visible.map((project) => (
+                <ProjectCard
+                  key={projectPathKey(project.path)}
+                  project={project}
+                  starred={starred.includes(projectPathKey(project.path))}
+                  archived={archivedKeys.has(projectPathKey(project.path))}
+                  busy={opening !== null || exportingPath !== null}
+                  opening={opening === project.path}
+                  onOpen={() => openProject(project)}
+                  onStar={() => toggleStar(project.path)}
+                  onArchive={() => toggleArchive(project.path)}
+                  onExport={() => exportZip(project.path, project.name)}
+                  exporting={exportingPath === project.path}
+                  onRemoveRecent={
+                    view === "recent"
+                      ? () => removeRecent(project.path)
+                      : undefined
+                  }
+                />
               ))}
-          </section>
+              {loading &&
+                [0, 1, 2, 3, 4, 5].map((id) => (
+                  <div key={id} className="home-project-skeleton" />
+                ))}
+            </section>
+          </MotionConfig>
           {!loading && visible.length === 0 && (
             <div className="home-empty">
               <FolderOpenIcon size={30} strokeWidth={1.2} />
               <h2>
                 {query
                   ? "No projects found"
-                  : view === "starred"
-                    ? "No starred projects"
-                    : view === "recent"
-                      ? "No recent projects"
-                      : "No projects yet"}
+                  : collection
+                    ? "This collection is empty"
+                    : view === "archived"
+                      ? "Nothing archived"
+                      : view === "starred"
+                        ? "No starred projects"
+                        : view === "recent"
+                          ? "No recent projects"
+                          : "No projects yet"}
               </h2>
               <p>
                 {query
                   ? "Try a different name, or clear your search."
-                  : view === "starred"
-                    ? "Star any project to find it here."
-                    : view === "recent"
-                      ? "Projects you open will appear here."
-                      : "Create a project or open a folder to get started."}
+                  : collection
+                    ? "Open a project's ··· menu and choose Add to collection."
+                    : view === "archived"
+                      ? "Archive a project to tuck it away without deleting it."
+                      : view === "starred"
+                        ? "Star any project to find it here."
+                        : view === "recent"
+                          ? "Projects you open will appear here."
+                          : "Create a project or open a folder to get started."}
               </p>
             </div>
           )}
         </div>
       </main>
 
-      <SkillsLibraryDialog open={skillsOpen} onOpenChange={setSkillsOpen} />
+      <CollectionDialog
+        state={collectionDialog}
+        onClose={() => setCollectionDialog(null)}
+        onCreated={(id) => navigate("all", id)}
+      />
+      <ToolsDialog open={toolsOpen} onOpenChange={setToolsOpen} />
       <ImportProjectDialog
         open={importOpen}
         onOpenChange={setImportOpen}

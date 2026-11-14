@@ -63,7 +63,7 @@ export function AppUpdates() {
       <p className="text-muted-foreground text-xs">
         Download opens in your browser. Close Lemlio, then run the Windows
         installer or replace the app in Applications on Mac. Your projects,
-        settings, and Drive connection are kept.
+        settings, and backup connection are kept.
       </p>
     </section>
   );

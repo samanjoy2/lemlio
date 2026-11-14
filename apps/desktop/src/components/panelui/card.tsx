@@ -49,7 +49,7 @@ type RenderProp<Tag extends RenderElementType> = {
 
 const cardVariants = tv({
   slots: {
-    root: "group/card flex flex-col rounded-2xl border bg-card text-card-foreground shadow-xs",
+    root: "group/card flex flex-col rounded-2xl border border-border/80 bg-card text-card-foreground shadow-sm",
     header: [
       "grid auto-rows-min grid-cols-[minmax(0,1fr)] items-start gap-x-4 gap-y-1.5 p-6",
       "has-data-[slot=card-action]:grid-cols-[minmax(0,1fr)_auto]",

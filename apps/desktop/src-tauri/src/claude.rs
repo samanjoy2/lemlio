@@ -174,14 +174,14 @@ pub async fn list_claude_models() -> Result<Vec<Value>, String> {
     ])
 }
 
-const INSTRUCTIONS: &str = "You are Claude inside Lemlio, a local scientific writing workspace. If the project has AGENTS.md or CLAUDE.md, read it. Preserve the existing LaTeX preamble, bibliography, and structure. Read files before editing; make small targeted edits. Explain your plan for substantial changes. Use citations and cross-references correctly; do not invent sources or research findings. Prefer project .venv Python or uv run for analysis. Save publication-quality figures in figures/. After LaTeX edits, verify compilation with the terminal command described below, read its output, and fix errors before claiming success. Never claim a compile or visual check you have not performed. Do not assume tectonic is unavailable merely because it is not on the system PATH. Compiler-generated .prism output and compile logs are allowed. Do not manually edit .prism, .prismpro, or .venv internals. Follow relevant skills from .agents/skills, .claude/skills, or ~/.agents/skills by reading their SKILL.md.";
+const INSTRUCTIONS: &str = "You are Claude inside Lemlio, a local scientific writing workspace. If the project has AGENTS.md or CLAUDE.md, read it. Preserve the existing LaTeX preamble, bibliography, and structure. Read files before editing; make small targeted edits. Explain your plan for substantial changes. Use citations and cross-references correctly; do not invent sources or research findings. Do not create Python virtual environments in the project; use the shared tools described below. Save publication-quality figures in figures/. After LaTeX edits, verify compilation with the terminal command described below, read its output, and fix errors before claiming success. Never claim a compile or visual check you have not performed. Do not assume tectonic is unavailable merely because it is not on the system PATH. Compiler-generated .prism output and compile logs are allowed. Do not manually edit .prism, .prismpro, or .venv internals. The user may attach screenshots of the app or PDF; look at them when present. When a compile fails, solve it yourself before asking the user: read the log, fix the real cause, and recompile. Lemlio's compile command uses Tectonic first and automatically retries with an installed MiKTeX or TeX Live when Tectonic cannot build a font (for example BangTeX Bengali fonts that only exist as METAFONT sources). If a compile still fails you may run the system tools yourself: omit --tectonic in the Lemlio compile command to force the system compiler, install a missing LaTeX package with the system package manager (MiKTeX: mpm --install <package>; TeX Live: tlmgr install <package>), or generate fonts from METAFONT sources with mf. Never delete, shorten or rewrite the user's content, such as non-English text, only to make it compile; if the only possible fix would change their content, explain and ask first.";
 
-fn instructions(main_file: Option<&str>, use_texlive: bool) -> String {
+fn instructions(main_file: Option<&str>, use_texlive: bool, tools: &str) -> String {
     let app = std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
     format!(
-        "{INSTRUCTIONS}\nSelected main file: {}. Selected compiler: {}.\nCompile command: run the Lemlio binary at {app:?} with arguments --compile-project <absolute-project-directory> <relative-main.tex> --tectonic. Quote paths with spaces. Check the exit code and compiler output; omit --tectonic only for the optional system compiler. This uses the same bundled fonts and project staging as the editor.",
+        "{INSTRUCTIONS}\nSelected main file: {}. Selected compiler: {}.\n{tools}\nCompile command: run the Lemlio binary at {app:?} with arguments --compile-project <absolute-project-directory> <relative-main.tex> --tectonic. Quote paths with spaces. Check the exit code and compiler output; omit --tectonic only for the optional system compiler. This uses the same bundled fonts and project staging as the editor.",
         main_file.unwrap_or("not selected"),
         if use_texlive {
             "optional system LaTeX"
@@ -202,7 +202,9 @@ async fn start_turn(
     main_file: Option<String>,
     use_texlive: Option<bool>,
     related_projects: Option<Vec<String>>,
+    images: Option<Vec<String>>,
 ) -> Result<(), String> {
+    let images = crate::tools::validate_images(images)?;
     let path =
         std::fs::canonicalize(&project_path).map_err(|e| format!("Cannot open project: {e}"))?;
     if !path.is_dir() {
@@ -244,6 +246,7 @@ async fn start_turn(
         .arg(instructions(
             main_file.as_deref(),
             use_texlive.unwrap_or(false),
+            &crate::tools::prompt_section(window.app_handle()),
         ))
         .arg("--allowedTools")
         .args([
@@ -257,7 +260,16 @@ async fn start_turn(
             "Bash(python:*)".to_string(),
             "Bash(python3:*)".to_string(),
             "Bash(ls:*)".to_string(),
-        ]);
+        ])
+        .args(
+            crate::tools::allowed_commands(window.app_handle())
+                .into_iter()
+                .map(|c| format!("Bash({c}:*)")),
+        );
+    if !images.is_empty() {
+        // Images need structured input; plain stdin text cannot carry them.
+        cmd.args(["--input-format", "stream-json"]);
+    }
     for root in &extra_roots {
         cmd.args(["--add-dir", root]);
     }
@@ -270,16 +282,25 @@ async fn start_turn(
     if let Some(id) = session_id {
         cmd.args(["--resume", &id]);
     }
+    let mut extra_paths: Vec<PathBuf> = crate::tools::env_bin_dir(window.app_handle())
+        .into_iter()
+        .collect();
+    if let Some(system_tex) = crate::latex::system_tex_bin_dir() {
+        // So the assistant can run MiKTeX / TeX Live tools (mf, mpm, tlmgr, pdflatex) itself.
+        extra_paths.push(system_tex);
+    }
     if let Ok(tectonic) = crate::latex::tectonic_binary() {
         cmd.env("LEMLIO_TECTONIC", &tectonic);
         if let Some(parent) = tectonic.parent() {
-            let mut paths = vec![parent.to_path_buf()];
-            if let Some(existing) = std::env::var_os("PATH") {
-                paths.extend(std::env::split_paths(&existing));
-            }
-            if let Ok(joined) = std::env::join_paths(paths) {
-                cmd.env("PATH", joined);
-            }
+            extra_paths.push(parent.to_path_buf());
+        }
+    }
+    if !extra_paths.is_empty() {
+        if let Some(existing) = std::env::var_os("PATH") {
+            extra_paths.extend(std::env::split_paths(&existing));
+        }
+        if let Ok(joined) = std::env::join_paths(extra_paths) {
+            cmd.env("PATH", joined);
         }
     }
     cmd.env("LEMLIO_APP", &app);
@@ -293,8 +314,19 @@ async fn start_turn(
     let mut stdin = child.stdin.take().ok_or("Claude stdin unavailable")?;
     let stdout = child.stdout.take().ok_or("Claude stdout unavailable")?;
     let mut stderr = child.stderr.take().ok_or("Claude stderr unavailable")?;
+    let payload = if images.is_empty() {
+        prompt.clone().into_bytes()
+    } else {
+        let mut content = vec![json!({"type":"text","text":prompt})];
+        for (mime, data) in &images {
+            content.push(json!({"type":"image","source":{"type":"base64","media_type":mime,"data":data}}));
+        }
+        let mut line = json!({"type":"user","message":{"role":"user","content":content}}).to_string();
+        line.push_str("\n");
+        line.into_bytes()
+    };
     stdin
-        .write_all(prompt.as_bytes())
+        .write_all(&payload)
         .await
         .map_err(|e| format!("Could not send the prompt to Claude: {e}"))?;
     drop(stdin);
@@ -371,6 +403,7 @@ pub async fn execute_claude_code(
     main_file: Option<String>,
     use_texlive: Option<bool>,
     related_projects: Option<Vec<String>>,
+    images: Option<Vec<String>>,
 ) -> Result<(), String> {
     start_turn(
         window,
@@ -382,6 +415,7 @@ pub async fn execute_claude_code(
         main_file,
         use_texlive,
         related_projects,
+        images,
     )
     .await
 }
@@ -399,6 +433,7 @@ pub async fn resume_claude_code(
     main_file: Option<String>,
     use_texlive: Option<bool>,
     related_projects: Option<Vec<String>>,
+    images: Option<Vec<String>>,
 ) -> Result<(), String> {
     start_turn(
         window,
@@ -410,6 +445,7 @@ pub async fn resume_claude_code(
         main_file,
         use_texlive,
         related_projects,
+        images,
     )
     .await
 }

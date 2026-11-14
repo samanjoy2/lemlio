@@ -1,5 +1,6 @@
 import { AppUpdates } from "./app-updates";
 import { DriveSettings } from "./drive-settings";
+import { AppearanceSettings } from "./appearance-settings";
 import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useState } from "react";
 import { SettingsIcon } from "lucide-react";
@@ -8,7 +9,7 @@ import { Tabs } from "./panelui/tabs";
 import { Switch } from "./panelui/switch";
 import { Button } from "./ui/button";
 import { CodexSetup } from "./codex-setup";
-import { SkillsLibrary } from "./skills-library";
+import { ToolsLibrary } from "./tools-library";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useTheme } from "next-themes";
 import { open } from "@tauri-apps/plugin-shell";
@@ -34,7 +35,7 @@ export function AppSettings() {
     void invoke<string | null>("startup_settings_tab")
       .then((tab) => {
         if (tab) {
-          setTab(tab === "Backup" ? "Google Drive" : tab);
+          setTab(tab);
           setVisible(true);
         }
       })
@@ -99,10 +100,11 @@ export function AppSettings() {
             <Tabs.List aria-label="Settings sections">
               {[
                 "General",
+                "Appearance",
                 "Assistant",
                 "Compiler",
-                "Skills",
-                "Google Drive",
+                "Tools",
+                "Backup",
                 "Voice",
                 "About",
               ].map((name) => (
@@ -112,6 +114,7 @@ export function AppSettings() {
               ))}
             </Tabs.List>
             <Tabs.Content value={tab} className="space-y-4 py-4 text-sm">
+              {tab === "Appearance" && <AppearanceSettings />}
               {tab === "General" && (
                 <div className="space-y-4">
                   <label>
@@ -244,8 +247,8 @@ export function AppSettings() {
                   </p>
                 </>
               )}
-              {tab === "Skills" && <SkillsLibrary />}
-              {tab === "Google Drive" && <DriveSettings />}
+              {tab === "Tools" && <ToolsLibrary />}
+              {tab === "Backup" && <DriveSettings />}
               {tab === "Voice" &&
                 (navigator.userAgent.includes("Mac") ? (
                   <div className="space-y-3">

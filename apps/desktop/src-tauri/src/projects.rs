@@ -111,7 +111,20 @@ pub async fn project_pdf_preview(
 const MAX_FILES: usize = 25_000;
 const MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
+#[cfg(test)]
+pub(crate) static TEST_LIBRARY: Mutex<Option<PathBuf>> = Mutex::new(None);
+#[cfg(test)]
+fn library_override() -> Option<PathBuf> {
+    TEST_LIBRARY.lock().ok().and_then(|root| root.clone())
+}
+#[cfg(not(test))]
+fn library_override() -> Option<PathBuf> {
+    None
+}
 fn library_roots() -> Vec<PathBuf> {
+    if let Some(root) = library_override() {
+        return vec![root];
+    }
     dirs::data_local_dir()
         .map(|root| vec![root.join("Lemlio").join("Projects")])
         .unwrap_or_default()
@@ -257,6 +270,12 @@ fn clone_into(root: &Path, source: &Path, name: &str) -> Result<ImportResult, St
         );
     }
     let copied = restore_snapshot_in(root, &archive)?;
+    // A clone is a separate project: it must not inherit the original's backup identity.
+    match fs::remove_file(Path::new(&copied.storage_path).join(crate::drive_sync::PROJECT_ID)) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
     let identity = Path::new(&copied.storage_path).join(crate::collaboration::FOLDER);
     if identity.exists() {
         let identity = identity.canonicalize().map_err(|e| e.to_string())?;
@@ -539,6 +558,15 @@ fn import_with_options(
         if path
             .components()
             .any(|part| ignored_component(&part.as_os_str().to_string_lossy()))
+        {
+            continue;
+        }
+        // A ZIP the user imports becomes its own project; only a backup restore
+        // keeps the backup identity the ZIP carries.
+        if !snapshot
+            && path
+                .components()
+                .any(|part| part.as_os_str() == crate::drive_sync::PROJECT_ID)
         {
             continue;
         }
@@ -1110,5 +1138,42 @@ mod tests {
         for project in result.projects {
             assert!(Path::new(project["path"].as_str().unwrap()).is_dir());
         }
+    }
+
+    #[test]
+    fn clones_and_user_imports_get_their_own_backup_identity_but_restores_keep_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = temp.path().join("Library");
+        let source = temp.path().join("Original");
+        fs::create_dir_all(&library).unwrap();
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("main.tex"), "\\documentclass{article} text").unwrap();
+        fs::write(
+            source.join(crate::drive_sync::PROJECT_ID),
+            "{\"schema\":1,\"id\":\"original-project-id\"}",
+        )
+        .unwrap();
+
+        // The identity is part of every backup ZIP, so a restore on another PC keeps it.
+        let archive = temp.path().join("backup.zip");
+        export_to(&source, &archive).unwrap();
+        let restored = restore_snapshot_in(&library, &archive).unwrap();
+        assert!(Path::new(&restored.storage_path)
+            .join(crate::drive_sync::PROJECT_ID)
+            .is_file());
+
+        // A clone is a separate project: it must not share the original's history.
+        let cloned = clone_into(&library, &source, "Copy of Original").unwrap();
+        assert!(!Path::new(&cloned.storage_path)
+            .join(crate::drive_sync::PROJECT_ID)
+            .exists());
+        assert!(Path::new(&cloned.storage_path).join("main.tex").is_file());
+
+        // So is a ZIP the user imports, even one exported from the original.
+        let imported = import_into(&library, &archive, ImportMode::Copy).unwrap();
+        assert!(!Path::new(&imported.storage_path)
+            .join(crate::drive_sync::PROJECT_ID)
+            .exists());
+        assert!(Path::new(&imported.storage_path).join("main.tex").is_file());
     }
 }

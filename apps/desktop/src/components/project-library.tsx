@@ -11,8 +11,27 @@ import {
   CopyPlusIcon,
   FolderOpenIcon,
 } from "lucide-react";
-import type { CatalogProject } from "@/lib/project-catalog";
+import { projectPathKey, type CatalogProject } from "@/lib/project-catalog";
+import { ArchiveIcon, ArchiveRestoreIcon, FolderPlusIcon } from "lucide-react";
+import { useCollectionsStore } from "@/stores/collections-store";
+import {
+  CloudAlertIcon,
+  CloudCheckIcon,
+  CloudDownloadIcon,
+  CloudUploadIcon,
+} from "lucide-react";
+import { backupSummary } from "@/lib/backup-summary";
+import { DRIVE_UPDATED, projectDriveStatus } from "@/lib/drive-backup-status";
+import { collectionIcon } from "@/lib/collection-icons";
+import { requestNewCollection } from "./collection-dialog";
+import {
+  DropdownMenuCheckboxItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from "./ui/dropdown-menu";
 import { useEffect, useRef, useState } from "react";
+import { motion } from "motion/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -50,25 +69,58 @@ function openedLabel(timestamp: number): string {
 export function ProjectCard({
   project,
   starred,
+  archived,
   busy,
   opening,
   onOpen,
   onStar,
+  onArchive,
   onRemoveRecent,
   onExport,
   exporting,
 }: {
   project: CatalogProject;
   starred: boolean;
+  archived: boolean;
   busy: boolean;
   opening: boolean;
   onOpen: () => void;
   onStar: () => void;
+  onArchive: () => void;
   onRemoveRecent?: () => void;
   onExport: () => void;
   exporting: boolean;
 }) {
   const archive = project.texFileCount === 0;
+  const collections = useCollectionsStore((s) => s.collections);
+  const members = useCollectionsStore((s) => s.members);
+  const toggleCollection = useCollectionsStore((s) => s.toggle);
+  const projectKey = projectPathKey(project.path);
+  const [, refreshBackup] = useState(0);
+  useEffect(() => {
+    const update = () => refreshBackup((n) => n + 1);
+    window.addEventListener(DRIVE_UPDATED, update);
+    // "5 minutes ago" goes stale; refresh it now and then.
+    const timer = setInterval(update, 60_000);
+    return () => {
+      window.removeEventListener(DRIVE_UPDATED, update);
+      clearInterval(timer);
+    };
+  }, []);
+  const backup = backupSummary(projectDriveStatus(project.path));
+  const BackupIcon = !backup
+    ? CloudCheckIcon
+    : backup.tone === "incoming"
+      ? CloudDownloadIcon
+      : backup.tone === "attention"
+        ? CloudAlertIcon
+        : backup.text.startsWith("Backing up")
+          ? CloudUploadIcon
+          : CloudCheckIcon;
+  const memberOf = collections.filter((c) =>
+    members[c.id]?.includes(projectKey),
+  );
+  const CollectionBadgeIcon = collectionIcon(memberOf[0]?.name ?? "");
   const card = useRef<HTMLElement>(null);
   const [thumbnail, setThumbnail] = useState<string>();
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -139,9 +191,19 @@ export function ProjectCard({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <article
+        <motion.article
           ref={card}
-          className={`home-project-card home-category-${project.category.toLowerCase()}`}
+          className="home-project-card"
+          initial={{ opacity: 0, y: 14, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          whileHover={{ y: -3 }}
+          whileTap={{ scale: 0.985 }}
+          transition={{
+            type: "spring",
+            stiffness: 420,
+            damping: 32,
+            mass: 0.7,
+          }}
         >
           <button
             type="button"
@@ -171,18 +233,19 @@ export function ProjectCard({
                 <span />
                 <span />
               </div>
-              <span
-                className="home-project-kind"
-                style={thumbnail ? { display: "none" } : undefined}
-              >
-                {archive
-                  ? "Archive"
-                  : project.category === "Other"
-                    ? "Document"
-                    : project.category === "CVs"
-                      ? "CV"
-                      : project.category.replace(/s$/, "")}
-              </span>
+              {archive && !thumbnail && (
+                <span className="home-project-kind">Conversations</span>
+              )}
+              {memberOf.length > 0 && (
+                <span
+                  className="home-project-collection"
+                  title={`In ${memberOf.map((c) => c.name).join(", ")}`}
+                >
+                  <CollectionBadgeIcon size={12} aria-hidden />
+                  <span>{memberOf[0].name}</span>
+                  {memberOf.length > 1 && <em>+{memberOf.length - 1}</em>}
+                </span>
+              )}
             </div>
             <div className="home-project-body">
               <h3 title={details.name || project.name}>
@@ -201,8 +264,23 @@ export function ProjectCard({
                 {!archive && project.mainFile
                   ? ` · ${project.mainFile.split(/[/\\]/).pop()}`
                   : ""}
+                {memberOf.length > 0 && (
+                  <span className="home-inline-collection">
+                    {" · "}
+                    {memberOf.map((c) => c.name).join(", ")}
+                  </span>
+                )}
               </p>
-              {(opening || project.lastOpened) && (
+              {backup && (
+                <p
+                  className={`home-project-backup is-${backup.tone}`}
+                  title={backup.detail}
+                >
+                  <BackupIcon size={13} aria-hidden />
+                  <span>{backup.text}</span>
+                </p>
+              )}
+              {(opening || !!project.lastOpened) && (
                 <div className="home-project-bottom">
                   <span>
                     {opening
@@ -267,6 +345,41 @@ export function ProjectCard({
               <DropdownMenuItem disabled={busy} onSelect={onExport}>
                 <DownloadIcon />
                 Export ZIP
+              </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <FolderPlusIcon />
+                  Add to collection
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {collections.map((collection) => {
+                    const Icon = collectionIcon(collection.name);
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={collection.id}
+                        checked={!!members[collection.id]?.includes(projectKey)}
+                        onSelect={(event) => event.preventDefault()}
+                        onCheckedChange={() =>
+                          toggleCollection(collection.id, project.path)
+                        }
+                      >
+                        <Icon />
+                        {collection.name}
+                      </DropdownMenuCheckboxItem>
+                    );
+                  })}
+                  {collections.length > 0 && <DropdownMenuSeparator />}
+                  <DropdownMenuItem
+                    onSelect={() => requestNewCollection(project.path)}
+                  >
+                    <FolderPlusIcon />
+                    New collection…
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuItem onSelect={onArchive}>
+                {archived ? <ArchiveRestoreIcon /> : <ArchiveIcon />}
+                {archived ? "Unarchive project" : "Archive project"}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -358,7 +471,7 @@ export function ProjectCard({
               <DownloadIcon size={14} />
             )}
           </button>
-        </article>
+        </motion.article>
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem disabled={busy} onSelect={onOpen}>
@@ -397,6 +510,10 @@ export function ProjectCard({
         <ContextMenuItem onSelect={onStar}>
           <StarIcon />
           {starred ? "Unstar" : "Star"} project
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={onArchive}>
+          {archived ? <ArchiveRestoreIcon /> : <ArchiveIcon />}
+          {archived ? "Unarchive" : "Archive"} project
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem

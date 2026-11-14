@@ -7,6 +7,8 @@ export interface DriveAvailableProject {
   name: string;
   localPath?: string;
   deviceName?: string;
+  /** Local projects with the same title and no backup identity yet. */
+  localMatches?: string[];
 }
 const KEY = "lemlio-drive-available-projects";
 const DISMISSED = "lemlio-drive-discovery-dismissed";
@@ -45,8 +47,8 @@ export function publishDriveDiscoveries(projects: DriveAvailableProject[]) {
     localStorage.setItem(SEEN, JSON.stringify([...seen]));
     toast.info(
       fresh.length === 1
-        ? "New project found in Drive"
-        : `${fresh.length} new projects found in Drive`,
+        ? "New project found in your backup"
+        : `${fresh.length} new projects found in your backup`,
       {
         description: fresh
           .slice(0, 3)
@@ -57,6 +59,18 @@ export function publishDriveDiscoveries(projects: DriveAvailableProject[]) {
       },
     );
   }
+  window.dispatchEvent(new Event(DRIVE_DISCOVERED));
+}
+export function removeDriveDiscovery(project: DriveAvailableProject) {
+  const gone = identity(project);
+  localStorage.setItem(
+    KEY,
+    JSON.stringify(
+      read<DriveAvailableProject[]>(KEY, []).filter(
+        (p) => identity(p) !== gone,
+      ),
+    ),
+  );
   window.dispatchEvent(new Event(DRIVE_DISCOVERED));
 }
 export function dismissDriveDiscoveries() {

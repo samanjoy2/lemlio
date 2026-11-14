@@ -167,17 +167,27 @@ impl Rpc {
         if let Ok(app) = std::env::current_exe() {
             launch.env("LEMLIO_APP", app);
         }
+        let mut extra_paths: Vec<PathBuf> = vec![];
+        if let Some(bin) = crate::tools::env_bin_dir(window.app_handle()) {
+            extra_paths.push(bin);
+        }
         #[cfg(any(target_os = "windows", target_os = "macos"))]
+        if let Some(system_tex) = crate::latex::system_tex_bin_dir() {
+            // So the assistant can run MiKTeX / TeX Live tools (mf, mpm, tlmgr, pdflatex) itself.
+            extra_paths.push(system_tex);
+        }
         if let Ok(binary) = crate::latex::tectonic_binary() {
             launch.env("LEMLIO_TECTONIC", &binary);
             if let Some(parent) = binary.parent() {
-                let mut paths = vec![parent.to_path_buf()];
-                if let Some(existing) = std::env::var_os("PATH") {
-                    paths.extend(std::env::split_paths(&existing));
-                }
-                if let Ok(path) = std::env::join_paths(paths) {
-                    launch.env("PATH", path);
-                }
+                extra_paths.push(parent.to_path_buf());
+            }
+        }
+        if !extra_paths.is_empty() {
+            if let Some(existing) = std::env::var_os("PATH") {
+                extra_paths.extend(std::env::split_paths(&existing));
+            }
+            if let Ok(path) = std::env::join_paths(extra_paths) {
+                launch.env("PATH", path);
             }
         }
         let mut child = launch
@@ -509,14 +519,14 @@ pub async fn list_codex_models(window: WebviewWindow) -> Result<Vec<Value>, Stri
     Ok(models)
 }
 
-const INSTRUCTIONS:&str="You are Codex inside Lemlio, a local scientific writing workspace. Read the project AGENTS.md. Preserve the existing LaTeX preamble, bibliography, and structure. Read files before editing; make small targeted edits. Explain your plan for substantial changes. Use citations and cross-references correctly; do not invent sources or research findings. Prefer project .venv Python or uv run for analysis. Save publication-quality figures in figures/. Use lemlio_compile after LaTeX edits to actually verify compilation with the editor's selected main file and compiler. Read its diagnostics and fix errors before claiming success. Use lemlio_view_pdf_page after a successful compile when checking layout, figures, or formatting; it returns an image of the compiled page. Never claim a compile or visual check you have not performed. Do not assume tectonic is unavailable merely because it is not on the system PATH. If this older chat does not expose the Lemlio tools, use the terminal fallback described below or explain that a new chat is needed for the integrated tools. Compiler-generated .prism output and terminal-fallback logs are allowed. Do not manually edit .prism, .prismpro, or .venv internals. Follow relevant skills from .agents/skills or ~/.agents/skills.";
+const INSTRUCTIONS:&str="You are Codex inside Lemlio, a local scientific writing workspace. Read the project AGENTS.md. Preserve the existing LaTeX preamble, bibliography, and structure. Read files before editing; make small targeted edits. Explain your plan for substantial changes. Use citations and cross-references correctly; do not invent sources or research findings. Do not create Python virtual environments in the project; use the shared tools described below. Save publication-quality figures in figures/. Use lemlio_compile after LaTeX edits to actually verify compilation with the editor's selected main file and compiler. Read its diagnostics and fix errors before claiming success. Use lemlio_view_pdf_page after a successful compile when checking layout, figures, or formatting; it returns an image of the compiled page. Never claim a compile or visual check you have not performed. Do not assume tectonic is unavailable merely because it is not on the system PATH. If this older chat does not expose the Lemlio tools, use the terminal fallback described below or explain that a new chat is needed for the integrated tools. Compiler-generated .prism output and terminal-fallback logs are allowed. Do not manually edit .prism, .prismpro, or .venv internals. The user may attach screenshots of the app or PDF; look at them when present. When a compile fails, solve it yourself before asking the user: read the log, fix the real cause, and recompile. Lemlio's compile command uses Tectonic first and automatically retries with an installed MiKTeX or TeX Live when Tectonic cannot build a font (for example BangTeX Bengali fonts that only exist as METAFONT sources). If a compile still fails you may run the system tools yourself: omit --tectonic in the Lemlio compile command to force the system compiler, install a missing LaTeX package with the system package manager (MiKTeX: mpm --install <package>; TeX Live: tlmgr install <package>), or generate fonts from METAFONT sources with mf. Never delete, shorten or rewrite the user's content, such as non-English text, only to make it compile; if the only possible fix would change their content, explain and ask first.";
 
 fn compiler_tools() -> Value {
     serde_json::from_str(include_str!("../../src/lib/codex-compiler-tools.json"))
         .expect("Lemlio compiler tool definitions are valid JSON")
 }
 
-fn compiler_instructions(main_file: Option<&str>, use_texlive: bool) -> String {
+fn compiler_instructions(main_file: Option<&str>, use_texlive: bool, tools: &str) -> String {
     let app = std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
@@ -527,7 +537,7 @@ fn compiler_instructions(main_file: Option<&str>, use_texlive: bool) -> String {
     #[cfg(not(target_os="windows"))]
     let fallback = format!("Terminal fallback for older chats: execute the Lemlio binary at {app:?} with arguments --compile-project <absolute-project-directory> <relative-main.tex> --tectonic. Quote paths with spaces. Check the exit code and compiler output; omit --tectonic only for the optional system compiler. This uses the same bundled fonts and project staging as the editor.");
     format!(
-        "{INSTRUCTIONS}\nSelected main file: {}. Selected compiler: {}.\n{fallback}",
+        "{INSTRUCTIONS}\nSelected main file: {}. Selected compiler: {}.\n{tools}\n{fallback}",
         main_file.unwrap_or("not selected"),
         if use_texlive {
             "optional system LaTeX"
@@ -548,7 +558,9 @@ async fn start_turn(
     main_file: Option<String>,
     use_texlive: Option<bool>,
     related_projects: Option<Vec<String>>,
+    images: Option<Vec<String>>,
 ) -> Result<(), String> {
+    let images = crate::tools::validate_images(images)?;
     let path =
         std::fs::canonicalize(&project_path).map_err(|e| format!("Cannot open project: {e}"))?;
     if !path.is_dir() {
@@ -584,7 +596,7 @@ async fn start_turn(
             return Err("This chat already has a running Codex turn".into());
         }
     }
-    let mut params = json!({"cwd":project_path,"developerInstructions":compiler_instructions(main_file.as_deref(), use_texlive.unwrap_or(false)),"approvalPolicy":"on-request","sandbox":"workspace-write"});
+    let mut params = json!({"cwd":project_path,"developerInstructions":compiler_instructions(main_file.as_deref(), use_texlive.unwrap_or(false), &crate::tools::prompt_section(&window.app_handle().clone())),"approvalPolicy":"on-request","sandbox":"workspace-write"});
     if let Some(m) = model.as_ref().filter(|m| !m.is_empty()) {
         params["model"] = json!(m);
     }
@@ -615,8 +627,11 @@ async fn start_turn(
     if rpc.cancelled.lock().await.contains(&tab_id) {
         return Err("Codex request cancelled".into());
     }
-    let mut params =
-        json!({"threadId":thread_id,"input":[{"type":"text","text":prompt,"text_elements":[]}]});
+    let mut input = vec![json!({"type":"text","text":prompt,"text_elements":[]})];
+    for (mime, data) in &images {
+        input.push(json!({"type":"image","url":format!("data:{mime};base64,{data}")}));
+    }
+    let mut params = json!({"threadId":thread_id,"input":input});
     if let Some(m) = model.filter(|m| !m.is_empty()) {
         params["model"] = json!(m);
     }
@@ -625,7 +640,15 @@ async fn start_turn(
     }
     params["sandboxPolicy"] =
         json!({"type":"workspaceWrite","writableRoots":roots,"networkAccess":false});
-    let turn = rpc.call("turn/start", params).await?;
+    let turn = match rpc.call("turn/start", params.clone()).await {
+        Err(error) if !images.is_empty() => {
+            // Some models cannot take images: keep the conversation going without them.
+            params["input"] = json!([{"type":"text","text":prompt,"text_elements":[]}]);
+            output(&window, &tab_id, json!({"type":"assistant","id":format!("img-{tab_id}"),"message":{"content":[{"type":"text","text":format!("_The attached image could not be sent ({error}). Continuing without it._")}]}}));
+            rpc.call("turn/start", params).await?
+        }
+        other => other?,
+    };
     if rpc.cancelled.lock().await.contains(&tab_id) {
         rpc.call(
             "turn/interrupt",
@@ -646,6 +669,7 @@ pub async fn execute_codex_code(
     main_file: Option<String>,
     use_texlive: Option<bool>,
     related_projects: Option<Vec<String>>,
+    images: Option<Vec<String>>,
 ) -> Result<(), String> {
     start_turn(
         window,
@@ -658,6 +682,7 @@ pub async fn execute_codex_code(
         main_file,
         use_texlive,
         related_projects,
+        images,
     )
     .await
 }
@@ -673,6 +698,7 @@ pub async fn resume_codex_code(
     main_file: Option<String>,
     use_texlive: Option<bool>,
     related_projects: Option<Vec<String>>,
+    images: Option<Vec<String>>,
 ) -> Result<(), String> {
     start_turn(
         window,
@@ -685,6 +711,7 @@ pub async fn resume_codex_code(
         main_file,
         use_texlive,
         related_projects,
+        images,
     )
     .await
 }

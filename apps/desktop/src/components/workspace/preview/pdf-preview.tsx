@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { ActivityOrb } from "@/components/activity-feedback";
+import { setPreviewPage } from "@/lib/agent-context";
 import {
   SearchIcon,
   PanelsTopLeftIcon,
@@ -126,6 +127,7 @@ export function PdfPreview() {
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageInputValue, setPageInputValue] = useState<string>("1");
+  useEffect(() => setPreviewPage(currentPage), [currentPage]);
   const [isEditingPage, setIsEditingPage] = useState(false);
   const scrollToPageRef = useRef<((page: number) => void) | null>(null);
   const [scale, setScale] = useState<number>(1.0);

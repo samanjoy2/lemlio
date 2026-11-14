@@ -14,7 +14,7 @@ use std::os::windows::process::CommandExt;
 
 /// Discover the uv binary on the system.
 /// Checks: which → cargo bin → standard paths → bare fallback.
-fn find_uv_binary() -> Result<String, String> {
+pub(crate) fn find_uv_binary() -> Result<String, String> {
     // 1. Try to find uv on PATH
     if let Ok(path) = which::which("uv") {
         return Ok(path.to_string_lossy().to_string());
@@ -75,23 +75,10 @@ pub struct UvStatus {
     pub version: Option<String>,
 }
 
-#[derive(serde::Serialize)]
-pub struct VenvInfo {
-    pub venv_path: String,
-    pub python_path: String,
-    pub created: bool,
-}
-
-#[derive(serde::Serialize)]
-pub struct UvCommandResult {
-    pub stdout: String,
-    pub stderr: String,
-    pub exit_code: i32,
-}
 
 // ─── Helper: build PATH with venv bin prepended ───
 
-fn venv_bin_dir(venv_dir: &std::path::Path) -> PathBuf {
+pub(crate) fn venv_bin_dir(venv_dir: &std::path::Path) -> PathBuf {
     #[cfg(not(target_os = "windows"))]
     {
         venv_dir.join("bin")
@@ -102,7 +89,7 @@ fn venv_bin_dir(venv_dir: &std::path::Path) -> PathBuf {
     }
 }
 
-fn venv_python(venv_dir: &std::path::Path) -> PathBuf {
+pub(crate) fn venv_python(venv_dir: &std::path::Path) -> PathBuf {
     #[cfg(not(target_os = "windows"))]
     {
         venv_bin_dir(venv_dir).join("python")
@@ -113,15 +100,6 @@ fn venv_python(venv_dir: &std::path::Path) -> PathBuf {
     }
 }
 
-fn path_with_venv(venv_dir: &std::path::Path) -> String {
-    let bin = venv_bin_dir(venv_dir);
-    let current = std::env::var("PATH").unwrap_or_default();
-    #[cfg(target_os = "windows")]
-    let sep = ";";
-    #[cfg(not(target_os = "windows"))]
-    let sep = ":";
-    format!("{}{}{}", bin.to_string_lossy(), sep, current)
-}
 
 // ─── Tauri Commands ───
 
@@ -280,127 +258,3 @@ pub async fn install_uv(window: WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-pub async fn setup_project_venv(project_path: String) -> Result<VenvInfo, String> {
-    let project = std::path::Path::new(&project_path);
-    let venv_dir = project.join(".venv");
-
-    // If venv already exists, just return info
-    if venv_dir.exists() {
-        let python = venv_python(&venv_dir);
-        return Ok(VenvInfo {
-            venv_path: venv_dir.to_string_lossy().to_string(),
-            python_path: python.to_string_lossy().to_string(),
-            created: false,
-        });
-    }
-
-    let uv_bin = find_uv_binary().map_err(|e| format!("uv not found: {}", e))?;
-
-    // Create venv: uv venv <project_path>/.venv
-    let mut venv_cmd = tokio::process::Command::new(&uv_bin);
-    venv_cmd.args(["venv", &venv_dir.to_string_lossy()]);
-    venv_cmd.current_dir(project);
-    #[cfg(target_os = "windows")]
-    {
-        venv_cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    let output = venv_cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to create venv: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("uv venv failed: {}", stderr));
-    }
-
-    let python = venv_python(&venv_dir);
-
-    Ok(VenvInfo {
-        venv_path: venv_dir.to_string_lossy().to_string(),
-        python_path: python.to_string_lossy().to_string(),
-        created: true,
-    })
-}
-
-#[tauri::command]
-pub async fn uv_add_packages(
-    packages: Vec<String>,
-    project_path: String,
-) -> Result<String, String> {
-    let uv_bin = find_uv_binary().map_err(|e| format!("uv not found: {}", e))?;
-    let venv_dir = std::path::Path::new(&project_path).join(".venv");
-
-    if !venv_dir.exists() {
-        return Err("No .venv found. Run setup_project_venv first.".to_string());
-    }
-
-    let mut args = vec!["pip".to_string(), "install".to_string()];
-    args.extend(packages);
-
-    let mut pip_cmd = tokio::process::Command::new(&uv_bin);
-    pip_cmd.args(&args);
-    pip_cmd.current_dir(&project_path);
-    pip_cmd.env("VIRTUAL_ENV", &venv_dir);
-    pip_cmd.env("PATH", path_with_venv(&venv_dir));
-    #[cfg(target_os = "windows")]
-    {
-        pip_cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    let output = pip_cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run uv pip install: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("uv pip install failed: {}", stderr));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    Ok(stdout)
-}
-
-#[tauri::command]
-pub async fn uv_run_command(
-    command: String,
-    project_path: String,
-) -> Result<UvCommandResult, String> {
-    let venv_dir = std::path::Path::new(&project_path).join(".venv");
-
-    if !venv_dir.exists() {
-        return Err("No .venv found. Run setup_project_venv first.".to_string());
-    }
-
-    // Split command into program + args
-    let parts: Vec<&str> = command.split_whitespace().collect();
-    if parts.is_empty() {
-        return Err("Empty command".to_string());
-    }
-
-    let program = parts.first().ok_or("Empty command")?;
-    let args = parts.get(1..).unwrap_or_default();
-
-    let mut run_cmd = tokio::process::Command::new(program);
-    run_cmd.args(args);
-    run_cmd.current_dir(&project_path);
-    run_cmd.env("VIRTUAL_ENV", &venv_dir);
-    run_cmd.env("PATH", path_with_venv(&venv_dir));
-    #[cfg(target_os = "windows")]
-    {
-        run_cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    let output = run_cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run command: {}", e))?;
-
-    let exit_code = output.status.code().unwrap_or(-1);
-
-    Ok(UvCommandResult {
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        exit_code,
-    })
-}

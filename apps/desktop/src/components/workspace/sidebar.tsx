@@ -24,9 +24,7 @@ import {
   FileCodeIcon,
   FileIcon,
   FileSpreadsheetIcon,
-  AppWindowIcon,
-  FlaskConicalIcon,
-  TerminalIcon,
+  WrenchIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -72,9 +70,7 @@ import { Input } from "@/components/ui/input";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { useUvSetupStore } from "@/stores/uv-setup-store";
-import { UvSetupDialog } from "@/components/uv-setup";
-import { SkillsLibraryDialog } from "@/components/skills-library";
+import { ToolsDialog, useTools } from "@/components/tools-library";
 import { ProjectZipExportButton } from "@/components/project-zip-transfer";
 import { createLogger } from "@/lib/debug/logger";
 
@@ -187,9 +183,7 @@ function buildFileTree(files: ProjectFile[], folders: string[]): TreeNode[] {
 
 function getFileIcon(file: ProjectFile) {
   if (file.type === "tex")
-    return (
-      <FileTextIcon className="size-4 shrink-0 text-teal-600 dark:text-teal-400" />
-    );
+    return <FileTextIcon className="size-4 shrink-0 text-primary" />;
   if (file.type === "bib")
     return (
       <FileSpreadsheetIcon className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
@@ -632,7 +626,7 @@ export function Sidebar() {
   // ─── Render ───
 
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground backdrop-blur-2xl backdrop-saturate-150">
       {/* Header — padded top for macOS overlay titlebar */}
       <div className="grid h-[calc(56px+var(--titlebar-height))] shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 border-sidebar-border border-b px-3 pt-[var(--titlebar-height)]">
         <div className="col-start-2 row-start-1 flex min-w-0 flex-col items-start">
@@ -805,8 +799,8 @@ export function Sidebar() {
         </Panel>
       </PanelGroup>
 
-      {/* Environment section — Python + Skills */}
-      <EnvironmentSection projectPath={projectRoot} />
+      {/* AI tools */}
+      <ToolsSection />
       <AppSettings />
 
       {/* Footer */}
@@ -1140,10 +1134,10 @@ function FileTreeNode({
             className={cn(
               "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
               file.id === activeFileId
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "hover:bg-sidebar-accent/50",
+                ? "bg-primary/15 font-medium text-primary"
+                : "hover:bg-sidebar-accent/60",
               file.id === mainFileId &&
-                "border-teal-500 border-l-2 bg-teal-500/10 font-medium",
+                "bg-primary/15 font-medium text-primary",
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
             onClick={() => {
@@ -1154,7 +1148,7 @@ function FileTreeNode({
             {getFileIcon(file)}
             <span className="min-w-0 flex-1 truncate">{node.name}</span>
             {file.id === mainFileId && (
-              <span className="shrink-0 rounded bg-teal-500/15 px-1 text-[9px] text-teal-700 dark:text-teal-300">
+              <span className="shrink-0 rounded-full bg-primary/15 px-1.5 text-[9px] text-primary">
                 MAIN
               </span>
             )}
@@ -1197,133 +1191,32 @@ function FileTreeNode({
   );
 }
 
-// ─── Environment Section (Python + Skills) ───
+// ─── AI tools section ───
 
-interface SkillsStatus {
-  installed: boolean;
-  skill_count: number;
-  location: string;
-}
-
-function EnvironmentSection({ projectPath }: { projectPath: string | null }) {
-  // ── Python / uv ──
-  const venvReady = useUvSetupStore((s) => s.venvReady);
-  const uvStatus = useUvSetupStore((s) => s.status);
-  const [showUvDialog, setShowUvDialog] = useState(false);
-
-  // ── Scientific Skills ──
-  const [skillsStatus, setSkillsStatus] = useState<SkillsStatus | null>(null);
-  const [showOnboarding, setShowOnboarding] = useState(false);
-
-  const checkSkillsStatus = useCallback(async () => {
-    try {
-      const globalStatus = await invoke<SkillsStatus>(
-        "check_skills_installed",
-        {
-          projectPath: null,
-        },
-      );
-      if (globalStatus.installed) {
-        setSkillsStatus(globalStatus);
-        return;
-      }
-      if (projectPath) {
-        const projectStatus = await invoke<SkillsStatus>(
-          "check_skills_installed",
-          {
-            projectPath,
-          },
-        );
-        setSkillsStatus(projectStatus);
-      } else {
-        setSkillsStatus(globalStatus);
-      }
-    } catch {
-      // Ignore errors silently
-    }
-  }, [projectPath]);
-
-  useEffect(() => {
-    checkSkillsStatus();
-  }, [checkSkillsStatus]);
-
-  const pythonLabel = venvReady
-    ? "Active"
-    : uvStatus === "not-installed"
-      ? "Not installed"
-      : uvStatus === "ready"
-        ? "No venv"
-        : "";
-  const skillsLabel = skillsStatus?.installed
-    ? `${skillsStatus.skill_count} skills`
-    : "Not installed";
-
+function ToolsSection() {
+  const { tools, refresh } = useTools();
+  const [open, setOpen] = useState(false);
+  const enabled = tools.filter((t) => t.enabled).length;
   return (
     <>
-      <div className="border-sidebar-border border-t">
-        <div className="flex h-8 shrink-0 items-center justify-center gap-2 px-3">
-          <AppWindowIcon className="size-3.5 text-muted-foreground" />
-          <span className="font-medium text-xs">Environment</span>
-        </div>
-        <div className="space-y-0.5 px-1 pb-1.5">
-          {/* Python / uv row */}
-          <button
-            className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-sidebar-accent/50"
-            onClick={() => setShowUvDialog(true)}
-          >
-            <TerminalIcon
-              className={cn(
-                "size-3.5 shrink-0",
-                venvReady ? "text-foreground" : "text-muted-foreground",
-              )}
-            />
-            <span className="min-w-0 flex-1 truncate text-xs">Python</span>
-            <span
-              className={cn(
-                "shrink-0 text-xs",
-                venvReady ? "text-foreground" : "text-muted-foreground",
-              )}
-            >
-              {pythonLabel}
-            </span>
-          </button>
-          {/* Scientific Skills row */}
-          <button
-            className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-sidebar-accent/50"
-            onClick={() => setShowOnboarding(true)}
-          >
-            <FlaskConicalIcon
-              className={cn(
-                "size-3.5 shrink-0",
-                skillsStatus?.installed
-                  ? "text-foreground"
-                  : "text-muted-foreground",
-              )}
-            />
-            <span className="min-w-0 flex-1 truncate text-xs">Skills</span>
-            <span
-              className={cn(
-                "shrink-0 text-xs",
-                skillsStatus?.installed
-                  ? "text-foreground"
-                  : "text-muted-foreground",
-              )}
-            >
-              {skillsLabel}
-            </span>
-          </button>
-        </div>
+      <div className="border-sidebar-border border-t px-1 py-1.5">
+        <button
+          className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-sidebar-accent/50"
+          onClick={() => setOpen(true)}
+        >
+          <WrenchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate text-xs">AI tools</span>
+          <span className="shrink-0 text-muted-foreground text-xs">
+            {enabled} on
+          </span>
+        </button>
       </div>
-
-      <UvSetupDialog
-        open={showUvDialog}
-        onClose={() => setShowUvDialog(false)}
-      />
-
-      <SkillsLibraryDialog
-        open={showOnboarding}
-        onOpenChange={setShowOnboarding}
-        projectPath={projectPath}
+      <ToolsDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) void refresh();
+        }}
       />
     </>
   );

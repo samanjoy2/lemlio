@@ -53,7 +53,7 @@ export type BadgeSize = "sm" | "md" | "lg";
 const badgeVariants = tv({
   slots: {
     root: [
-      "inline-flex w-fit shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border font-medium",
+      "inline-flex w-fit shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border font-medium",
       "tabular-nums [&_svg:not([class*=size-])]:size-3.5 [&_svg]:pointer-events-none [&_svg]:shrink-0",
     ],
     dot: "relative inline-flex size-1.5 shrink-0 rounded-full bg-current",

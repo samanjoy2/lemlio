@@ -435,7 +435,7 @@ export function CollaborationDialog() {
               )}
               <div className="space-y-2 border-t pt-4">
                 <p className="text-sm">
-                  Exchange changes without Drive or a live connection
+                  Exchange changes without cloud backup or a live connection
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -482,10 +482,9 @@ export function CollaborationDialog() {
                   </Button>
                 </div>
                 <p className="text-muted-foreground text-xs">
-                  Drive backups merge the shared histories before uploading.
-                  Upload time does not decide whose edits survive. Live agent
-                  sessions must finish before connecting; work offline to run an
-                  agent.
+                  Backups merge the shared histories before uploading. Upload
+                  time does not decide whose edits survive. Live agent sessions
+                  must finish before connecting; work offline to run an agent.
                 </p>
               </div>
               {!!state.conflicts.length && (
