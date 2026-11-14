@@ -297,6 +297,12 @@ async fn finish_login(code: &str, verifier: &str, redirect: Option<&str>) -> Res
     save_link(&link)
 }
 
+fn html_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
 fn page(message: &str) -> String {
     let body = format!("<!doctype html><meta charset=utf-8><title>Lemlio</title><p>{message}</p>");
     format!(
@@ -375,12 +381,14 @@ async fn begin_login(state: &DriveState) -> Result<String, String> {
                     finish_login(code, &verifier, Some(&redirect)).await
                 }
                 .await;
-                let message = if exchange.is_ok() {
-                    "Lemlio is connected to Dropbox. You can close this tab."
-                } else {
-                    "Lemlio could not connect. Return to the app to check the connection."
+                let message = match &exchange {
+                    Ok(()) => "Lemlio is connected to Dropbox. You can close this tab.".to_string(),
+                    Err(error) => format!(
+                        "Lemlio could not connect: {} Return to the app to try again.",
+                        html_escape(error)
+                    ),
                 };
-                let _ = stream.write_all(page(message).as_bytes()).await;
+                let _ = stream.write_all(page(&message).as_bytes()).await;
                 return exchange;
             }
         })

@@ -141,6 +141,46 @@ impl TokenStore for MemoryStore {
     }
 }
 
+/// What is kept in the system credential store: only the small values needed to
+/// stay signed in. Dropbox access tokens are very long (well over 1,000
+/// characters) and Windows Credential Manager rejects entries above ~1,280
+/// characters, so the access token is never written there. It lives in memory
+/// and is renewed from the refresh token when needed.
+#[derive(Serialize, Deserialize)]
+struct StoredTokens {
+    refresh_token: String,
+    app_key: String,
+    account_id: String,
+}
+pub(crate) fn stored_record(tokens: &Tokens) -> Result<String, String> {
+    serde_json::to_string(&StoredTokens {
+        refresh_token: tokens.refresh_token.clone(),
+        app_key: tokens.app_key.clone(),
+        account_id: tokens.account_id.clone(),
+    })
+    .map_err(|_| "Cannot encode the Dropbox connection".to_string())
+}
+/// The short-lived access token of this run: (refresh token it belongs to, access token, expiry).
+static ACCESS_CACHE: StdMutex<Option<(String, String, u64)>> = StdMutex::new(None);
+fn cache_access(tokens: &Tokens) {
+    if let Ok(mut cache) = ACCESS_CACHE.lock() {
+        *cache = Some((
+            tokens.refresh_token.clone(),
+            tokens.access_token.clone(),
+            tokens.expires_at,
+        ));
+    }
+}
+fn cached_access(refresh_token: &str) -> (String, u64) {
+    ACCESS_CACHE
+        .lock()
+        .ok()
+        .and_then(|cache| cache.clone())
+        .filter(|(owner, _, _)| owner == refresh_token)
+        .map(|(_, access, expires)| (access, expires))
+        .unwrap_or_default()
+}
+
 /// Windows Credential Manager or the macOS Keychain.
 pub struct KeyringStore;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -154,9 +194,18 @@ impl KeyringStore {
 impl TokenStore for KeyringStore {
     fn load(&self) -> Result<Option<Tokens>, String> {
         match Self::entry()?.get_password() {
-            Ok(raw) => serde_json::from_str(&raw)
-                .map(Some)
-                .map_err(|_| "Stored Dropbox connection is invalid; reconnect".to_string()),
+            Ok(raw) => {
+                let stored: StoredTokens = serde_json::from_str(&raw)
+                    .map_err(|_| "Stored Dropbox connection is invalid; reconnect".to_string())?;
+                let (access_token, expires_at) = cached_access(&stored.refresh_token);
+                Ok(Some(Tokens {
+                    refresh_token: stored.refresh_token,
+                    access_token,
+                    expires_at,
+                    app_key: stored.app_key,
+                    account_id: stored.account_id,
+                }))
+            }
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(_) => {
                 Err("Cannot read the Dropbox connection from the system credential store".into())
@@ -165,15 +214,17 @@ impl TokenStore for KeyringStore {
     }
     fn save(&self, tokens: &Tokens) -> Result<(), String> {
         Self::entry()?
-            .set_password(
-                &serde_json::to_string(tokens)
-                    .map_err(|_| "Cannot encode the Dropbox connection")?,
-            )
+            .set_password(&stored_record(tokens)?)
             .map_err(|_| {
                 "Cannot save the Dropbox connection in the system credential store".to_string()
-            })
+            })?;
+        cache_access(tokens);
+        Ok(())
     }
     fn clear(&self) -> Result<(), String> {
+        if let Ok(mut cache) = ACCESS_CACHE.lock() {
+            *cache = None;
+        }
         match Self::entry()?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(_) => Err("Cannot remove the stored Dropbox connection".into()),
@@ -1315,6 +1366,22 @@ mod tests {
 
     fn run<F: std::future::Future>(future: F) -> F::Output {
         tokio::runtime::Runtime::new().unwrap().block_on(future)
+    }
+    #[test]
+    fn the_credential_store_record_never_holds_the_long_access_token() {
+        // Dropbox access tokens are over 1,000 characters; Windows Credential
+        // Manager refuses entries above roughly 1,280 characters.
+        let tokens = Tokens {
+            refresh_token: "r".repeat(64),
+            access_token: format!("sl.{}", "a".repeat(1800)),
+            expires_at: 123,
+            app_key: "7hq6lelbqfmmavq".into(),
+            account_id: "dbid:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into(),
+        };
+        let record = stored_record(&tokens).unwrap();
+        assert!(record.len() < 400, "record is {} characters", record.len());
+        assert!(!record.contains("sl."));
+        assert!(record.contains(&tokens.refresh_token));
     }
     fn zip_file(dir: &Path, content: &[u8]) -> std::path::PathBuf {
         let path = dir.join(format!("{}.zip", uuid::Uuid::new_v4()));
