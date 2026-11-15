@@ -31,6 +31,14 @@ fn path() -> Result<PathBuf, String> {
         .join("Lemlio/drive-projects.json"))
 }
 pub fn path_key(path: &str) -> String {
+    // Receipts are saved after staging canonicalizes the project. Resolve UI aliases
+    // too (Windows 8.3 paths, macOS /var -> /private/var, junctions and symlinks).
+    // Missing historical paths still retain their original normalized key.
+    let canonical = std::fs::canonicalize(path).ok();
+    let resolved = canonical.as_ref().map(|p| p.to_string_lossy());
+    normalize_path_key(resolved.as_deref().unwrap_or(path))
+}
+fn normalize_path_key(path: &str) -> String {
     let path = path.replace('\\', "/").trim_end_matches('/').to_string();
     if cfg!(target_os = "windows") {
         let path = path.to_lowercase();
@@ -46,7 +54,21 @@ pub fn path_key(path: &str) -> String {
 fn read() -> Result<BTreeMap<String, Receipt>, String> {
     let path = path()?;
     match std::fs::read(path) {
-        Ok(raw) => serde_json::from_slice(&raw).map_err(|e| e.to_string()),
+        Ok(raw) => {
+            let records: BTreeMap<String, Receipt> =
+                serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
+            let mut normalized: BTreeMap<String, Receipt> = BTreeMap::new();
+            for (key, record) in records {
+                let key = path_key(&key);
+                if normalized
+                    .get(&key)
+                    .is_none_or(|old| old.last_backup <= record.last_backup)
+                {
+                    normalized.insert(key, record);
+                }
+            }
+            Ok(normalized)
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
         Err(e) => Err(e.to_string()),
     }
@@ -93,6 +115,25 @@ mod tests {
         assert_eq!(
             super::path_key(r"\\?\UNC\server\Paper"),
             super::path_key("//server/Paper")
+        );
+    }
+}
+
+#[cfg(test)]
+mod alias_tests {
+    #[test]
+    fn existing_folder_aliases_share_the_canonical_receipt_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("Paper");
+        std::fs::create_dir_all(project.join("nested")).unwrap();
+        let alias = project.join("nested").join("..");
+        assert_eq!(
+            super::path_key(&project.to_string_lossy()),
+            super::path_key(&alias.to_string_lossy())
+        );
+        assert_eq!(
+            super::path_key(&project.to_string_lossy()),
+            super::path_key(&std::fs::canonicalize(&project).unwrap().to_string_lossy())
         );
     }
 }
