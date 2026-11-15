@@ -168,6 +168,13 @@ pub(crate) fn tectonic_font_gap(output: &str) -> bool {
         || text.contains("not loadable: metric (tfm) file")
 }
 
+/// latexmk's refusal to run again because its record says the last run failed and
+/// no tracked file has changed since.
+pub(crate) fn latexmk_is_stuck(output: &str) -> bool {
+    output.contains("gave an error in previous invocation")
+        || output.contains("Nothing to do for")
+}
+
 /// The folder of an installed MiKTeX or TeX Live, if any, so an AI assistant can
 /// run its tools (pdflatex, mf, mpm, tlmgr) itself.
 pub(crate) fn system_tex_bin_dir() -> Option<PathBuf> {
@@ -692,27 +699,56 @@ fn compile_with_texlive(
             "lualatex" => "-lualatex",
             _ => "-xelatex",
         };
-        let mut cmd = std::process::Command::new(latexmk);
-        cmd.args([
-            mode,
-            "-synctex=1",
-            "-interaction=nonstopmode",
-            "-halt-on-error",
-            "-file-line-error",
-        ])
-        .arg(main_file)
-        .current_dir(work_dir)
-        .env("PATH", &env_path);
-        #[cfg(target_os = "windows")]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let output = cmd
-            .output()
-            .map_err(|e| format!("Cannot run latexmk: {e}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "latexmk failed. Ensure Perl and the selected engine are installed.\n{}\n{}",
+        let run = |force: bool| -> Result<std::process::Output, String> {
+            let mut cmd = std::process::Command::new(&latexmk);
+            cmd.arg(mode);
+            if force {
+                cmd.arg("-g");
+            }
+            cmd.args([
+                "-synctex=1",
+                "-interaction=nonstopmode",
+                "-halt-on-error",
+                "-file-line-error",
+            ])
+            .arg(main_file)
+            .current_dir(work_dir)
+            .env("PATH", &env_path);
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.output()
+                .map_err(|e| format!("Cannot run latexmk: {e}"))
+        };
+        let text = |output: &std::process::Output| {
+            format!(
+                "{}\n{}",
                 String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
+            )
+        };
+        // latexmk keeps a record of the last run next to the output. After a failed run
+        // it will not try again until a file it tracks changes, even when the cause was
+        // outside those files (a compiler choice, an installed package or font).
+        let forget_last_run = || {
+            let stem = Path::new(main_file)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("document");
+            for extension in ["fdb_latexmk", "fls"] {
+                let _ = std::fs::remove_file(work_dir.join(format!("{stem}.{extension}")));
+            }
+        };
+        let mut output = run(false)?;
+        if !output.status.success() && latexmk_is_stuck(&text(&output)) {
+            forget_last_run();
+            output = run(true)?;
+        }
+        if !output.status.success() {
+            // Leave no stale record: the next attempt must start fresh and show the real error.
+            forget_last_run();
+            return Err(format!(
+                "latexmk failed. Ensure Perl and the selected engine are installed.\n{}",
+                text(&output)
             ));
         }
         return Ok(());
@@ -1557,6 +1593,40 @@ mod tests {
             .await
             .unwrap_err();
             assert!(error.contains("Choose the matching engine"), "{error}");
+        }
+    }
+
+    #[test]
+    fn latexmk_refusing_to_rerun_is_recognised() {
+        assert!(latexmk_is_stuck(
+            "Latexmk: Nothing to do for 'main.tex'.\npdflatex: gave an error in previous invocation of latexmk."
+        ));
+        assert!(!latexmk_is_stuck("! Undefined control sequence.\nl.3 \\undefinedcommand"));
+    }
+
+    #[test]
+    #[ignore = "needs MiKTeX or TeX Live with latexmk installed"]
+    fn a_failed_latexmk_run_does_not_leave_the_next_one_stuck() {
+        if find_texlive_binary("latexmk").is_err() {
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("main.tex"),
+            "\\documentclass{article}\n\\begin{document}\n\\undefinedcommand\n\\end{document}\n",
+        )
+        .unwrap();
+        for attempt in 1..=3 {
+            let error = compile_with_texlive(temp.path(), "main.tex", Some(TexEngine::Latex), "")
+                .unwrap_err();
+            assert!(
+                !error.contains("gave an error in previous invocation"),
+                "attempt {attempt} was stuck:\n{error}"
+            );
+            assert!(
+                error.contains("Undefined control sequence"),
+                "attempt {attempt} did not show the real error:\n{error}"
+            );
         }
     }
 
