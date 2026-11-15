@@ -143,11 +143,70 @@ export function DriveBackupOverview({
 
   const Icon = complete ? CloudCheckIcon : CloudAlertIcon;
 
+  const replaceWithCloud = async (
+    review: Pick<ProjectRecord, "path" | "name">,
+    command: "drive_sync_project" | "drive_use_cloud_version",
+    done: string,
+  ) => {
+    const doc = useDocumentStore.getState();
+
+    const wasOpen =
+      !!doc.projectRoot &&
+      projectPathKey(doc.projectRoot) === projectPathKey(review.path);
+
+    if (
+      (wasOpen && (doc.files.some((f) => f.isDirty) || doc.isCompiling)) ||
+      useCodexChatStore.getState().tabs.some((t) => t.isStreaming)
+    ) {
+      setError(
+        "Save your edits and wait for the compiler and agent to finish first",
+      );
+
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setDriveSyncing(review.path, true);
+
+    if (wasOpen) doc.closeProject();
+
+    try {
+      const result = await invoke<{
+        lastBackup: number;
+        sourceRevision: string;
+        deviceName?: string;
+      }>(command, {
+        projectPath: review.path,
+        expectedRemoteHash:
+          reviewHash || projectDriveStatus(review.path).conflict!.remoteHash,
+      });
+
+      updateDriveBackup(review.path, "saved", result);
+
+      window.dispatchEvent(new Event("project-library-changed"));
+
+      setReview(undefined);
+
+      toast.success(done, {
+        description:
+          "The previous source is kept in a recovery folder beside your project",
+      });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDriveSyncing(review.path, false);
+      setBusy(false);
+
+      if (wasOpen) await useDocumentStore.getState().openProject(review.path);
+    }
+  };
+
   return (
     <Card
       as="section"
       className="drive-overview mb-6 rounded-xl border border-border bg-card p-4"
-      aria-label="Google Drive backup overview"
+      aria-label="Backup overview"
     >
       <div className="flex items-start gap-3">
         <Icon
@@ -161,7 +220,7 @@ export function DriveBackupOverview({
         <div className="min-w-0 flex-1">
           <p className="font-medium text-sm" role="status">
             {complete
-              ? `All ${rows.length} projects up to date in Drive`
+              ? `All ${rows.length} projects up to date in your backup`
               : `${saved.length} of ${rows.length} projects backed up${attention.length ? ` · ${attention.length} need attention` : " · Backup pending"}`}
           </p>
           <p className="mt-1 text-muted-foreground text-xs">
@@ -191,7 +250,7 @@ export function DriveBackupOverview({
                       : p.status.paused
                         ? "Local backup paused"
                         : p.status.conflict
-                          ? "Drive version changed"
+                          ? "Backup version changed"
                           : p.status.uploading
                             ? "Uploading ZIP…"
                             : p.status.error
@@ -243,15 +302,15 @@ export function DriveBackupOverview({
               {review && projectDriveStatus(review.path).incoming
                 ? "Your local source is unchanged. You can get the newer revision safely. "
                 : "Choose which version to use. "}
-              Downloading the Drive version creates a new local project and
-              pauses the old local copy. Your existing folder is kept for
-              recovery.
+              Either version can be kept. Using the backup version replaces this
+              project in place and keeps your current files in a recovery
+              folder.
             </DialogDescription>
           </DialogHeader>
           {review && (
             <div className="space-y-3 text-sm">
               <p>
-                Drive changed:{" "}
+                Backup changed:{" "}
                 {projectDriveStatus(review.path).conflict?.modifiedTime
                   ? new Date(
                       projectDriveStatus(review.path).conflict!.modifiedTime!,
@@ -264,7 +323,7 @@ export function DriveBackupOverview({
               {(projectDriveStatus(review.path).conflict?.versions?.length ||
                 0) > 1 && (
                 <label className="grid gap-2 text-sm">
-                  Drive revision
+                  Backup revision
                   <select
                     className="h-9 rounded-lg border bg-background px-3"
                     value={reviewHash}
@@ -286,71 +345,13 @@ export function DriveBackupOverview({
               {projectDriveStatus(review.path).incoming && (
                 <Button
                   disabled={busy}
-                  onClick={async () => {
-                    const doc = useDocumentStore.getState();
-
-                    const wasOpen =
-                      !!doc.projectRoot &&
-                      projectPathKey(doc.projectRoot) ===
-                        projectPathKey(review.path);
-
-                    if (
-                      (wasOpen &&
-                        (doc.files.some((f) => f.isDirty) ||
-                          doc.isCompiling)) ||
-                      useCodexChatStore
-                        .getState()
-                        .tabs.some((t) => t.isStreaming)
-                    ) {
-                      setError(
-                        "Save your edits and wait for the compiler and agent to finish first",
-                      );
-
-                      return;
-                    }
-
-                    setBusy(true);
-                    setError("");
-                    setDriveSyncing(review.path, true);
-
-                    if (wasOpen) doc.closeProject();
-
-                    try {
-                      const result = await invoke<{
-                        lastBackup: number;
-                        sourceRevision: string;
-                        deviceName?: string;
-                      }>("drive_sync_project", {
-                        projectPath: review.path,
-                        expectedRemoteHash:
-                          reviewHash ||
-                          projectDriveStatus(review.path).conflict!.remoteHash,
-                      });
-
-                      updateDriveBackup(review.path, "saved", result);
-
-                      window.dispatchEvent(
-                        new Event("project-library-changed"),
-                      );
-
-                      setReview(undefined);
-
-                      toast.success("Latest revision downloaded", {
-                        description:
-                          "The previous source is kept in a recovery folder beside your project",
-                      });
-                    } catch (e) {
-                      setError(String(e));
-                    } finally {
-                      setDriveSyncing(review.path, false);
-                      setBusy(false);
-
-                      if (wasOpen)
-                        await useDocumentStore
-                          .getState()
-                          .openProject(review.path);
-                    }
-                  }}
+                  onClick={() =>
+                    void replaceWithCloud(
+                      review,
+                      "drive_sync_project",
+                      "Latest revision applied",
+                    )
+                  }
                 >
                   {busy ? "Getting revision…" : "Get latest revision"}
                 </Button>
@@ -365,7 +366,7 @@ export function DriveBackupOverview({
                 1 && (
                 <p className="text-sm">
                   These devices saved competing revisions. Choosing a version
-                  keeps both original ZIPs in Drive history.
+                  keeps every earlier ZIP in the backup folder.
                 </p>
               )}
               <Button
@@ -404,7 +405,7 @@ export function DriveBackupOverview({
 
                     setError(
                       String(e).startsWith("DRIVE_CONFLICT:")
-                        ? "The Drive ZIP changed again. Review the updated version before replacing it."
+                        ? "The backup changed again. Review the updated version before replacing it."
                         : String(e),
                     );
                   } finally {
@@ -414,7 +415,7 @@ export function DriveBackupOverview({
               >
                 {busy
                   ? "Uploading PC version…"
-                  : "Use PC version · Replace Drive ZIP"}
+                  : "Use PC version · Save as newest backup"}
               </Button>
               <Button
                 variant="outline"
@@ -434,77 +435,21 @@ export function DriveBackupOverview({
                   !review ||
                   !projectDriveStatus(review.path).conflict?.remoteHash
                 }
-                onClick={async () => {
-                  const previous = projectDriveStatus(review.path).paused;
-
-                  setBusy(true);
-
-                  setError("");
-
-                  pauseDriveProject(review.path, true);
-
-                  try {
-                    const result = await invoke<{
-                      path: string;
-
-                      lastBackup: number;
-
-                      sourceRevision: string;
-                      syncError?: string;
-                    }>("drive_download_conflict", {
-                      projectPath: review.path,
-
-                      expectedRemoteHash:
-                        reviewHash ||
-                        projectDriveStatus(review.path).conflict!.remoteHash,
-                    });
-
-                    updateDriveBackup(result.path, "saved", result);
-                    if (result.syncError)
-                      updateDriveBackup(result.path, "failed", {
-                        error: result.syncError,
-                      });
-
-                    window.dispatchEvent(new Event("project-library-changed"));
-
-                    window.dispatchEvent(new Event("lemlio-drive-connected"));
-
-                    toast.success(
-                      result.syncError
-                        ? "Drive version downloaded; sync needs review"
-                        : "Drive version downloaded as a new local project",
-
-                      {
-                        description: result.path,
-
-                        action: {
-                          label: "Open folder",
-
-                          onClick: () => {
-                            void invoke("open_project_folder", {
-                              projectPath: result.path,
-                            });
-                          },
-                        },
-                      },
-                    );
-
-                    setReview(undefined);
-                  } catch (e) {
-                    pauseDriveProject(review.path, !!previous);
-
-                    setError(String(e));
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
+                onClick={() =>
+                  void replaceWithCloud(
+                    review,
+                    "drive_use_cloud_version",
+                    "Backup version applied",
+                  )
+                }
               >
-                Download Drive version · Keep old local copy
+                Use backup version · Replace this project
               </Button>
               <p className="text-muted-foreground text-xs">
-                Pause uploads only does not download anything. After
-                downloading, open the new project from your library; its edits
-                update the same Drive ZIP.
+                Using the backup version replaces this project in place; your
+                current files are kept in a recovery folder beside it. No second
+                project is created. Pause uploads only does not change any
+                files.
               </p>
               {error && (
                 <p role="alert" className="text-destructive">

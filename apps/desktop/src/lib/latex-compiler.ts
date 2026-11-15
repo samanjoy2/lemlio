@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveTexRoot, type ProjectFile } from "@/stores/document-store";
 import { createLogger } from "@/lib/debug/logger";
@@ -65,6 +66,25 @@ export async function compileLatex(
     throw error;
   }
 
+  // Show font substitutions and automatic engine fallback without hiding a usable PDF.
+  try {
+    const report = await invoke<{ backend: string; warnings: string[] }>(
+      "compiler_report",
+      { projectDir },
+    );
+    if (report.warnings?.length || report.backend?.includes("automatically")) {
+      toast.warning("Check PDF typography", {
+        id: `compiler-warning:${projectDir}`,
+        description: [
+          report.backend,
+          ...(report.warnings ?? []).slice(0, 3),
+        ].join("\n"),
+        duration: 10000,
+      });
+    }
+  } catch {
+    /* Older native builds may not expose compiler diagnostics. */
+  }
   const result = new Uint8Array(buffer);
   void refreshProjectThumbnail(projectDir, result, thumbnailStartedAt).catch(
     () => {},

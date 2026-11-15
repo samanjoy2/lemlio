@@ -26,24 +26,24 @@ it("shows confirmed backup times only for the project that was uploaded", async 
       lastBackup: Date.now() / 1000 - 120,
     });
     await act(async () => root.render(<DriveStatus projectPath="C:/One" />));
-    expect(element.textContent).toContain("Saved to Drive 2 min ago");
+    expect(element.textContent).toContain("Saved to backup 2 min ago");
     await act(async () => root.render(<DriveStatus projectPath="C:/Two" />));
     expect(element.textContent).toContain("No backup yet");
     await act(async () => updateDriveBackup("C:/Two", "pending"));
-    expect(element.textContent).toContain("Drive backup pending");
+    expect(element.textContent).toContain("Backup pending");
     await act(async () => updateDriveBackup("C:/Two", "uploading"));
-    expect(element.textContent).toContain("Saving to Drive");
+    expect(element.textContent).toContain("Saving backup");
     await act(async () =>
       updateDriveBackup("C:/Two", "failed", { error: "Offline" }),
     );
     expect(element.textContent).toContain("Will retry");
     await act(async () => updateDriveBackup("C:/Two", "saved"));
-    expect(element.textContent).toContain("Saved to Drive just now");
+    expect(element.textContent).toContain("Saved to backup just now");
     const opened = vi.fn();
     window.addEventListener("lemlio-open-settings", opened);
     try {
       await act(async () => element.querySelector("button")!.click());
-      expect(opened.mock.calls[0][0].detail).toBe("Google Drive");
+      expect(opened.mock.calls[0][0].detail).toBe("Backup");
     } finally {
       window.removeEventListener("lemlio-open-settings", opened);
     }

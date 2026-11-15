@@ -96,7 +96,7 @@ export function ImportProjectDialog({
         if (!busy) onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] min-w-0 overflow-y-auto overflow-x-hidden sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
             {result ? "Your project is in Lemlio" : "Import a project ZIP"}
@@ -142,25 +142,25 @@ export function ImportProjectDialog({
             )}
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="min-w-0 space-y-5">
             <button
               type="button"
-              className="flex w-full items-center gap-3 rounded-lg border border-dashed p-4 text-left hover:bg-muted/40"
+              className="flex w-full min-w-0 items-center gap-3 rounded-lg border border-dashed p-4 text-left hover:bg-muted/40"
               disabled={busy}
               onClick={chooseZip}
             >
               <ArchiveIcon className="size-6 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1">
-                <strong className="block truncate font-medium text-sm">
+                <strong className="block whitespace-normal font-medium text-sm [overflow-wrap:anywhere]">
                   {archivePath.split(/[/\\]/).pop() || "Choose ZIP file"}
                 </strong>
-                <span className="mt-1 block truncate text-muted-foreground text-xs">
+                <span className="mt-1 block whitespace-normal text-muted-foreground text-xs [overflow-wrap:anywhere]">
                   {archivePath || "Select a .zip from your computer"}
                 </span>
               </span>
               <UploadIcon className="size-4 shrink-0" />
             </button>
-            <fieldset disabled={busy} className="space-y-2">
+            <fieldset disabled={busy} className="min-w-0 space-y-2">
               <legend className="mb-2 font-medium text-sm">
                 What should happen to the ZIP?
               </legend>
@@ -173,7 +173,7 @@ export function ImportProjectDialog({
                   onChange={() => setMode("copy")}
                   className="mt-1"
                 />
-                <span>
+                <span className="min-w-0 flex-1">
                   <strong className="block font-medium text-sm">
                     Copy project · keep original ZIP
                   </strong>
@@ -192,7 +192,7 @@ export function ImportProjectDialog({
                   onChange={() => setMode("move")}
                   className="mt-1"
                 />
-                <span>
+                <span className="min-w-0 flex-1">
                   <strong className="block font-medium text-sm">
                     Move ZIP into Lemlio
                   </strong>
@@ -215,7 +215,7 @@ export function ImportProjectDialog({
               </p>
             </div>
             {error && (
-              <p role="alert" className="text-destructive text-xs">
+              <p role="alert" className="break-words text-destructive text-xs">
                 {error}
               </p>
             )}

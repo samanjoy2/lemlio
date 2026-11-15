@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-fn uncomment(source: &str) -> String {
+pub(crate) fn uncomment(source: &str) -> String {
     source
         .lines()
         .map(|line| {

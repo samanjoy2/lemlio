@@ -49,11 +49,11 @@ export function useDriveBackup() {
       localStorage.setItem(KEY, JSON.stringify([...queue.values()]));
     const failed = (error: unknown) => {
       const message = String(error).startsWith("DRIVE_CONFLICT:")
-        ? "Both versions need review in Google Drive settings. Local files are kept."
+        ? "Both versions need review in backup settings. Local files are kept."
         : String(error);
       localStorage.setItem("lemlio-drive-backup-error", message);
       if (!warned) {
-        toast.error("Google Drive backup will retry", {
+        toast.error("Backup will retry", {
           description: message,
         });
         warned = true;

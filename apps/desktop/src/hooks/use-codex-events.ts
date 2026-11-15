@@ -1,3 +1,4 @@
+import { approvalsFromDenials } from "@/lib/agent-approvals";
 import { finalizeGroupEdit } from "@/lib/project-group-actions";
 import { useEffect, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -193,6 +194,12 @@ export function useCodexEvents() {
         }
       }
       if (msg.type === "result") {
+        // The assistant was refused something: let the user decide, in the chat.
+        const denied = approvalsFromDenials(
+          (msg as { permission_denials?: unknown }).permission_denials,
+        );
+        if (denied.length > 0 && !tab.cancelled)
+          chatStore._setApprovals(tabId, denied);
         if (msg.is_error && !tab.cancelled && msg.result) {
           chatStore._setError(tabId, msg.result);
         }

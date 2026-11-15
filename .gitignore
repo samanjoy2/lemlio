@@ -115,3 +115,4 @@ Keys/
 
 
 !apps/desktop/src-tauri/Cargo.lock
+apps/desktop/src-tauri/resources/uv/

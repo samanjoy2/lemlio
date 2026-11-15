@@ -92,6 +92,21 @@ export async function runCompilerTool(
     if (typeof args !== "object" || args === null || Array.isArray(args))
       throw new Error("Tool arguments must be an object");
     const options = args as { main_file?: unknown; page?: unknown };
+    if (request.tool === "lemlio_run_tool") {
+      const input = args as { tool_id?: unknown; arguments?: unknown };
+      if (
+        typeof input.tool_id !== "string" ||
+        !Array.isArray(input.arguments) ||
+        input.arguments.some((a) => typeof a !== "string")
+      )
+        throw new Error("Provide tool_id and an arguments array of strings");
+      const result = await invoke<{ success: boolean }>("tools_run", {
+        projectDir: root,
+        toolId: input.tool_id,
+        arguments: input.arguments,
+      });
+      return { success: result.success, contentItems: [text(result)] };
+    }
     if (request.tool === "lemlio_view_pdf_page") {
       const snapshot = snapshots.get(key);
       if (!snapshot)

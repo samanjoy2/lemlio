@@ -5,7 +5,7 @@ Academic writing workspace powered by Lemlio. You are assisting with a LaTeX doc
 ## Environment
 
 - **LaTeX Engine**: Tectonic (handles packages and fonts automatically — no manual \`tlmgr\` needed)
-- **Python**: Available via \`uv\` with project-local \`.venv/\`. Use \`uv pip install <pkg>\` to add packages, \`uv run <script>\` to execute.
+- **Python**: Do not create a virtual environment in this project. Extra tools the user added (Lemlio → AI tools) live in one shared environment and are already on PATH.
 - **Build Directory**: \`.prism/build/\` (persistent, do not modify directly)
 - **Version History**: \`.prismpro/\` (automatic snapshots, do not modify)
 
@@ -16,17 +16,12 @@ Academic writing workspace powered by Lemlio. You are assisting with a LaTeX doc
 ├── main.tex              # Primary document (or custom-named .tex)
 ├── references.bib        # Bibliography (if applicable)
 ├── attachments/           # Reference files (PDFs, images, data)
-├── .venv/                 # Python virtual environment (auto-detected)
 └── figures/               # Generated figures and plots
 \`\`\`
 
 ## Commands
 
 \`\`\`bash
-# Python (data analysis, plotting, computation)
-uv pip install numpy matplotlib pandas scipy     # Install packages
-uv run python script.py                          # Run a script
-
 # LaTeX is compiled automatically by Lemlio — no manual build commands needed.
 \`\`\`
 
@@ -38,16 +33,7 @@ uv run python script.py                          # Run a script
 - For bibliography, add entries to \`references.bib\` and cite with \`\\cite{key}\`.
 - When adding new packages, add \`\\usepackage{pkg}\` to the preamble — Tectonic installs them automatically.
 
-## Scientific Skills
-
-If scientific skills are installed (\`~/.agents/skills/\` or \`.agents/skills/\`), you have access to 100+ domain-specific tools:
-
-- **Data Analysis**: pandas, numpy, scipy, statsmodels, scikit-learn, polars
-- **Visualization**: matplotlib, seaborn, plotly (save figures to \`figures/\` directory)
-- **Bioinformatics**: scanpy, biopython, pydeseq2, pysam
-- **Chemistry**: rdkit, datamol, deepchem
-- **Symbolic Math**: sympy
-- **Statistical Modeling**: pymc, statsmodels, scikit-survival
+## Figures
 
 When generating figures with Python, always:
 1. Save to \`figures/<descriptive-name>.pdf\` (vector) or \`.png\` (raster, 300 dpi)
@@ -57,7 +43,7 @@ When generating figures with Python, always:
 ## Gotchas
 
 - Tectonic uses XeTeX and supports Unicode. TeX Live engine directives apply only when using the TeX Live backend.
-- Do NOT create or modify files in \`.prism/\`, \`.prismpro/\`, or \`.venv/\` — these are managed automatically.
+- Do NOT create or modify files in \`.prism/\` or \`.prismpro/\`, and do not create a \`.venv/\` — these are managed automatically.
 - When modifying LaTeX, ensure matching \`\\begin{}\` / \`\\end{}\` pairs — mismatches cause hard-to-debug compile errors.
 - Large tables and figures should use \`\\begin{table}[htbp]\` / \`\\begin{figure}[htbp]\` for proper float placement.
 - If the user provides reference files in \`attachments/\`, review them before writing — they contain key context.

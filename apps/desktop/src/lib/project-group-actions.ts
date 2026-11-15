@@ -7,7 +7,10 @@ import {
 } from "@/lib/collaboration/runtime";
 import { projectPathKey } from "@/lib/project-catalog";
 import { invoke } from "@tauri-apps/api/core";
-import { useProjectGroups } from "@/stores/project-groups-store";
+import {
+  groupProjectPaths,
+  useProjectGroups,
+} from "@/stores/project-groups-store";
 import { useDocumentStore } from "@/stores/document-store";
 import { useCodexChatStore } from "@/stores/codex-chat-store";
 export interface GroupDiff {
@@ -32,6 +35,15 @@ export async function switchGroupProject(path: string) {
   if (useDocumentStore.getState().files.some((f) => f.isDirty))
     throw Error("Some edits could not be saved. This version is still open.");
   if (doc.projectRoot !== path) await doc.openProject(path);
+}
+/** Open a saved group's workspace (its first project, with the group's tabs). */
+export async function openGroupWorkspace(id: string) {
+  const group = useProjectGroups.getState().groups.find((g) => g.id === id);
+  if (!group) throw Error("This group no longer exists.");
+  const paths = groupProjectPaths(group);
+  if (!paths.length) throw Error("This group has no projects.");
+  await switchGroupProject(paths[0]);
+  useProjectGroups.setState({ activeGroupId: id });
 }
 export async function runGroupEdit(
   paths: string[],

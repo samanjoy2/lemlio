@@ -9,6 +9,9 @@ interface ProjectState {
   knownProjects: RecentProject[];
   starredPaths: string[];
   toggleStarred: (path: string) => void;
+  /** Projects tucked away from the normal lists. Nothing is deleted or stopped. */
+  archivedPaths: string[];
+  toggleArchived: (path: string) => void;
   lastProjectFolder: string | null;
   addRecentProject: (path: string) => void;
   removeRecentProject: (path: string) => void;
@@ -24,9 +27,19 @@ export const useProjectStore = create<ProjectState>()(
       recentProjects: [],
       knownProjects: [],
       starredPaths: [],
+      archivedPaths: [],
       lastProjectFolder: null,
 
       setLastProjectFolder: (path) => set({ lastProjectFolder: path }),
+      toggleArchived: (path) =>
+        set((state) => {
+          const key = projectPathKey(path);
+          return {
+            archivedPaths: state.archivedPaths.includes(key)
+              ? state.archivedPaths.filter((item) => item !== key)
+              : [...state.archivedPaths, key],
+          };
+        }),
       toggleStarred: (path) =>
         set((state) => {
           const key = projectPathKey(path);
@@ -79,6 +92,7 @@ export const useProjectStore = create<ProjectState>()(
               (p) => projectPathKey(p.path) !== key,
             ),
             starredPaths: state.starredPaths.filter((p) => p !== key),
+            archivedPaths: state.archivedPaths.filter((p) => p !== key),
             lastProjectFolder:
               state.lastProjectFolder &&
               projectPathKey(state.lastProjectFolder) === key
@@ -96,6 +110,7 @@ export const useProjectStore = create<ProjectState>()(
           recentProjects: state.recentProjects ?? [],
           knownProjects: state.knownProjects ?? state.recentProjects ?? [],
           starredPaths: state.starredPaths ?? [],
+          archivedPaths: state.archivedPaths ?? [],
           lastProjectFolder: state.lastProjectFolder ?? null,
         };
       },

@@ -246,7 +246,7 @@ const CodeBlock: FC<{ language: string; code: string }> = ({
 
       {/* Running spinner */}
       {runState.status === "running" && (
-        <div className="mt-1 flex items-center gap-2 rounded-lg border border-border bg-[#1e1e2e] px-3 py-2 text-sm">
+        <div className="mt-1 flex items-center gap-2 rounded-xl border border-white/10 bg-[#1d1d1f] px-3 py-2 text-[#f5f5f7] text-sm shadow-sm">
           <LoaderIcon className="size-3.5 animate-spin text-muted-foreground" />
           <span className="font-mono text-muted-foreground text-xs">
             Running...
@@ -288,7 +288,7 @@ const CommandOutput: FC<{
     output.length > 2000 ? `${output.slice(0, 2000)}\n...` : output;
 
   return (
-    <div className="mt-1 rounded-lg border border-border bg-[#1e1e2e] text-sm">
+    <div className="mt-1 rounded-xl border border-white/10 bg-[#1d1d1f] text-[#f5f5f7] text-sm shadow-sm">
       <button
         type="button"
         className="flex w-full items-center gap-2 px-3 py-2"

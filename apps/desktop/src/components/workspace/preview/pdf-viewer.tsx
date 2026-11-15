@@ -1,7 +1,6 @@
 import { useCallback, useRef, useEffect, useState } from "react";
 import { LoaderIcon } from "lucide-react";
-import { open as shellOpen } from "@tauri-apps/plugin-shell";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { requestOpenLink } from "./external-link-dialog";
 import {
   getCachedDocument,
   getOrOpenDocument,
@@ -617,20 +616,8 @@ export function PdfViewer({
         return;
       }
 
-      if (
-        href.startsWith("http://") ||
-        href.startsWith("https://") ||
-        href.startsWith("mailto:")
-      ) {
-        ask(`Open in browser?\n${href}`, {
-          title: "External Link",
-          kind: "info",
-          okLabel: "Open",
-          cancelLabel: "Cancel",
-        }).then((confirmed) => {
-          if (confirmed) shellOpen(href);
-        });
-      }
+      // Any other link goes through one app-wide confirmation, never straight out.
+      if (/^[a-z][a-z0-9+.-]*:/i.test(href)) requestOpenLink(href);
     };
 
     container.addEventListener("click", handleClick, true);

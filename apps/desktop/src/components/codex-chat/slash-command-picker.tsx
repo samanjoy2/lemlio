@@ -47,26 +47,20 @@ interface SlashCommandPickerProps {
   onClose: () => void;
 }
 
-type Tab = "skills" | "default" | "custom";
+type Tab = "default" | "custom";
 
 const SCOPE_LABEL: Record<string, string> = {
-  skill: "Skill",
   default: "Default",
   project: "Project",
   user: "User",
 };
 
 function scopeToTab(scope: string): Tab {
-  if (scope === "skill") return "skills";
   if (scope === "default") return "default";
   return "custom";
 }
 
 function getCommandIcon(command: SlashCommand) {
-  if (command.scope === "skill")
-    return (
-      <FlaskConicalIcon className="size-3.5 shrink-0 text-muted-foreground" />
-    );
   if (command.has_bash_commands)
     return <TerminalIcon className="size-3.5 shrink-0 text-muted-foreground" />;
   if (command.has_file_references)
@@ -359,7 +353,7 @@ export const SlashCommandPicker: FC<SlashCommandPickerProps> = ({
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [activeTab, setActiveTab] = useState<Tab>("skills");
+  const [activeTab, setActiveTab] = useState<Tab>("default");
   const [showPreview, setShowPreview] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{
@@ -399,7 +393,7 @@ export const SlashCommandPicker: FC<SlashCommandPickerProps> = ({
 
   // Counts per tab (for badges)
   const tabCounts = useMemo(() => {
-    const counts: Record<Tab, number> = { skills: 0, default: 0, custom: 0 };
+    const counts: Record<Tab, number> = { default: 0, custom: 0 };
     for (const cmd of commands) {
       counts[scopeToTab(cmd.scope)]++;
     }
@@ -420,7 +414,7 @@ export const SlashCommandPicker: FC<SlashCommandPickerProps> = ({
 
   // The currently highlighted command
   const selectedCommand = filtered.length > 0 ? filtered[selectedIndex] : null;
-  const canPreview = selectedCommand?.scope === "skill";
+  const canPreview = false;
 
   // Group by scope for unified search display
   const searchGroups = useMemo(() => {
@@ -430,9 +424,8 @@ export const SlashCommandPicker: FC<SlashCommandPickerProps> = ({
       label: string;
       items: { cmd: SlashCommand; globalIndex: number }[];
     }[] = [];
-    const order: Tab[] = ["skills", "default", "custom"];
+    const order: Tab[] = ["default", "custom"];
     const labels: Record<Tab, string> = {
-      skills: "Skills",
       default: "Default",
       custom: "Custom",
     };
@@ -574,11 +567,6 @@ export const SlashCommandPicker: FC<SlashCommandPickerProps> = ({
     }
 
     const hints: Record<Tab, React.ReactNode> = {
-      skills: (
-        <p className="mt-1 px-4 text-center text-muted-foreground text-xs">
-          Install scientific skills from the sidebar menu.
-        </p>
-      ),
       default: null,
       custom: (
         <p className="mt-1 px-4 text-center text-muted-foreground text-xs">
@@ -676,7 +664,7 @@ export const SlashCommandPicker: FC<SlashCommandPickerProps> = ({
 
           {!isSearching && (
             <div className="flex gap-1">
-              {(["skills", "default", "custom"] as const).map((tab) => (
+              {(["default", "custom"] as const).map((tab) => (
                 <button
                   key={tab}
                   className={cn(
@@ -690,11 +678,7 @@ export const SlashCommandPicker: FC<SlashCommandPickerProps> = ({
                     setActiveTab(tab);
                   }}
                 >
-                  {tab === "skills"
-                    ? "Skills"
-                    : tab === "default"
-                      ? "Default"
-                      : "Custom"}
+                  {tab === "default" ? "Default" : "Custom"}
                   {tabCounts[tab] > 0 && (
                     <span
                       className={cn(

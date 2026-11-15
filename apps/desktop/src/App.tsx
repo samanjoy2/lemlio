@@ -9,6 +9,7 @@ import { CloneProjectDialog } from "@/components/clone-project-dialog";
 import { DeleteProjectDialog } from "@/components/delete-project-dialog";
 import { CloseConfirmation } from "@/components/close-confirmation";
 import { DriveRestoreDialog } from "@/components/drive-restore-dialog";
+import { ExternalLinkDialog } from "@/components/workspace/preview/external-link-dialog";
 import { ErrorBoundary } from "react-error-boundary";
 import { Toaster } from "@/components/ui/sonner";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -17,11 +18,12 @@ import { useDocumentStore } from "@/stores/document-store";
 import { useCodexChatStore } from "@/stores/codex-chat-store";
 import { ProjectPicker } from "@/components/project-picker";
 import { useDriveBackup } from "@/hooks/use-drive-backup";
+import { useAppearance } from "@/lib/appearance";
+import { checkTemplateUpdatesInBackground } from "@/lib/templates";
 import { WorkspaceLayout } from "@/components/workspace/workspace-layout";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useUvSetupStore } from "@/stores/uv-setup-store";
 import { ErrorFallback } from "@/components/error-fallback";
 import { createLogger } from "@/lib/debug/logger";
 
@@ -45,23 +47,6 @@ function WorkspaceWithCodex() {
     }
   }, [projectRoot]);
 
-  // Auto-setup Python venv when project opens
-  useEffect(() => {
-    if (!initialized || !projectRoot) return;
-    const uvStore = useUvSetupStore.getState();
-    uvStore
-      .checkStatus()
-      .then(() => {
-        const { status } = useUvSetupStore.getState();
-        if (status === "ready") {
-          return uvStore.setupVenv(projectRoot);
-        }
-      })
-      .catch((err) => {
-        log.error("Failed to setup Python venv", { error: String(err) });
-      });
-  }, [initialized, projectRoot]);
-
   // Consume pending initial prompt from project wizard
   useEffect(() => {
     if (!initialized) return;
@@ -79,6 +64,8 @@ function WorkspaceWithCodex() {
 }
 
 export function App({ onReady }: { onReady?: () => void }) {
+  useAppearance();
+  useEffect(() => checkTemplateUpdatesInBackground(), []);
   useDriveBackup();
   useCollaboration();
   const projectRoot = useDocumentStore((s) => s.projectRoot);
@@ -129,6 +116,7 @@ export function App({ onReady }: { onReady?: () => void }) {
           <CollaborationDialog />
           <CloseConfirmation />
           <DriveRestoreDialog />
+          <ExternalLinkDialog />
           {showDebug && (
             <div className="fixed inset-0 z-[9998] flex items-end justify-center">
               <div

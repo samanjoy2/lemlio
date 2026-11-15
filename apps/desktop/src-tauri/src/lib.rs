@@ -1,20 +1,36 @@
+mod agent_shims;
+mod backup_store;
 mod claude;
 mod codex;
 mod collaboration;
 mod drive;
 mod drive_receipts;
 mod drive_sync;
+mod dropbox;
 mod eps;
 mod fonts;
 mod history;
 mod latex;
 mod latex_compat;
+mod portable_fonts;
 mod previews;
 mod project_delete;
 mod projects;
-mod skills;
+mod remote;
 mod slash_commands;
 mod speech;
+mod handy;
+mod templates;
+mod tools;
+mod tool_runtime;
+pub fn setup_tools_runtime_headless() -> Result<(), String> {
+    let root = dirs::data_dir().ok_or("Cannot locate Lemlio data")?.join("com.lemlio.desktop/tools");
+    tauri::async_runtime::block_on(tool_runtime::initialize(&root, true))
+}
+pub fn run_tool_headless(project: String, id: String, arguments: Vec<String>) -> Result<serde_json::Value, String> {
+    let root = dirs::data_dir().ok_or("Cannot locate Lemlio data")?.join("com.lemlio.desktop/tools");
+    tauri::async_runtime::block_on(tools::run_at(&root, project, id, arguments))
+}
 mod updates;
 mod uv;
 
@@ -33,8 +49,8 @@ pub fn system_tex_compile_subprocess(work_dir: &Path, main_file: &str) -> Result
     latex::compile_with_system_tex(work_dir, main_file)
 }
 
-pub fn configure_drive_client(path: &Path) -> Result<(), String> {
-    drive::configure_client(path)
+pub fn set_backup_folder(path: &Path) -> Result<String, String> {
+    drive::set_backup_folder(path)
 }
 pub fn clear_drive_setup() -> Result<(), String> {
     drive::clear_local_setup()
@@ -474,6 +490,8 @@ pub fn run() {
             latex::open_compiled_pdf,
             latex::synctex_edit,
             latex::detect_texlive,
+            latex::project_compiler,
+            latex::compiler_report,
             codex::check_codex_status,
             codex::login_codex,
             codex::execute_codex_code,
@@ -492,12 +510,22 @@ pub fn run() {
             claude::cancel_claude_execution,
             claude::list_claude_sessions,
             claude::load_claude_session_history,
+            templates::template_packs,
+            templates::template_check_updates,
+            templates::template_install,
+            templates::template_create_project,
             projects::list_imported_projects,
-            drive::drive_configure,
             drive::drive_status,
-            drive::drive_connect,
+            drive::drive_dropbox_connect,
+            drive::drive_dropbox_connect_manual,
+            drive::drive_dropbox_submit_code,
             drive::drive_cancel,
+            drive::drive_set_app_key,
+            drive::drive_detect_folders,
+            drive::drive_set_folder,
             drive::drive_disconnect,
+            drive::drive_use_cloud_version,
+            drive::drive_link_project,
             drive::drive_backup_project,
             drive::drive_collaboration_updates,
             drive::drive_reset_backups,
@@ -530,22 +558,21 @@ pub fn run() {
             slash_commands::slash_command_get,
             slash_commands::slash_command_save,
             slash_commands::slash_command_delete,
-            skills::install_scientific_skills,
-            skills::install_scientific_skills_global,
-            skills::check_skills_installed,
-            skills::list_installed_skills,
-            skills::uninstall_scientific_skills,
-            skills::get_skill_categories,
-            skills::get_skill_content,
             uv::check_uv_status,
             speech::speech_start,
             speech::check_speech_status,
             speech::speech_stop,
             speech::open_speech_settings,
+            handy::check_handy_status,
+            handy::handy_control,
             uv::install_uv,
-            uv::setup_project_venv,
-            uv::uv_add_packages,
-            uv::uv_run_command,
+            tools::tools_list,
+            tools::tools_runtime_setup,
+            tools::tools_run,
+            tools::tools_preview,
+            tools::tools_install,
+            tools::tools_set_enabled,
+            tools::tools_remove,
             get_system_info,
             open_debug_window,
         ])

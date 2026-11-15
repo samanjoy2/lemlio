@@ -22,7 +22,7 @@ Only one session can be hosted by a Lemlio instance at a time. Hosting is a conn
 
 ## Work completely offline
 
-Continue editing an existing shared project without internet, Drive, or a running host. Local source and shared history save on your computer. When you reconnect to a reachable host, the histories merge. A later upload of an older copy cannot replace someone’s offline edits merely because it has a newer upload timestamp.
+Continue editing an existing shared project without internet, a backup folder, or a running host. Local source and shared history save on your computer. When you reconnect to a reachable host, the histories merge. A later upload of an older copy cannot replace someone’s offline edits merely because it has a newer upload timestamp.
 
 If you never overlap online:
 
@@ -35,9 +35,9 @@ Text changes use the shared edit history from [Yjs](https://docs.yjs.dev/), rath
 
 ## Drive and restoration
 
-Drive remains optional backup transport, using immutable project ZIP revisions. For shared projects, Lemlio verifies each remote head and merges its shared history before uploading. It rechecks those heads to detect an upload race. Both histories are retained; an unresolved file conflict blocks automatic backup until reviewed. Shared project titles and file renames follow the project’s stable identity.
+The backup folder (for example Dropbox) remains optional backup transport, using immutable project ZIP revisions. For shared projects, Lemlio verifies each remote head and merges its shared history before uploading. It rechecks those heads to detect an upload race. Both histories are retained; an unresolved file conflict blocks automatic backup until reviewed. Shared project titles and file renames follow the project’s stable identity.
 
-A new device can restore a project ZIP from Drive. Its history travels with the ZIP, but the private invitation key stays outside projects, so paste the original invitation to reconnect or decrypt offline files. Keep a private copy of that invitation. Each Google account only sees backups available through its own Drive connection; joining collaborators does not automatically share a Google Drive account or folder.
+A new device can restore a project ZIP from the backup folder. Its history travels with the ZIP, but the private invitation key stays outside projects, so paste the original invitation to reconnect or decrypt offline files. Keep a private copy of that invitation. Each person only sees backups in the folder their own computer syncs; joining collaborators does not automatically share a Dropbox account or folder.
 
 All devices handling a shared project must use 1.4.0 or later. An older app or external tool that edits ZIP sources without updating the history is detected and requires separate recovery/review. Lemlio does not blindly load that stale history over changed source. Ordinary non-shared projects retain their existing Drive conflict workflow.
 

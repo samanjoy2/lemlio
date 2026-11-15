@@ -1,11 +1,12 @@
 import { backupProject } from "@/lib/collaboration/runtime";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { open as chooseFile } from "@tauri-apps/plugin-dialog";
-import { open } from "@tauri-apps/plugin-shell";
+import { open as chooseFolder } from "@tauri-apps/plugin-dialog";
+import { open as openLink } from "@tauri-apps/plugin-shell";
 import { Button } from "./ui/button";
 import { ActivityOrb } from "./activity-feedback";
 import { DriveDiscoveryNotice } from "./drive-discovery-notice";
+import { DropboxSetupGuide } from "./dropbox-setup-guide";
 import { Switch } from "./panelui/switch";
 import { DriveBackupOverview } from "./drive-backup-overview";
 import { requestDriveRestore } from "./drive-restore-dialog";
@@ -26,59 +27,108 @@ import { useDocumentStore } from "@/stores/document-store";
 import { useProjectStore } from "@/stores/project-store";
 import { projectPathKey, type ProjectCatalogData } from "@/lib/project-catalog";
 
-interface DriveStatus {
+interface BackupStatus {
+  provider: "dropbox" | "folder" | null;
   configured: boolean;
   connected: boolean;
   pending: boolean;
+  needsReconnect: boolean;
   error: string | null;
   lastBackup: number | null;
-  folderUrl: string | null;
+  account: { id: string; name: string; email: string } | null;
+  dropboxReady: boolean;
+  dropboxSupported: boolean;
+  appKeyConfigured: boolean;
+  builtInAppKey: boolean;
+  ownAppKey: boolean;
+  redirectUris: string[];
+  permissions: string[];
+  folderPath: string | null;
+  suggestions?: { provider: string; path: string }[];
 }
 export function DriveSettings() {
   const previousConnection = useRef(false);
-  const [status, setStatus] = useState<DriveStatus>();
+  const [status, setStatus] = useState<BackupStatus>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [resetOpen, setResetOpen] = useState(false);
+  const [codeMode, setCodeMode] = useState(false);
+  const [code, setCode] = useState("");
   const auto = useSettingsStore((s) => s.autoDriveBackup);
   const setAuto = useSettingsStore((s) => s.setAutoDriveBackup);
   const refresh = () =>
-    invoke<DriveStatus>("drive_status")
+    invoke<BackupStatus>("drive_status")
       .then((value) => {
         setStatus(value);
-        if (value.connected && !previousConnection.current)
+        if (value.connected && !previousConnection.current) {
+          setCodeMode(false);
           window.dispatchEvent(new Event("lemlio-drive-connected"));
+        }
         previousConnection.current = value.connected;
       })
       .catch((e) => setError(String(e)));
   useEffect(() => {
     void refresh();
-    const timer = setInterval(() => void refresh(), 2000);
+    const timer = setInterval(() => void refresh(), 3000);
     return () => clearInterval(timer);
   }, []);
-  const configure = async () => {
+  const connectDropbox = async () => {
     try {
-      const path = await chooseFile({
-        title: "Choose Desktop OAuth client JSON",
-        multiple: false,
-        filters: [{ name: "Google OAuth JSON", extensions: ["json"] }],
-      });
-      if (typeof path !== "string") return;
-      await invoke("drive_configure", { clientPath: path });
-      window.dispatchEvent(new Event(DRIVE_UPDATED));
-      setMessage("OAuth configuration saved locally.");
       setError("");
+      setCodeMode(false);
+      const url = await invoke<string>("drive_dropbox_connect");
+      await openLink(url);
       await refresh();
     } catch (e) {
       setError(String(e));
     }
   };
-  const connect = async () => {
+  const connectWithCode = async () => {
     try {
       setError("");
-      const url = await invoke<string>("drive_connect");
-      await open(url);
+      const url = await invoke<string>("drive_dropbox_connect_manual");
+      setCodeMode(true);
+      await openLink(url);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const submitCode = async () => {
+    try {
+      setError("");
+      await invoke("drive_dropbox_submit_code", { code });
+      setCode("");
+      setCodeMode(false);
+      window.dispatchEvent(new Event(DRIVE_UPDATED));
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const useFolder = async (folderPath: string) => {
+    try {
+      setError("");
+      await invoke("drive_set_folder", { folderPath });
+      window.dispatchEvent(new Event(DRIVE_UPDATED));
+      setMessage("Backup folder saved.");
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const pickFolder = async () => {
+    const path = await chooseFolder({
+      title: "Choose your Dropbox folder (or any synced folder)",
+      directory: true,
+      multiple: false,
+    });
+    if (typeof path === "string") await useFolder(path);
+  };
+  const disconnect = async () => {
+    try {
+      await invoke("drive_disconnect");
+      window.dispatchEvent(new Event(DRIVE_UPDATED));
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -127,7 +177,7 @@ export function DriveSettings() {
           throw error;
         }
       }
-      setMessage(`${paths.length} project backups saved in Google Drive.`);
+      setMessage(`${paths.length} project backups saved.`);
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -135,100 +185,114 @@ export function DriveSettings() {
       setBusy(false);
     }
   };
+  const viaDropbox = status?.provider === "dropbox";
+  const signedIn = viaDropbox && status?.connected;
   return (
     <div className="space-y-4">
-      <h3 className="font-medium">Google Drive account</h3>
+      <h3 className="font-medium">Backup</h3>
       <p>
-        Connect your account to sync versioned project ZIPs in a{" "}
-        <strong>Lemlio Backups</strong> folder in your Drive.
+        Lemlio saves versioned project ZIPs and keeps your computers in sync.
+        Every revision is kept; nothing is overwritten.
       </p>
       <div className="space-y-3 rounded-lg border p-4">
-        <strong className="block">1. Choose your OAuth JSON</strong>
-        <p className="text-muted-foreground text-xs">
-          Each installation can use its own Google Desktop OAuth client. Choose
-          the JSON file downloaded from Google Cloud. It is copied into local
-          app settings, outside your projects. Configuration files are excluded
-          from Git and backups; sign-in tokens stay in Windows Credential
-          Manager or macOS Keychain. Authorization requests go directly to
-          Google.
-        </p>
-        <Button variant="outline" onClick={configure}>
-          {status?.configured
-            ? "Replace local OAuth JSON"
-            : "Choose OAuth JSON"}
-        </Button>
-        <details className="text-xs">
-          <summary className="cursor-pointer">How to create the JSON</summary>
-          <ol className="mt-3 list-decimal space-y-2 pl-5">
-            <li>
-              Create a Google Cloud project named Lemlio and enable Google Drive
-              API.
-            </li>
-            <li>
-              In Google Auth Platform → Audience, keep Testing enabled and add
-              the exact Google email you will sign in with under Test users.
-              Save before connecting. Google may show “Google hasn’t verified
-              this app”; continue only for the OAuth project you created.
-            </li>
-            <li>
-              Add the non-sensitive scope
-              https://www.googleapis.com/auth/drive.file.
-            </li>
-            <li>
-              Create an OAuth client with type Desktop app, download its JSON,
-              then choose it here.
-            </li>
-          </ol>
-          <Button
-            className="mt-3"
-            variant="outline"
-            onClick={() =>
-              open(
-                "https://console.cloud.google.com/apis/library/drive.googleapis.com",
-              )
-            }
-          >
-            Open Google Cloud setup
-          </Button>
-        </details>
-      </div>
-      <div className="space-y-3 rounded-lg border p-4">
-        <strong className="block">2. Connect Google Drive</strong>
-        {status?.pending ? (
+        <strong className="block">Dropbox</strong>
+        {!status?.dropboxSupported ? (
+          <p className="text-muted-foreground text-xs">
+            Dropbox sign-in is available in the Windows and macOS apps. On this
+            computer, use a synced folder under Advanced.
+          </p>
+        ) : signedIn ? (
           <>
-            <ActivityOrb compact label="Waiting for Google sign-in…" />
-            <Button
-              variant="outline"
-              onClick={async () => {
-                await invoke("drive_cancel");
-                await refresh();
-              }}
-            >
-              Cancel sign-in
-            </Button>
-          </>
-        ) : status?.connected ? (
-          <>
-            <p className="text-emerald-700 dark:text-emerald-400">Connected</p>
-            <Button
-              variant="outline"
-              onClick={async () => {
-                try {
-                  await invoke("drive_disconnect");
-                  window.dispatchEvent(new Event(DRIVE_UPDATED));
-                  await refresh();
-                } catch (e) {
-                  setError(String(e));
-                }
-              }}
-            >
+            <p className="text-emerald-700 dark:text-emerald-400">
+              Connected
+              {status?.account?.name || status?.account?.email
+                ? ` as ${status.account.name || status.account.email}`
+                : ""}
+            </p>
+            {status?.account?.email && status.account.name && (
+              <p className="text-muted-foreground text-xs">
+                {status.account.email}
+              </p>
+            )}
+            <p className="text-muted-foreground text-xs">
+              Backups are stored in the Lemlio app folder of your Dropbox (Apps
+              → Lemlio). Lemlio can only see that folder.
+            </p>
+            <Button variant="outline" onClick={() => void disconnect()}>
               Disconnect
             </Button>
           </>
+        ) : status?.pending ? (
+          <>
+            <ActivityOrb compact label="Waiting for Dropbox sign-in…" />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  await invoke("drive_cancel");
+                  await refresh();
+                }}
+              >
+                Cancel
+              </Button>
+              <Button variant="ghost" onClick={() => void connectWithCode()}>
+                Use a code instead
+              </Button>
+            </div>
+          </>
         ) : (
-          <Button disabled={!status?.configured} onClick={connect}>
-            Connect Google Drive
-          </Button>
+          <>
+            {viaDropbox && status?.needsReconnect && (
+              <p role="alert" className="text-destructive text-xs">
+                Dropbox needs you to sign in again. Your backups are safe.
+              </p>
+            )}
+            <Button
+              disabled={!status?.dropboxReady}
+              onClick={() => void connectDropbox()}
+            >
+              {viaDropbox && status?.needsReconnect
+                ? "Reconnect Dropbox"
+                : "Connect Dropbox"}
+            </Button>
+            {status && !status.dropboxReady && (
+              <p className="text-muted-foreground text-xs">
+                Dropbox sign-in is not set up in this build yet. Follow the
+                setup guide below (one time), or use a synced folder.
+              </p>
+            )}
+            {status?.dropboxReady && (
+              <p className="text-muted-foreground text-xs">
+                Your browser opens Dropbox to approve access to one app folder.
+                Lemlio never sees your password.
+              </p>
+            )}
+            {status?.dropboxReady && !codeMode && (
+              <Button variant="ghost" onClick={() => void connectWithCode()}>
+                Browser did not return to Lemlio? Use a code
+              </Button>
+            )}
+          </>
+        )}
+        {codeMode && (
+          <div className="space-y-2">
+            <p className="text-muted-foreground text-xs">
+              Approve access on Dropbox, then paste the code it shows here.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                className="h-9 min-w-0 flex-1 rounded-lg border bg-background px-3"
+                aria-label="Dropbox code"
+                value={code}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(e) => setCode(e.target.value)}
+              />
+              <Button disabled={!code.trim()} onClick={() => void submitCode()}>
+                Connect
+              </Button>
+            </div>
+          </div>
         )}
         <label htmlFor="drive-auto-sync" className="flex items-center gap-2">
           <Switch
@@ -241,14 +305,72 @@ export function DriveSettings() {
           Sync automatically
         </label>
         <p className="text-muted-foreground text-xs">
-          Saved changes upload after a short pause. Every five minutes,
+          Saved changes are written after a short pause. Every five minutes,
           unchanged closed projects receive newer revisions from your other
-          devices. Open projects wait for review. If both copies changed, choose
-          a version first. Each ZIP keeps its revision manifest and device
-          details; previous revisions remain in Drive and use storage. Update
-          all devices to Lemlio 1.3.0 or later and use the same OAuth project.
+          computers, replacing the project in place and keeping the previous
+          files in a recovery folder. Open projects wait for review. If both
+          copies changed, you choose which version to keep. Each revision is a
+          separate ZIP, so earlier revisions remain and use Dropbox storage.
         </p>
       </div>
+      {status && (
+        <DropboxSetupGuide
+          status={status}
+          onChanged={refresh}
+          onTest={connectDropbox}
+        />
+      )}
+      <details
+        className="rounded-lg border p-4"
+        open={status?.provider === "folder"}
+      >
+        <summary className="cursor-pointer font-medium">
+          Advanced: use a synced folder instead
+        </summary>
+        <div className="mt-3 space-y-3">
+          <p className="text-muted-foreground text-xs">
+            Works offline and needs no sign-in. Lemlio writes a Lemlio Backups
+            folder inside the folder you choose, and the Dropbox app (or another
+            sync app) syncs it.
+          </p>
+          {status?.provider === "folder" && status.connected && (
+            <>
+              <p className="text-emerald-700 dark:text-emerald-400">
+                Connected
+              </p>
+              <p className="break-all text-muted-foreground text-xs">
+                {status.folderPath}
+              </p>
+            </>
+          )}
+          {status?.provider !== "folder" &&
+            status?.suggestions?.map((folder) => (
+              <Button
+                key={folder.path}
+                variant="outline"
+                className="block h-auto whitespace-normal text-left"
+                onClick={() => void useFolder(folder.path)}
+              >
+                Use my {folder.provider} folder
+                <span className="block break-all font-normal text-xs opacity-80">
+                  {folder.path}
+                </span>
+              </Button>
+            ))}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => void pickFolder()}>
+              {status?.provider === "folder"
+                ? "Change folder…"
+                : "Choose a folder…"}
+            </Button>
+            {status?.provider === "folder" && (
+              <Button variant="outline" onClick={() => void disconnect()}>
+                Disconnect
+              </Button>
+            )}
+          </div>
+        </div>
+      </details>
       <div className="flex flex-wrap gap-2">
         <Button
           disabled={
@@ -267,11 +389,20 @@ export function DriveSettings() {
         >
           Back up all projects
         </Button>
-        {status?.folderUrl && (
-          <Button variant="outline" onClick={() => open(status.folderUrl!)}>
-            Open backup folder
-          </Button>
-        )}
+        {status?.provider === "folder" &&
+          status.folderPath &&
+          status.connected && (
+            <Button
+              variant="outline"
+              onClick={() =>
+                void invoke("open_project_folder", {
+                  projectPath: status.folderPath,
+                }).catch((e) => setError(String(e)))
+              }
+            >
+              Open backup folder
+            </Button>
+          )}
       </div>
       <DriveDiscoveryNotice />
       <DriveBackupOverview />
@@ -280,7 +411,7 @@ export function DriveSettings() {
         disabled={!status?.connected || busy}
         onClick={requestDriveRestore}
       >
-        Restore projects from Drive
+        Restore projects from backup
       </Button>
       {status?.connected && (
         <Button
@@ -288,7 +419,7 @@ export function DriveSettings() {
           disabled={busy}
           onClick={() => setResetOpen(true)}
         >
-          Reset Drive backup folder
+          Reset backups
         </Button>
       )}
       <Dialog
@@ -299,11 +430,12 @@ export function DriveSettings() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reset Drive backups?</DialogTitle>
+            <DialogTitle>Reset backups?</DialogTitle>
             <DialogDescription>
-              Move the current Lemlio Backups folder and its contents to Drive's
-              Trash, then create a fresh folder for project ZIPs. Your local
-              projects and Google connection stay as they are.
+              The current Lemlio Backups folder is renamed (for example "Lemlio
+              Backups (reset 20260101-120000)") and kept in your Dropbox, then a
+              fresh empty folder is created for project ZIPs. Nothing is
+              deleted. Your local projects stay as they are.
             </DialogDescription>
           </DialogHeader>
           <div className="flex gap-2">
@@ -324,7 +456,7 @@ export function DriveSettings() {
                   resetDriveBackupStatus();
                   window.dispatchEvent(new Event("lemlio-drive-connected"));
                   setMessage(
-                    "Fresh ZIP backup folder created. Automatic backup will rebuild it from your PC projects.",
+                    "Fresh backup folder created. Automatic backup will rebuild it from your projects.",
                   );
                   setResetOpen(false);
                   await refresh();
@@ -335,7 +467,7 @@ export function DriveSettings() {
                 }
               }}
             >
-              {busy ? "Resetting…" : "Move old folder to Trash & reset"}
+              {busy ? "Resetting…" : "Rename old folder & reset"}
             </Button>
           </div>
           {error && (
@@ -368,9 +500,9 @@ export function DriveSettings() {
         </p>
       )}
       <p className="text-muted-foreground text-xs">
-        Standard Drive API use has no extra API fee and uses your existing
-        storage. A Google OAuth app in Testing may require periodic
-        reconnection. You can also use Drive for desktop folder sync instead.
+        Dropbox’s free plan includes 2 GB. Projects are small, but every backup
+        adds a revision, so check your Dropbox storage if you keep many large
+        projects.
       </p>
     </div>
   );

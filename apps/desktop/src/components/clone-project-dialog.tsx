@@ -118,7 +118,7 @@ export function CloneProjectDialog() {
             />
             <Field.Description>
               Source files, bibliography and figures are copied. The clone has
-              its own Drive backup.
+              its own backup.
             </Field.Description>
           </Field>
           {error && (

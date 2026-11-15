@@ -3,11 +3,31 @@ import { persist } from "zustand/middleware";
 
 type CompilerBackend = "tectonic" | "texlive";
 export type AgentProvider = "codex" | "claude";
+export type AccentName =
+  | "blue"
+  | "purple"
+  | "pink"
+  | "red"
+  | "orange"
+  | "green"
+  | "teal"
+  | "graphite";
+export type EditorThemeName = "xcode" | "github" | "solarized" | "dracula";
 
 interface SettingsState {
+  accent: AccentName;
+  setAccent: (accent: AccentName) => void;
+  editorTheme: EditorThemeName;
+  setEditorTheme: (theme: EditorThemeName) => void;
+  editorFontSize: number;
+  setEditorFontSize: (size: number) => void;
   agentProvider: AgentProvider;
   setAgentProvider: (provider: AgentProvider) => void;
   compilerBackend: CompilerBackend;
+  voiceProvider: "system" | "handy";
+  handyExecutable: string;
+  setVoiceProvider: (provider: "system" | "handy") => void;
+  setHandyExecutable: (path: string) => void;
   autoCompile: boolean;
   autoDriveBackup: boolean;
   skipCloseWhenBackedUp: boolean;
@@ -20,6 +40,13 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
+      accent: "blue",
+      setAccent: (accent) => set({ accent }),
+      editorTheme: "xcode",
+      setEditorTheme: (editorTheme) => set({ editorTheme }),
+      editorFontSize: 14,
+      setEditorFontSize: (size) =>
+        set({ editorFontSize: Math.min(22, Math.max(11, Math.round(size))) }),
       agentProvider: "codex",
       setAgentProvider: (agentProvider) => set({ agentProvider }),
       autoCompile: true,
@@ -30,6 +57,10 @@ export const useSettingsStore = create<SettingsState>()(
       setAutoDriveBackup: (autoDriveBackup) => set({ autoDriveBackup }),
       setAutoCompile: (autoCompile) => set({ autoCompile }),
       compilerBackend: "tectonic",
+      voiceProvider: "system",
+      handyExecutable: "",
+      setVoiceProvider: (voiceProvider) => set({ voiceProvider }),
+      setHandyExecutable: (handyExecutable) => set({ handyExecutable }),
       setCompilerBackend: (backend) => set({ compilerBackend: backend }),
     }),
     {

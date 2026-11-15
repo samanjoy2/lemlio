@@ -1,8 +1,11 @@
+import { approvalMessage, type Approval } from "@/lib/agent-approvals";
+import { useAgentPermissions } from "@/stores/agent-permissions-store";
 import { useProjectGroups } from "./project-groups-store";
 import { useCollaborationStore } from "@/lib/collaboration/runtime";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { useDocumentStore } from "./document-store";
+import { useDocumentStore, hasPdfData } from "./document-store";
+import { buildProjectContext, getPreviewPage } from "@/lib/agent-context";
 import { useHistoryStore } from "./history-store";
 import { useSettingsStore } from "./settings-store";
 import {
@@ -87,6 +90,8 @@ export interface TabState {
   totalInputTokens: number;
   totalOutputTokens: number;
   draft: TabDraft;
+  /** Commands the assistant was refused and the user may allow. */
+  approvals?: Approval[];
 }
 
 /** Fields that are projected from the active tab to top-level state */
@@ -112,6 +117,9 @@ function makeDefaultTab(id: string): TabState {
     draft: { input: "", pinnedContexts: [] },
   };
 }
+
+/** Commands allowed for the next turn only. */
+let oneShotRules: string[] = [];
 
 let tabCounter = 0;
 function nextTabId(): string {
@@ -194,7 +202,13 @@ interface CodexChatState {
   // Actions
   sendPrompt: (
     userPrompt: string,
-    contextOverride?: { label: string; filePath: string; selectedText: string },
+    contextOverride?: {
+      label: string;
+      filePath: string;
+      selectedText: string;
+      /** User-attached screenshots as PNG/JPEG data URLs. */
+      images?: string[];
+    },
   ) => Promise<void>;
   cancelExecution: () => Promise<void>;
   clearMessages: () => void;
@@ -215,6 +229,9 @@ interface CodexChatState {
   _setSessionId: (tabId: string, id: string) => void;
   _setStreaming: (tabId: string, streaming: boolean) => void;
   _setError: (tabId: string, error: string | null) => void;
+  _setApprovals: (tabId: string, approvals: Approval[]) => void;
+  /** Allow the given commands (once, or for this project) and let the assistant carry on. */
+  approveAndContinue: (rules: string[], always: boolean) => Promise<void>;
   _cancelledByUser: boolean;
 }
 
@@ -279,7 +296,13 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
 
   sendPrompt: async (
     userPrompt: string,
-    contextOverride?: { label: string; filePath: string; selectedText: string },
+    contextOverride?: {
+      label: string;
+      filePath: string;
+      selectedText: string;
+      /** User-attached screenshots as PNG/JPEG data URLs. */
+      images?: string[];
+    },
   ) => {
     const state = get();
     const { activeTabId } = state;
@@ -364,6 +387,7 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
         isStreaming: true,
         cancelled: false,
         error: null,
+        approvals: [],
       };
       if (tabTitle) tabUpdates.title = tabTitle;
       return {
@@ -411,13 +435,30 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
         ctx += `\n[Selection: @${activeFile.relativePath}:${startLC.line}:${startLC.col}-${endLC.line}:${endLC.col}]`;
         ctx += `\n[Selected text:\n${selectedText}\n]`;
       }
-      prompt = `${ctx}\n\n${userPrompt}`;
+      const extra = buildProjectContext({
+        files: (docState.files ?? []).map((f) => f.relativePath),
+        compileError: docState.compileError,
+        pdfPage: hasPdfData() ? getPreviewPage() : null,
+      });
+      prompt = `${ctx}${extra ? `\n${extra}` : ""}\n\n${userPrompt}`;
     }
+    const images = contextOverride?.images?.length
+      ? contextOverride.images
+      : undefined;
     if (relatedProjects.length)
       prompt = `Manually selected project group. ${groupScope?.mainPath ? `The main/reference version is ${JSON.stringify(groupScope.mainPath)}. Use it as the reference for common content while preserving intentional variant differences. ` : ""}Work only on the requested common change in these project directories: ${JSON.stringify([projectPath, ...relatedProjects])}. Read each version first. Preserve version-specific content, formatting, and emphasis; do not make all versions identical. Check each affected project separately. Integrated compiler tools target only the open project; use the provided Lemlio terminal fallback for other projects. Summarize changes per project and any skipped items.\n\n${prompt}`;
+    // Commands the user allowed: for this project, and for this turn only.
+    const allowedRules = [
+      ...new Set([
+        ...useAgentPermissions.getState().rulesFor(projectPath),
+        ...oneShotRules,
+      ]),
+    ];
+    oneShotRules = [];
     log.info("invoking CLI", {
       promptLength: prompt.length,
       mode: sessionId ? "resume" : "new",
+      images: images?.length ?? 0,
     });
 
     try {
@@ -426,6 +467,7 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
         await invoke(agentCommand("resume"), {
           projectPath,
           relatedProjects,
+          images,
           sessionId,
           prompt,
           tabId: activeTabId,
@@ -433,18 +475,21 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
           effortLevel,
           mainFile: useDocumentStore.getState().mainFileId || null,
           useTexlive: useSettingsStore.getState().compilerBackend === "texlive",
+          allowedRules,
         });
       } else {
         // New session
         await invoke(agentCommand("execute"), {
           projectPath,
           relatedProjects,
+          images,
           prompt,
           tabId: activeTabId,
           model: selectedModel,
           effortLevel,
           mainFile: useDocumentStore.getState().mainFileId || null,
           useTexlive: useSettingsStore.getState().compilerBackend === "texlive",
+          allowedRules,
         });
       }
       log.info(
@@ -662,6 +707,24 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
     set((state) => applyTabUpdate(state, tabId, { isStreaming: streaming }));
   },
 
+  _setApprovals: (tabId: string, approvals: Approval[]) => {
+    set((state) => applyTabUpdate(state, tabId, { approvals }));
+  },
+
+  approveAndContinue: async (rules: string[], always: boolean) => {
+    const state = get();
+    const tab = state.tabs.find((t) => t.id === state.activeTabId);
+    const approved = (tab?.approvals ?? []).filter(
+      (a) => a.rule && rules.includes(a.rule),
+    );
+    if (approved.length === 0) return;
+    const project = useDocumentStore.getState().projectRoot;
+    if (always && project) useAgentPermissions.getState().add(project, rules);
+    oneShotRules = [...rules];
+    set((s) => applyTabUpdate(s, s.activeTabId, { approvals: [] }));
+    await get().sendPrompt(approvalMessage(approved));
+  },
+
   _setError: (tabId: string, error: string | null) => {
     set((state) => applyTabUpdate(state, tabId, { error }));
   },
@@ -670,8 +733,11 @@ export const useCodexChatStore = create<CodexChatState>()((set, get) => ({
 // Each provider keeps its own model choice; switching provider swaps it in.
 useSettingsStore.subscribe((state, prev) => {
   if (state.agentProvider === prev.agentProvider) return;
-  useCodexChatStore.setState({
+  // A session id belongs to one provider: resuming it with the other fails.
+  useCodexChatStore.setState((current) => ({
     selectedModel: savedModel(state.agentProvider),
     effortLevel: "",
-  });
+    sessionId: null,
+    tabs: current.tabs.map((tab) => ({ ...tab, sessionId: null })),
+  }));
 });

@@ -54,7 +54,7 @@ export function AppContextMenu({ children }: { children: ReactNode }) {
   };
   const settings = () =>
     window.dispatchEvent(
-      new CustomEvent("lemlio-open-settings", { detail: "Google Drive" }),
+      new CustomEvent("lemlio-open-settings", { detail: "Backup" }),
     );
   const library = (action: string) =>
     window.dispatchEvent(

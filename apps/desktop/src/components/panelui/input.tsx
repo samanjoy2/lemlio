@@ -47,14 +47,14 @@ const inputVariants = tv({
       "file:me-3 file:border-0 file:bg-transparent file:font-medium file:text-foreground file:text-sm",
       "disabled:cursor-not-allowed disabled:opacity-50",
       // Alone, it is the box. In a group, the group is.
-      "not-in-data-[slot=input-group]:rounded-lg not-in-data-[slot=input-group]:border not-in-data-[slot=input-group]:border-input",
+      "not-in-data-[slot=input-group]:rounded-[10px] not-in-data-[slot=input-group]:border not-in-data-[slot=input-group]:border-input",
       "not-in-data-[slot=input-group]:bg-background not-in-data-[slot=input-group]:shadow-xs dark:not-in-data-[slot=input-group]:bg-input/30",
       "not-in-data-[slot=input-group]:transition-[border-color,box-shadow]",
       "not-in-data-[slot=input-group]:focus-visible:border-ring not-in-data-[slot=input-group]:focus-visible:ring-[3px] not-in-data-[slot=input-group]:focus-visible:ring-ring/30",
       "aria-invalid:not-in-data-[slot=input-group]:border-destructive aria-invalid:not-in-data-[slot=input-group]:ring-destructive/20",
     ],
     group: [
-      "group/input flex w-full min-w-0 items-center rounded-lg border border-input bg-background shadow-xs transition-[border-color,box-shadow] dark:bg-input/30",
+      "group/input flex w-full min-w-0 items-center rounded-[10px] border border-input bg-background shadow-xs transition-[border-color,box-shadow] dark:bg-input/30",
       "has-[input:focus-visible]:border-ring has-[input:focus-visible]:ring-[3px] has-[input:focus-visible]:ring-ring/30",
       "has-[input[aria-invalid=true]]:border-destructive has-[input[aria-invalid=true]]:ring-destructive/20",
       "has-[input:disabled]:opacity-50",

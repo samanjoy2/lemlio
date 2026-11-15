@@ -117,28 +117,38 @@ export const MupdfPage = memo(function MupdfPage({
   // Initial render and re-render on dependency changes
   useEffect(() => {
     if (!isVisible || docId <= 0) return;
-
     renderPage();
+  }, [docId, pageIndex, scale, isVisible, renderPage]);
 
+  // Selectable text and clickable links depend on the page, not on the zoom: their
+  // coordinates are in PDF units. They load on their own so that re-rendering the
+  // canvas (zoom, resize, display scaling) can never discard them.
+  useEffect(() => {
+    if (!isVisible || docId <= 0) return;
+    let cancelled = false;
     const client = getMupdfClient();
-    const gen = renderGenRef.current;
-
     client
       .getPageText(docId, pageIndex)
       .then((data) => {
-        if (gen !== renderGenRef.current) return;
-        setTextData(data);
+        if (!cancelled) setTextData(data);
       })
-      .catch(() => {});
-
+      .catch((err) =>
+        log.warn(`Text layer failed on page ${pageIndex}`, {
+          error: String(err),
+        }),
+      );
     client
       .getPageLinks(docId, pageIndex)
       .then((data) => {
-        if (gen !== renderGenRef.current) return;
-        setLinks(data);
+        if (!cancelled) setLinks(data);
       })
-      .catch(() => {});
-  }, [docId, pageIndex, scale, isVisible, renderPage]);
+      .catch((err) =>
+        log.warn(`Links failed on page ${pageIndex}`, { error: String(err) }),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [docId, pageIndex, isVisible]);
 
   // Re-render canvas when returning from background if content was lost
   useEffect(() => {

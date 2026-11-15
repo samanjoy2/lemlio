@@ -273,7 +273,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   openProject: async (rootPath: string) => {
     if (isDriveSyncing(rootPath))
       throw new Error(
-        "This project is receiving a Drive update. Try again in a moment.",
+        "This project is receiving a backup update. Try again in a moment.",
       );
     log.info(`Opening project: ${rootPath}`);
     await invoke("allow_project_directory", { rootPath });

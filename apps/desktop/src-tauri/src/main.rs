@@ -6,6 +6,18 @@ fn main() {
     // run tectonic in this subprocess and exit. This isolates tectonic's global C state
     // so that a failed compilation doesn't poison the font cache for subsequent runs.
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--run-tool") && args.len() >= 4 {
+        match prismpro_desktop_lib::run_tool_headless(args[2].clone(), args[3].clone(), args[4..].to_vec()) {
+            Ok(result) => { println!("{result}"); std::process::exit(if result["success"] == true { 0 } else { 1 }); },
+            Err(error) => { eprintln!("{error}"); std::process::exit(1); }
+        }
+    }
+    if args.get(1).map(String::as_str) == Some("--setup-tools-runtime") {
+        match prismpro_desktop_lib::setup_tools_runtime_headless() {
+            Ok(()) => std::process::exit(0),
+            Err(error) => { eprintln!("{error}"); std::process::exit(1); }
+        }
+    }
     if args.get(1).map(String::as_str) == Some("--reset-drive-backups") {
         match prismpro_desktop_lib::reset_drive_backups_headless() {
             Ok(result) => {
@@ -39,10 +51,10 @@ fn main() {
             }
         }
     }
-    if args.len() >= 3 && args[1] == "--configure-drive" {
-        match prismpro_desktop_lib::configure_drive_client(std::path::Path::new(&args[2])) {
-            Ok(()) => {
-                eprintln!("Drive OAuth configuration saved locally");
+    if args.len() >= 3 && args[1] == "--set-backup-folder" {
+        match prismpro_desktop_lib::set_backup_folder(std::path::Path::new(&args[2])) {
+            Ok(folder) => {
+                eprintln!("Backup folder set to {folder}");
                 std::process::exit(0);
             }
             Err(error) => {

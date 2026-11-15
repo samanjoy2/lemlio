@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { useMicrophone } from "voice-glow";
+import { useSettingsStore } from "@/stores/settings-store";
 
 export function useDictation(onText: (text: string) => void, enabled = true) {
+  const provider = useSettingsStore((s) => s.voiceProvider);
+  const handyExecutable = useSettingsStore((s) => s.handyExecutable);
   const mic = useMicrophone({
     constraints: { echoCancellation: true, noiseSuppression: true },
   });
@@ -21,7 +24,13 @@ export function useDictation(onText: (text: string) => void, enabled = true) {
     stopMic.current();
     setRecording(false);
     setStarting(false);
-    if (id) await invoke("speech_stop", { sessionId: id }).catch(() => {});
+    if (id?.startsWith("handy:")) {
+      await invoke("handy_control", {
+        action: "toggle",
+        executablePath: handyExecutable || null,
+      }).catch((error) => setError(String(error)));
+    } else if (id)
+      await invoke("speech_stop", { sessionId: id }).catch(() => {});
   };
   useEffect(() => {
     if (!enabled) {
@@ -47,13 +56,41 @@ export function useDictation(onText: (text: string) => void, enabled = true) {
       const id = session.current;
       session.current = null;
       stopMic.current();
-      if (id) void invoke("speech_stop", { sessionId: id }).catch(() => {});
+      if (id?.startsWith("handy:"))
+        void invoke("handy_control", {
+          action: "cancel",
+          executablePath: handyExecutable || null,
+        }).catch(() => {});
+      else if (id)
+        void invoke("speech_stop", { sessionId: id }).catch(() => {});
       void off.then((unlisten) => unlisten());
     };
-  }, [enabled]);
+  }, [enabled, provider, handyExecutable]);
   const start = async () => {
     setError("");
     setStarting(true);
+    if (provider === "handy") {
+      const id = `handy:${crypto.randomUUID()}`;
+      session.current = id;
+      try {
+        await invoke("handy_control", {
+          action: "toggle",
+          executablePath: handyExecutable || null,
+        });
+        if (session.current === id) setRecording(true);
+        else
+          await invoke("handy_control", {
+            action: "cancel",
+            executablePath: handyExecutable || null,
+          }).catch(() => {});
+      } catch (error) {
+        session.current = null;
+        setError(String(error));
+      } finally {
+        setStarting(false);
+      }
+      return;
+    }
     const id = crypto.randomUUID();
     session.current = id;
     try {

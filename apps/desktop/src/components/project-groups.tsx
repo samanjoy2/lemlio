@@ -1,5 +1,5 @@
 import { switchGroupProject } from "@/lib/project-group-actions";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LayersIcon, PlusIcon, FolderOpenIcon } from "lucide-react";
 import { useProjectCatalog } from "@/hooks/use-project-catalog";
 import {
@@ -10,6 +10,12 @@ import { useCodexChatStore } from "@/stores/codex-chat-store";
 import { Dialog } from "./panelui/dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+/** Opens the groups dialog from anywhere; `create` starts on an empty new group. */
+export const requestProjectGroups = (create = false) =>
+  window.dispatchEvent(
+    new CustomEvent("lemlio-open-project-groups", { detail: { create } }),
+  );
+
 export function ProjectGroups({ disabled = false }: { disabled?: boolean }) {
   const [open, setOpen] = useState(false),
     [id, setId] = useState(""),
@@ -47,6 +53,19 @@ export function ProjectGroups({ disabled = false }: { disabled?: boolean }) {
     setId(key);
     return key;
   };
+  useEffect(() => {
+    const show = (event: Event) => {
+      const create = (event as CustomEvent<{ create?: boolean }>).detail
+        ?.create;
+      const current = useProjectGroups.getState();
+      select(
+        create ? "" : current.activeGroupId || current.groups[0]?.id || "",
+      );
+      setOpen(true);
+    };
+    window.addEventListener("lemlio-open-project-groups", show);
+    return () => window.removeEventListener("lemlio-open-project-groups", show);
+  }, []);
   return (
     <div className="px-3 py-2">
       <Button
@@ -168,7 +187,7 @@ export function ProjectGroups({ disabled = false }: { disabled?: boolean }) {
                 </div>
                 <p className="text-muted-foreground text-xs">
                   Grouping does not change your files. Open the workspace to
-                  browse, edit, or ask Codex to update the versions you choose.
+                  browse, edit, or ask the AI to update the versions you choose.
                 </p>
               </div>
             </div>

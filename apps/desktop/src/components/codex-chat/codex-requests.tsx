@@ -45,9 +45,11 @@ export function CodexRequests() {
         if (disposed) return;
         if (
           payload.method === "item/tool/call" &&
-          ["lemlio_compile", "lemlio_view_pdf_page"].includes(
-            payload.params.tool || "",
-          )
+          [
+            "lemlio_compile",
+            "lemlio_view_pdf_page",
+            "lemlio_run_tool",
+          ].includes(payload.params.tool || "")
         ) {
           void runCompilerTool({
             tool: payload.params.tool!,

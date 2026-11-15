@@ -1,6 +1,10 @@
 {
   "bundle": {
-    "resources": ["resources/tectonic/**/*", "resources/THIRD_PARTY_NOTICES.md"]
+    "resources": [
+      "resources/tectonic/**/*",
+      "resources/uv/**/*",
+      "resources/THIRD_PARTY_NOTICES.md"
+    ]
   },
   "app": {
     "windows": [

@@ -41,7 +41,7 @@ export function WorkspaceLayout() {
           <Sidebar />
         </Panel>
 
-        <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-ring" />
+        <PanelResizeHandle className="w-px bg-border transition-[background-color,box-shadow] hover:bg-primary hover:shadow-[0_0_0_1.5px_var(--primary)]" />
 
         <Panel defaultSize={85} minSize={50}>
           <div className="flex h-full min-h-0 flex-col">
@@ -55,7 +55,7 @@ export function WorkspaceLayout() {
                 </div>
               </Panel>
 
-              <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-ring" />
+              <PanelResizeHandle className="w-px bg-border transition-[background-color,box-shadow] hover:bg-primary hover:shadow-[0_0_0_1.5px_var(--primary)]" />
 
               <Panel defaultSize={50} minSize={30}>
                 <PdfPreview />

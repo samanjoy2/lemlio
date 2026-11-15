@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { ActivityOrb } from "@/components/activity-feedback";
+import { setPreviewPage } from "@/lib/agent-context";
 import {
   SearchIcon,
   PanelsTopLeftIcon,
@@ -96,7 +97,7 @@ export function PdfPreview() {
   const autoCompile = useSettingsStore((s) => s.autoCompile);
   const setAutoCompile = useSettingsStore((s) => s.setAutoCompile);
   const compilerBackend = useSettingsStore((s) => s.compilerBackend);
-  const setCompilerBackend = useSettingsStore((s) => s.setCompilerBackend);
+
   const pdfRevision = useDocumentStore((s) => s.pdfRevision);
   const compileError = useDocumentStore((s) => s.compileError);
   const isCompiling = useDocumentStore((s) => s.isCompiling);
@@ -106,6 +107,48 @@ export function PdfPreview() {
   const setIsCompiling = useDocumentStore((s) => s.setIsCompiling);
   const content = useDocumentStore((s) => s.content);
   const projectRoot = useDocumentStore((s) => s.projectRoot);
+  const [projectCompiler, setProjectCompiler] = useState("default");
+  const [compilerReady, setCompilerReady] = useState(false);
+  const [compilerSaving, setCompilerSaving] = useState(false);
+  const compilerProjectRef = useRef(projectRoot);
+  compilerProjectRef.current = projectRoot;
+  useEffect(() => {
+    let cancelled = false;
+    setCompilerReady(false);
+    setCompilerSaving(false);
+    if (projectRoot) {
+      invoke<string>("project_compiler", { projectDir: projectRoot })
+        .then((choice) => {
+          if (!cancelled) {
+            setProjectCompiler(choice);
+            setCompilerReady(true);
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) toast.error(String(error));
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [projectRoot]);
+  const saveCompiler = async (compiler: string) => {
+    if (!projectRoot) return;
+    const savingProject = projectRoot;
+    setCompilerSaving(true);
+    try {
+      await invoke("project_compiler", { projectDir: projectRoot, compiler });
+      if (compilerProjectRef.current !== savingProject) return;
+      setProjectCompiler(compiler);
+      toast.success("Compiler saved for this project. Recompile to apply.");
+    } catch (error) {
+      if (compilerProjectRef.current === savingProject)
+        toast.error(String(error));
+    } finally {
+      if (compilerProjectRef.current === savingProject)
+        setCompilerSaving(false);
+    }
+  };
   const files = useDocumentStore((s) => s.files);
   const mainFileId = useDocumentStore((s) => s.mainFileId);
   const setMainFile = useDocumentStore((s) => s.setMainFile);
@@ -126,6 +169,7 @@ export function PdfPreview() {
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageInputValue, setPageInputValue] = useState<string>("1");
+  useEffect(() => setPreviewPage(currentPage), [currentPage]);
   const [isEditingPage, setIsEditingPage] = useState(false);
   const scrollToPageRef = useRef<((page: number) => void) | null>(null);
   const [scale, setScale] = useState<number>(1.0);
@@ -878,19 +922,62 @@ export function PdfPreview() {
             {autoCompile ? "Auto" : "Manual"}
           </button>
           <Select
-            value={compilerBackend}
-            onValueChange={(v) =>
-              setCompilerBackend(v as "tectonic" | "texlive")
-            }
+            value={projectCompiler}
+            disabled={!compilerReady || compilerSaving || isCompiling}
+            onValueChange={(value) => {
+              void saveCompiler(value);
+            }}
           >
             <SelectTrigger size="sm" className="h-7! w-auto text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="tectonic">Tectonic</SelectItem>
-              <SelectItem value="texlive">MiKTeX / TeX Live</SelectItem>
+              <SelectItem value="default">
+                App default (
+                {compilerBackend === "tectonic" ? "Tectonic" : "System LaTeX"})
+              </SelectItem>
+              <SelectItem value="tectonic">Tectonic · XeTeX</SelectItem>
+              <SelectItem value="pdflatex">
+                pdfLaTeX · MiKTeX / TeX Live
+              </SelectItem>
+              <SelectItem value="xelatex">
+                XeLaTeX · MiKTeX / TeX Live
+              </SelectItem>
+              <SelectItem value="lualatex">
+                LuaLaTeX · MiKTeX / TeX Live
+              </SelectItem>
             </SelectContent>
           </Select>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!projectRoot || isCompiling}
+            onClick={async () => {
+              try {
+                const report = await invoke<{
+                  backend: string;
+                  version: string;
+                  warnings: string[];
+                }>("compiler_report", { projectDir: projectRoot });
+                toast.info(report.backend, {
+                  description: [
+                    report.version,
+                    ...report.warnings,
+                    "Full details: .prism/build/lemlio-build-report.json",
+                  ]
+                    .filter(Boolean)
+                    .join("\n"),
+                  duration: 15000,
+                });
+              } catch {
+                toast.info(
+                  "Recompile this project to create a compiler report.",
+                );
+              }
+            }}
+          >
+            Build info
+          </Button>
           {isSaving && (
             <div className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1">
               <LoaderIcon className="size-3.5 animate-spin text-muted-foreground" />

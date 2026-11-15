@@ -45,7 +45,7 @@ export function DeleteProjectDialog() {
           <DialogTitle>Delete {project?.name}?</DialogTitle>
           <DialogDescription>
             The project folder and its files will move to {trash}. Existing
-            Drive backups are kept.
+            Backups are kept.
           </DialogDescription>
         </DialogHeader>
         <p className="break-all text-muted-foreground text-xs">

@@ -5,12 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <title>Lemlio | LaTeX Writing Workspace</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
     <style>
       #loading-screen {
         position: fixed;
@@ -19,27 +13,28 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        background: #fafafa;
+        background: #ffffff;
         z-index: 9999;
-        font-family: 'Geist', system-ui, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', system-ui, sans-serif;
         transition: opacity 0.3s ease;
       }
       @media (prefers-color-scheme: dark) {
-        #loading-screen { background: #0a0a0a; color: #fafafa; }
-        #loading-spinner { border-color: #333; border-top-color: #fafafa; }
+        #loading-screen { background: #1c1c1e; color: #f5f5f7; }
+        #loading-spinner { border-color: #3a3a3c; border-top-color: #0a84ff; }
       }
       #loading-spinner {
-        width: 32px;
-        height: 32px;
-        border: 3px solid #e5e5e5;
-        border-top-color: #171717;
+        width: 28px;
+        height: 28px;
+        border: 3px solid #e5e5ea;
+        border-top-color: #007aff;
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
         margin-bottom: 16px;
       }
       #loading-screen p {
-        font-size: 14px;
-        color: #737373;
+        font-size: 13px;
+        color: #6e6e73;
+        letter-spacing: -0.01em;
       }
       @keyframes spin { to { transform: rotate(360deg); } }
     </style>

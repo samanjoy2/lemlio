@@ -1,5 +1,7 @@
 import { GroupSortArea, SortableGroupMember } from "./group-sortable";
 import { GroupComposerContext } from "@/lib/group-composer-context";
+import { AGENT_LABELS } from "@/lib/agent-provider";
+import { useSettingsStore } from "@/stores/settings-store";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -116,6 +118,7 @@ export function ProjectGroupWorkspace({ children }: { children?: ReactNode }) {
   const { projects } = useProjectCatalog();
   const root = useDocumentStore((s) => s.projectRoot);
   const streaming = useCodexChatStore((s) => s.tabs.some((t) => t.isStreaming));
+  const provider = useSettingsStore((s) => s.agentProvider);
   const compiling = useDocumentStore((s) => s.isCompiling);
   const [mode, setMode] = useState<"overview" | "edit" | "review">("overview");
   const [busy, setBusy] = useState(false),
@@ -166,7 +169,7 @@ export function ProjectGroupWorkspace({ children }: { children?: ReactNode }) {
     <footer className="shrink-0 border-t bg-muted/20 px-4 py-3">
       <div className="mx-auto max-w-6xl">
         <p className="mb-2 font-medium text-sm">
-          Ask Codex · All {group.paths.length} versions
+          Ask {AGENT_LABELS[provider]} · All {group.paths.length} versions
         </p>
         <ChatComposer
           isOpen

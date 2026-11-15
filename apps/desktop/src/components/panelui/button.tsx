@@ -37,8 +37,8 @@ import { tv, type VariantProps } from "tailwind-variants";
 
 export const buttonVariants = tv({
   base: [
-    "relative inline-flex shrink-0 cursor-pointer select-none items-center justify-center gap-2 whitespace-nowrap font-medium outline-none",
-    "transition-[background-color,color,border-color,box-shadow,scale] duration-150",
+    "relative inline-flex shrink-0 cursor-pointer select-none items-center justify-center gap-2 whitespace-nowrap font-medium tracking-[-0.01em] outline-none",
+    "transition-[background-color,color,border-color,box-shadow,scale,filter] duration-200 ease-(--ease-spring)",
     "focus-visible:ring-[3px] focus-visible:ring-ring/40",
     "active:not-disabled:scale-[0.97] motion-reduce:active:scale-100",
     "disabled:cursor-default disabled:opacity-50 aria-busy:cursor-progress",
@@ -47,23 +47,23 @@ export const buttonVariants = tv({
   variants: {
     variant: {
       default:
-        "inset-shadow-[0_1px_0_rgb(255_255_255/0.12)] bg-primary text-primary-foreground shadow-xs hover:not-disabled:bg-primary/90",
+        "bg-primary text-primary-foreground shadow-[0_1px_2px_rgb(0_0_0/0.14),inset_0_1px_0_rgb(255_255_255/0.2)] hover:not-disabled:brightness-110 active:not-disabled:brightness-95",
       secondary:
-        "bg-secondary text-secondary-foreground hover:not-disabled:bg-secondary/80",
+        "bg-secondary text-secondary-foreground hover:not-disabled:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_7%)]",
       outline:
-        "border bg-background text-foreground shadow-xs hover:not-disabled:bg-accent hover:not-disabled:text-accent-foreground dark:bg-input/30",
+        "border border-border bg-background text-foreground shadow-xs hover:not-disabled:bg-accent hover:not-disabled:text-accent-foreground dark:bg-white/[0.06]",
       ghost:
         "text-foreground hover:not-disabled:bg-accent hover:not-disabled:text-accent-foreground",
       destructive:
-        "bg-destructive text-white shadow-xs hover:not-disabled:bg-destructive/90 focus-visible:ring-destructive/40",
-      link: "text-foreground underline-offset-4 hover:underline",
+        "bg-destructive text-white shadow-[0_1px_2px_rgb(0_0_0/0.14),inset_0_1px_0_rgb(255_255_255/0.2)] hover:not-disabled:brightness-110 focus-visible:ring-destructive/40",
+      link: "text-primary underline-offset-4 hover:underline",
     },
     size: {
-      sm: "h-8 rounded-md px-3 text-[0.8125rem]",
-      md: "h-9 rounded-lg px-4 text-sm",
+      sm: "h-8 rounded-lg px-3 text-[0.8125rem]",
+      md: "h-9 rounded-[10px] px-4 text-sm",
       lg: "h-11 rounded-xl px-5 text-[0.9375rem]",
-      "icon-sm": "size-8 rounded-md",
-      icon: "size-9 rounded-lg",
+      "icon-sm": "size-8 rounded-lg",
+      icon: "size-9 rounded-[10px]",
       "icon-lg": "size-11 rounded-xl [&_svg:not([class*=size-])]:size-5",
     },
     /** `pill` rounds the ends fully, whatever the size. */

@@ -31,7 +31,7 @@ export function DriveRestoreDialog() {
   const load = async () => {
     setBusy(true);
     setError("");
-    setMessage("Looking for project ZIPs in your Drive…");
+    setMessage("Looking for project backups in your backup folder…");
     try {
       const result = await invoke<{ projects: Backup[] }>("drive_list_backups");
       setProjects(result.projects);
@@ -39,7 +39,7 @@ export function DriveRestoreDialog() {
       setMessage(
         result.projects.length
           ? ""
-          : "No Lemlio ZIP backups were found. Use the same Google account and OAuth project as your previous device.",
+          : "No Lemlio backups were found. Connect the same Dropbox account you use on your other computer. If you back up to a synced folder, choose the same folder and wait for it to finish syncing.",
       );
     } catch (e) {
       setError(String(e));
@@ -65,7 +65,7 @@ export function DriveRestoreDialog() {
     >
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Restore projects from Google Drive</DialogTitle>
+          <DialogTitle>Restore projects from backup</DialogTitle>
           <DialogDescription>
             On a new device, choose the ZIP backups you want to download. Each
             restores into a new local project folder. Existing local folders are
@@ -119,7 +119,7 @@ export function DriveRestoreDialog() {
                           ? "Already on this device"
                           : p.modifiedTime
                             ? `Backed up ${new Date(p.modifiedTime).toLocaleString()}`
-                            : "Drive ZIP backup"}
+                            : "ZIP backup"}
                         {p.deviceName ? ` · ${p.deviceName}` : ""}
                         {(p.branches || 0) > 1 ? " · Competing revision" : ""}
                       </span>
@@ -154,12 +154,12 @@ export function DriveRestoreDialog() {
               setOpen(false);
               window.dispatchEvent(
                 new CustomEvent("lemlio-open-settings", {
-                  detail: "Google Drive",
+                  detail: "Backup",
                 }),
               );
             }}
           >
-            Google Drive settings
+            Backup settings
           </Button>
           <Button
             variant="outline"

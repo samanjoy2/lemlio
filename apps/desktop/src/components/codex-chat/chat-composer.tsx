@@ -29,6 +29,7 @@ import {
   SparklesIcon,
   MicIcon,
   SquareIcon,
+  CameraIcon,
 } from "lucide-react";
 
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -49,6 +50,7 @@ import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button
 
 import { cn } from "@/lib/utils";
 import { agentCommand } from "@/lib/agent-provider";
+import { captureAppScreenshot, capturePdfPage } from "@/lib/agent-screenshots";
 import { useSettingsStore } from "@/stores/settings-store";
 
 import { SlashCommandPicker, type SlashCommand } from "./slash-command-picker";
@@ -131,6 +133,7 @@ export const ChatComposer: FC<{
   const [modelError, setModelError] = useState<string | null>(null);
 
   const provider = useSettingsStore((s) => s.agentProvider);
+  const voiceProvider = useSettingsStore((s) => s.voiceProvider);
 
   useEffect(() => {
     let disposed = false;
@@ -770,14 +773,43 @@ export const ChatComposer: FC<{
     [projectRoot, refreshFiles],
   );
 
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  // Screenshots are only taken when the user clicks one of the buttons.
+  const attachScreenshot = useCallback(async (kind: "app" | "pdf") => {
+    setCaptureError(null);
+    try {
+      const shot =
+        kind === "app"
+          ? {
+              dataUrl: await captureAppScreenshot(),
+              label: "Screenshot: app window",
+              text: "[Screenshot of the Lemlio app window attached as an image]",
+            }
+          : await capturePdfPage().then((r) => ({
+              dataUrl: r.dataUrl,
+              label: `Screenshot: PDF page ${r.page}`,
+              text: `[Image of PDF preview page ${r.page} attached]`,
+            }));
+      setPinnedContexts((prev) => [
+        ...prev.filter((c) => c.label !== shot.label),
+        {
+          label: shot.label,
+          filePath: "",
+          selectedText: shot.text,
+          imageDataUrl: shot.dataUrl,
+        },
+      ]);
+    } catch (err) {
+      setCaptureError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
 
     if (!trimmed || isStreaming || submissionDisabled) return;
 
     // Resolve slash commands: if input starts with /command, find the command and substitute $ARGUMENTS
-
-    // Explicitly direct Codex to read the selected skill's instructions.
 
     let finalPrompt = trimmed;
 
@@ -792,9 +824,7 @@ export const ChatComposer: FC<{
         (cmd) => cmd.full_command === `/${cmdName}` || cmd.name === cmdName,
       );
 
-      if (matched?.scope === "skill") {
-        finalPrompt = `Use the "${matched.name}" skill defined in "${matched.file_path}". Read its SKILL.md and follow it for this request.\n\n${args || "Help me get started with this skill."}`;
-      } else if (matched) {
+      if (matched) {
         finalPrompt = matched.content;
 
         if (matched.accepts_arguments && args) {
@@ -829,6 +859,9 @@ export const ChatComposer: FC<{
           filePath: pinnedContexts[0].filePath,
 
           selectedText: combinedText,
+          images: pinnedContexts
+            .map((c) => c.imageDataUrl)
+            .filter((u): u is string => !!u),
         }),
       ).catch(() => {
         setInput(trimmed);
@@ -1231,7 +1264,7 @@ export const ChatComposer: FC<{
         >
           <div
             className={cn(
-              "flex w-full flex-col rounded-2xl border border-input bg-muted/30 transition-colors focus-within:border-ring focus-within:bg-background",
+              "flex w-full flex-col rounded-[22px] border border-border bg-card shadow-sm transition-[border-color,box-shadow] duration-200 focus-within:border-primary/60 focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--primary)_16%,transparent),var(--shadow-md)]",
 
               isDragOver && "border-ring bg-accent/20",
             )}
@@ -1332,15 +1365,33 @@ export const ChatComposer: FC<{
 
               <div className="flex items-center gap-1">
                 <TooltipIconButton
+                  tooltip="Attach a screenshot of the app window"
+                  aria-label="Attach app screenshot"
+                  className="text-muted-foreground"
+                  onClick={() => void attachScreenshot("app")}
+                >
+                  <CameraIcon size={16} />
+                </TooltipIconButton>
+                <TooltipIconButton
+                  tooltip="Attach the current PDF page"
+                  aria-label="Attach PDF page image"
+                  className="text-muted-foreground"
+                  onClick={() => void attachScreenshot("pdf")}
+                >
+                  <ImageIcon size={16} />
+                </TooltipIconButton>
+                <TooltipIconButton
                   tooltip={
-                    navigator.userAgent.includes("Mac")
+                    navigator.userAgent.includes("Mac") &&
+                    voiceProvider !== "handy"
                       ? "Set up macOS Dictation"
                       : dictation.recording || dictation.starting
                         ? "Stop microphone"
                         : "Dictate a prompt"
                   }
                   aria-label={
-                    navigator.userAgent.includes("Mac")
+                    navigator.userAgent.includes("Mac") &&
+                    voiceProvider !== "handy"
                       ? "Set up macOS Dictation"
                       : dictation.recording || dictation.starting
                         ? "Stop microphone"
@@ -1352,7 +1403,10 @@ export const ChatComposer: FC<{
                       : "text-muted-foreground"
                   }
                   onClick={() => {
-                    if (navigator.userAgent.includes("Mac")) {
+                    if (
+                      navigator.userAgent.includes("Mac") &&
+                      voiceProvider !== "handy"
+                    ) {
                       window.dispatchEvent(
                         new CustomEvent("lemlio-open-settings", {
                           detail: "Voice",
@@ -1360,6 +1414,7 @@ export const ChatComposer: FC<{
                       );
                       return;
                     }
+                    textareaRef.current?.focus();
                     void (dictation.recording || dictation.starting
                       ? dictation.stop()
                       : dictation.start());
@@ -1391,14 +1446,26 @@ export const ChatComposer: FC<{
                 )}
               </div>
             </div>
+            {pinnedContexts.some((c) => c.imageDataUrl) && (
+              <p className="px-4 pb-1 text-muted-foreground text-xs">
+                The attached image will be sent to the AI with your message.
+              </p>
+            )}
+            {captureError && (
+              <p role="alert" className="px-4 pb-1 text-destructive text-xs">
+                {captureError}
+              </p>
+            )}
             {(dictation.recording || dictation.starting) && (
               <p
                 role="status"
                 className="px-4 pb-2 text-muted-foreground text-xs"
               >
-                {dictation.starting
-                  ? "Starting Windows dictation…"
-                  : "Listening · Review the text before sending"}
+                {voiceProvider === "handy"
+                  ? "Handy recording requested · Check Handy's indicator. Click again to transcribe; keep this prompt focused."
+                  : dictation.starting
+                    ? "Starting Windows dictation…"
+                    : "Listening · Review the text before sending"}
               </p>
             )}
             {dictation.error && (
