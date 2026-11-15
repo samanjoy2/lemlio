@@ -1,4 +1,5 @@
 import { AppUpdates } from "./app-updates";
+import { HandySettings } from "./handy-settings";
 import { DriveSettings } from "./drive-settings";
 import { AppearanceSettings } from "./appearance-settings";
 import { getVersion } from "@tauri-apps/api/app";
@@ -86,18 +87,22 @@ export function AppSettings() {
           if (!value) localStorage.setItem("lemlio-setup-complete", "true");
         }}
       >
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="h-[min(46rem,90dvh)] min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Settings &amp; setup</DialogTitle>
           </DialogHeader>
           <Tabs
+            className="flex min-h-0 min-w-0 flex-col"
             value={tab}
             onValueChange={(value) => {
               if (typeof value === "string") setTab(value);
             }}
-            variant="underline"
+            variant="pills"
           >
-            <Tabs.List aria-label="Settings sections">
+            <Tabs.List
+              aria-label="Settings sections"
+              className="h-auto shrink-0 flex-wrap [mask-image:none] data-[orientation=horizontal]:overflow-visible"
+            >
               {[
                 "General",
                 "Appearance",
@@ -113,7 +118,10 @@ export function AppSettings() {
                 </Tabs.Trigger>
               ))}
             </Tabs.List>
-            <Tabs.Content value={tab} className="space-y-4 py-4 text-sm">
+            <Tabs.Content
+              value={tab}
+              className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto py-4 pr-2 text-sm"
+            >
               {tab === "Appearance" && <AppearanceSettings />}
               {tab === "General" && (
                 <div className="space-y-4">
@@ -245,11 +253,20 @@ export function AppSettings() {
                     MiKTeX is optional during setup and can be installed later.
                     Tectonic is included in the desktop app.
                   </p>
+                  <p>
+                    Save a compiler for each project in its PDF toolbar:
+                    Tectonic, pdfLaTeX, XeLaTeX, or LuaLaTeX. System builds use
+                    latexmk when available. Include custom fonts in the project.
+                    Missing fonts and substitutions are reported instead of
+                    silently changing the PDF.
+                  </p>
                 </>
               )}
               {tab === "Tools" && <ToolsLibrary />}
               {tab === "Backup" && <DriveSettings />}
+              {tab === "Voice" && <HandySettings />}
               {tab === "Voice" &&
+                settings.voiceProvider !== "handy" &&
                 (navigator.userAgent.includes("Mac") ? (
                   <div className="space-y-3">
                     <h3 className="font-medium">macOS Dictation</h3>

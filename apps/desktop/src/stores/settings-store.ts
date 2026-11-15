@@ -24,6 +24,10 @@ interface SettingsState {
   agentProvider: AgentProvider;
   setAgentProvider: (provider: AgentProvider) => void;
   compilerBackend: CompilerBackend;
+  voiceProvider: "system" | "handy";
+  handyExecutable: string;
+  setVoiceProvider: (provider: "system" | "handy") => void;
+  setHandyExecutable: (path: string) => void;
   autoCompile: boolean;
   autoDriveBackup: boolean;
   skipCloseWhenBackedUp: boolean;
@@ -53,6 +57,10 @@ export const useSettingsStore = create<SettingsState>()(
       setAutoDriveBackup: (autoDriveBackup) => set({ autoDriveBackup }),
       setAutoCompile: (autoCompile) => set({ autoCompile }),
       compilerBackend: "tectonic",
+      voiceProvider: "system",
+      handyExecutable: "",
+      setVoiceProvider: (voiceProvider) => set({ voiceProvider }),
+      setHandyExecutable: (handyExecutable) => set({ handyExecutable }),
       setCompilerBackend: (backend) => set({ compilerBackend: backend }),
     }),
     {

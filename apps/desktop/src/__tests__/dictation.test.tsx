@@ -4,6 +4,7 @@ import { expect, it, vi } from "vitest";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { useDictation } from "@/hooks/use-dictation";
+import { useSettingsStore } from "@/stores/settings-store";
 const mic = vi.hoisted(() => ({
   stop: vi.fn(),
   start: vi.fn(async () => ({ getTracks: () => [] })),
@@ -16,6 +17,59 @@ vi.mock("voice-glow", () => ({
     stop: mic.stop,
   }),
 }));
+it("controls Handy without capturing a second microphone stream", async () => {
+  (
+    globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  useSettingsStore.setState({
+    voiceProvider: "handy",
+    handyExecutable: "C:/Demo/Handy.exe",
+  });
+  vi.mocked(invoke).mockClear();
+  vi.mocked(invoke).mockResolvedValue({});
+  mic.start.mockClear();
+  const element = document.createElement("div");
+  const root = createRoot(element);
+  function Recorder() {
+    const dictation = useDictation(vi.fn());
+    return (
+      <>
+        <button onClick={() => void dictation.start()}>Start</button>
+        <button onClick={() => void dictation.stop()}>Stop</button>
+      </>
+    );
+  }
+  try {
+    await act(async () => root.render(<Recorder />));
+    await act(async () => element.querySelectorAll("button")[0].click());
+    expect(invoke).toHaveBeenCalledWith("handy_control", {
+      action: "toggle",
+      executablePath: "C:/Demo/Handy.exe",
+    });
+    expect(mic.start).not.toHaveBeenCalled();
+    expect(
+      vi.mocked(invoke).mock.calls.some(([name]) => name === "speech_start"),
+    ).toBe(false);
+    await act(async () => element.querySelectorAll("button")[1].click());
+    expect(
+      vi
+        .mocked(invoke)
+        .mock.calls.filter(
+          ([name, args]) =>
+            name === "handy_control" &&
+            (args as { action: string }).action === "toggle",
+        ),
+    ).toHaveLength(2);
+    await act(async () => element.querySelectorAll("button")[0].click());
+    await act(async () => root.unmount());
+    expect(invoke).toHaveBeenCalledWith("handy_control", {
+      action: "cancel",
+      executablePath: "C:/Demo/Handy.exe",
+    });
+  } finally {
+    useSettingsStore.setState({ voiceProvider: "system", handyExecutable: "" });
+  }
+});
 it("inserts speech into the draft, stops the mic, and rejects late speech after stopping", async () => {
   (
     globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }

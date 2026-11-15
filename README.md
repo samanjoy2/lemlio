@@ -90,6 +90,18 @@ Click the microphone in Codex chat to dictate with Windows speech recognition. A
 
 On macOS, use the system Dictation shortcut in the prompt. The microphone button opens Voice setup; the Windows speech recorder is Windows-only.
 
+**Handy is an optional local voice provider on Windows and Mac.** Select it in **Settings → Voice**, install [Handy](https://github.com/cjpais/Handy), download a speech model there, and grant its microphone/accessibility permissions. Keep Handy running. Lemlio's microphone sends Handy's start/stop command; Handy pastes the transcription into the focused prompt. Review it before sending. Handy's overlay is authoritative for recording status; its command-line controls are currently beta. Lemlio does not bundle Handy or its models.
+
+### Matching a project's PDF layout
+
+The PDF toolbar saves a compiler for each project: **Tectonic**, **pdfLaTeX**, **XeLaTeX**, or **LuaLaTeX**. The choice is stored in `lemlio-compiler.json`, travels with project backups, and applies to editor, thumbnail, and agent builds. **App default** retains the global compiler preference. Tectonic remains the fresh-install default; it does not emulate pdfLaTeX or LuaLaTeX. A conflicting engine directive produces an actionable error instead of silently using XeTeX.
+
+System builds prefer **latexmk** from MiKTeX or TeX Live to resolve references and bibliographies. MiKTeX's latexmk also requires Perl. If latexmk is not installed, the existing direct engine runner remains available. For identical layout across devices, match the engine, package versions, and font files; switching distributions alone does not guarantee it.
+
+Named fontspec fonts must be provided by the project or Lemlio's bundled Latin Modern files. Put licensed custom `.otf`/`.ttf` files in a project `fonts` folder. Lemlio maps declared families to explicit portable files and reports missing fonts before conditional fallbacks can hide them. Explicit font files can also be selected with fontspec's `Path` option. Dynamically constructed font names and named custom face overrides must be changed to explicit portable file requests. Compilation stops on logged font substitutions or missing glyphs; documents using legacy font encodings may need their original pdfLaTeX engine.
+
+**Build info** shows the actual compiler and version. The full local diagnostic record is in `.prism/build/lemlio-build-report.json`, including package/font log entries and checksums of prepared portable fonts. This records the environment; it does not freeze or redistribute a complete TeX installation.
+
 The tree marks the compile target **MAIN**, colors LaTeX files teal and bibliography files amber, and offers **Use as main compile file**. The PDF panel also has a **Compile file** dropdown. Lemlio remembers your choice per project; opening another complete document switches the target, while a bibliography, figure, or included chapter keeps the current PDF.
 
 ## A look inside

@@ -11,12 +11,14 @@ mod fonts;
 mod history;
 mod latex;
 mod latex_compat;
+mod portable_fonts;
 mod previews;
 mod project_delete;
 mod projects;
 mod remote;
 mod slash_commands;
 mod speech;
+mod handy;
 mod templates;
 mod tools;
 mod updates;
@@ -478,6 +480,8 @@ pub fn run() {
             latex::open_compiled_pdf,
             latex::synctex_edit,
             latex::detect_texlive,
+            latex::project_compiler,
+            latex::compiler_report,
             codex::check_codex_status,
             codex::login_codex,
             codex::execute_codex_code,
@@ -549,6 +553,8 @@ pub fn run() {
             speech::check_speech_status,
             speech::speech_stop,
             speech::open_speech_settings,
+            handy::check_handy_status,
+            handy::handy_control,
             uv::install_uv,
             tools::tools_list,
             tools::tools_preview,

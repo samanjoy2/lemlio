@@ -133,6 +133,7 @@ export const ChatComposer: FC<{
   const [modelError, setModelError] = useState<string | null>(null);
 
   const provider = useSettingsStore((s) => s.agentProvider);
+  const voiceProvider = useSettingsStore((s) => s.voiceProvider);
 
   useEffect(() => {
     let disposed = false;
@@ -1381,14 +1382,16 @@ export const ChatComposer: FC<{
                 </TooltipIconButton>
                 <TooltipIconButton
                   tooltip={
-                    navigator.userAgent.includes("Mac")
+                    navigator.userAgent.includes("Mac") &&
+                    voiceProvider !== "handy"
                       ? "Set up macOS Dictation"
                       : dictation.recording || dictation.starting
                         ? "Stop microphone"
                         : "Dictate a prompt"
                   }
                   aria-label={
-                    navigator.userAgent.includes("Mac")
+                    navigator.userAgent.includes("Mac") &&
+                    voiceProvider !== "handy"
                       ? "Set up macOS Dictation"
                       : dictation.recording || dictation.starting
                         ? "Stop microphone"
@@ -1400,7 +1403,10 @@ export const ChatComposer: FC<{
                       : "text-muted-foreground"
                   }
                   onClick={() => {
-                    if (navigator.userAgent.includes("Mac")) {
+                    if (
+                      navigator.userAgent.includes("Mac") &&
+                      voiceProvider !== "handy"
+                    ) {
                       window.dispatchEvent(
                         new CustomEvent("lemlio-open-settings", {
                           detail: "Voice",
@@ -1408,6 +1414,7 @@ export const ChatComposer: FC<{
                       );
                       return;
                     }
+                    textareaRef.current?.focus();
                     void (dictation.recording || dictation.starting
                       ? dictation.stop()
                       : dictation.start());
@@ -1454,9 +1461,11 @@ export const ChatComposer: FC<{
                 role="status"
                 className="px-4 pb-2 text-muted-foreground text-xs"
               >
-                {dictation.starting
-                  ? "Starting Windows dictation…"
-                  : "Listening · Review the text before sending"}
+                {voiceProvider === "handy"
+                  ? "Handy recording requested · Check Handy's indicator. Click again to transcribe; keep this prompt focused."
+                  : dictation.starting
+                    ? "Starting Windows dictation…"
+                    : "Listening · Review the text before sending"}
               </p>
             )}
             {dictation.error && (

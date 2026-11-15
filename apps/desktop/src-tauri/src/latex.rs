@@ -686,6 +686,37 @@ fn compile_with_texlive(
         engine_name,
         engine_path.display()
     );
+    if let Ok(latexmk) = find_texlive_binary("latexmk") {
+        let mode = match engine_name {
+            "pdflatex" => "-pdf",
+            "lualatex" => "-lualatex",
+            _ => "-xelatex",
+        };
+        let mut cmd = std::process::Command::new(latexmk);
+        cmd.args([
+            mode,
+            "-synctex=1",
+            "-interaction=nonstopmode",
+            "-halt-on-error",
+            "-file-line-error",
+        ])
+        .arg(main_file)
+        .current_dir(work_dir)
+        .env("PATH", &env_path);
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let output = cmd
+            .output()
+            .map_err(|e| format!("Cannot run latexmk: {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "latexmk failed. Ensure Perl and the selected engine are installed.\n{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        return Ok(());
+    }
     let bib_tool = detect_bib_tool(tex_content);
 
     // Use "." as output-directory since current_dir is already work_dir.
@@ -1002,6 +1033,52 @@ pub fn detect_texlive() -> TexliveStatus {
     }
 }
 
+/// Portable, explicit compiler choice. Stored with the project so backups carry it.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProjectCompiler {
+    #[default]
+    Default,
+    Tectonic,
+    Pdflatex,
+    Xelatex,
+    Lualatex,
+}
+
+#[tauri::command]
+pub fn project_compiler(
+    project_dir: String,
+    compiler: Option<ProjectCompiler>,
+) -> Result<ProjectCompiler, String> {
+    let root = std::fs::canonicalize(&project_dir).map_err(|e| e.to_string())?;
+    if !root.is_dir() {
+        return Err("Choose a project folder".into());
+    }
+    let path = root.join("lemlio-compiler.json");
+    if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err("Compiler settings must be a regular project file".into());
+    }
+    if let Some(choice) = compiler {
+        let data = serde_json::to_vec_pretty(&choice).map_err(|e| e.to_string())?;
+        std::fs::write(path, data).map_err(|e| e.to_string())?;
+        return Ok(choice);
+    }
+    match std::fs::read(path) {
+        Ok(data) => {
+            serde_json::from_slice(&data).map_err(|e| format!("Invalid lemlio-compiler.json: {e}"))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ProjectCompiler::Default),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn compiler_report(project_dir: String) -> Result<serde_json::Value, String> {
+    let root = persistent_build_dir(&project_dir);
+    let data = std::fs::read(root.join("lemlio-build-report.json")).map_err(|e| e.to_string())?;
+    serde_json::from_slice(&data).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn compile_latex(
     state: tauri::State<'_, LatexCompilerState>,
@@ -1037,6 +1114,12 @@ pub(crate) async fn compile_project(
     };
     let _project_guard = project_lock.lock().await;
 
+    let profile = project_compiler(project_dir.clone(), None)?;
+    let use_texlive = match profile {
+        ProjectCompiler::Tectonic => false,
+        ProjectCompiler::Default => use_texlive,
+        _ => true,
+    };
     let t0 = std::time::Instant::now();
     let build_root = persistent_build_dir(&project_dir);
     let (work_dir, main_file) = compilation_directory(&build_root, &main_file)?;
@@ -1095,14 +1178,25 @@ pub(crate) async fn compile_project(
 
     // Detect TeX engine from magic comment
     let main_tex_content = std::fs::read_to_string(&main_tex_path).unwrap_or_default();
+    // Record package versions in the build log without changing project sources.
+    std::fs::write(&main_tex_path, format!("\\listfiles{}", main_tex_content))
+        .map_err(|e| format!("Cannot prepare compiler diagnostics: {e}"))?;
     crate::latex_compat::prepare_xcolor(&build_root, &main_tex_path)
         .map_err(|error| format!("Cannot prepare package options: {error}"))?;
     if !use_texlive {
         crate::eps::prepare(&std::fs::canonicalize(&build_root).map_err(|e| e.to_string())?)?;
     }
-    #[cfg(target_os = "macos")]
-    crate::fonts::prepare_mac(&main_tex_path)?;
-    let engine = detect_tex_engine(&main_tex_content);
+    crate::portable_fonts::prepare(&build_root, &main_tex_path)?;
+    let requested_engine = detect_tex_engine(&main_tex_content);
+    let engine = match profile {
+        ProjectCompiler::Pdflatex => Some(TexEngine::Latex),
+        ProjectCompiler::Xelatex => Some(TexEngine::XeLaTeX),
+        ProjectCompiler::Lualatex => Some(TexEngine::LuaLaTeX),
+        _ => requested_engine,
+    };
+    if !use_texlive && matches!(engine, Some(TexEngine::Latex) | Some(TexEngine::LuaLaTeX)) {
+        return Err("This document requests pdfLaTeX or LuaLaTeX. Tectonic uses XeTeX. Choose the matching engine in the project's compiler menu; install MiKTeX or TeX Live if needed.".into());
+    }
 
     // Save engine name before `engine` is moved into the spawn_blocking closure
     let engine_name_for_label = match &engine {
@@ -1110,7 +1204,7 @@ pub(crate) async fn compile_project(
         Some(TexEngine::Latex) => "pdflatex",
         Some(TexEngine::LuaLaTeX) => "lualatex",
     };
-    let mut backend_label = if use_texlive {
+    let backend_label = if use_texlive {
         let distribution = find_texlive_binary(engine_name_for_label)
             .ok()
             .map(|path| {
@@ -1126,18 +1220,6 @@ pub(crate) async fn compile_project(
         "Tectonic".to_string()
     };
 
-    if !use_texlive {
-        if let Some(TexEngine::LuaLaTeX) = engine {
-            return Err(
-                "Compilation failed\n\nThis document requires LuaLaTeX (% !TEX program = lualatex), \
-                 which is not supported. Prism uses a XeTeX-based engine (Tectonic). \
-                 Please switch to XeLaTeX or remove the magic comment."
-                    .to_string(),
-            );
-        }
-    }
-
-    let main_tex_for_fallback = main_tex_content.clone();
     let mut compile_result = if use_texlive {
         let work_dir_clone = work_dir.clone();
         let main_file_clone = main_file.clone();
@@ -1172,41 +1254,6 @@ pub(crate) async fn compile_project(
     };
 
     let log_path = work_dir.join(format!("{}.log", main_file_name));
-
-    // Tectonic stays the default. Only when it cannot build a font of this document
-    // does an installed MiKTeX or TeX Live take over, and nothing in the document
-    // is changed. Without such an installation the original error is shown.
-    if !use_texlive && !pdf_path.exists() {
-        let tectonic_log = std::fs::read_to_string(&log_path).unwrap_or_default();
-        let failure = compile_result.as_ref().err().cloned().unwrap_or_default();
-        if tectonic_font_gap(&failure) || tectonic_font_gap(&tectonic_log) {
-            if let Ok(system_engine) = find_texlive_binary(engine_name_for_label) {
-                eprintln!(
-                    "[latex] Tectonic cannot build a font of this document; retrying with {}",
-                    system_engine.display()
-                );
-                let work_dir_clone = work_dir.clone();
-                let main_file_clone = main_file.clone();
-                let content = main_tex_for_fallback;
-                let result = tokio::task::spawn_blocking(move || {
-                    lower_thread_priority();
-                    compile_with_texlive(&work_dir_clone, &main_file_clone, engine, &content)
-                })
-                .await
-                .map_err(|e| format!("Compilation task panicked: {}", e))?;
-                backend_label = format!(
-                    "{}/{} used automatically because Tectonic cannot build this document's fonts",
-                    if is_miktex_binary(&system_engine) {
-                        "MiKTeX"
-                    } else {
-                        "TeX Live"
-                    },
-                    engine_name_for_label
-                );
-                compile_result = result;
-            }
-        }
-    }
 
     // Handle "No pages of output" — retry with \AtEndDocument{\null} injection (Tectonic only).
     // TeXLive multi-pass handles this differently; the injection is Tectonic-specific.
@@ -1250,6 +1297,7 @@ pub(crate) async fn compile_project(
                 retry_result.is_ok(),
                 pdf_path_clone.exists()
             );
+            compile_result = retry_result;
         }
     }
 
@@ -1259,14 +1307,70 @@ pub(crate) async fn compile_project(
         builds.insert(
             project_dir.clone(),
             BuildInfo {
-                build_root,
+                build_root: build_root.clone(),
                 work_dir: work_dir.clone(),
                 main_file_name: main_file_name.clone(),
             },
         );
     }
 
-    if pdf_path.exists() {
+    if pdf_path.exists() && compile_result.is_ok() {
+        let log_content = std::fs::read_to_string(&log_path).unwrap_or_default();
+        let warnings: Vec<_> = log_content
+            .lines()
+            .filter(|line| {
+                let line = line.to_lowercase();
+                (line.contains("font") && (line.contains("substitut") || line.contains("warning")))
+                    || line.contains("missing character")
+            })
+            .take(30)
+            .collect();
+        let binary = if use_texlive {
+            find_texlive_binary(engine_name_for_label).ok()
+        } else {
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            {
+                tectonic_binary().ok()
+            }
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+            {
+                None
+            }
+        };
+        let version = binary.as_ref().and_then(|binary| {
+            let mut cmd = std::process::Command::new(binary);
+            cmd.arg("--version");
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.output().ok().map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .take(3)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+        });
+        let font_log: Vec<_> = log_content
+            .lines()
+            .filter(|l| {
+                l.contains(".otf") || l.contains(".ttf") || l.contains(".sty") || l.contains(".cls")
+            })
+            .take(200)
+            .collect();
+        let report = serde_json::json!({"backend": backend_label, "version": version,
+            "binary": binary, "mainFile": main_file, "profile": profile,
+            "warnings": warnings, "fontAndPackageLog": font_log,
+            "portableFonts": crate::portable_fonts::inventory(&work_dir),
+            "note": "Diagnostic record; matching fonts and package versions are required to reproduce layout."});
+        std::fs::write(
+            build_root.join("lemlio-build-report.json"),
+            serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| format!("Could not save compiler report: {e}"))?;
+        if !warnings.is_empty() {
+            let _ = std::fs::remove_file(&pdf_path);
+            return Err(format!("Compilation stopped: fonts were substituted or glyphs were missing. Include the exact font files, or select the document's original engine (for example, pdfLaTeX for a legacy fontenc template), then recompile.\n{}", warnings.join("\n")));
+        }
         let pdf_path_clone = pdf_path.clone();
         let pdf_bytes = tokio::task::spawn_blocking(move || std::fs::read(&pdf_path_clone))
             .await
@@ -1307,6 +1411,9 @@ pub(crate) async fn compile_project(
         } else {
             details
         };
+        if !use_texlive && (tectonic_font_gap(&msg) || tectonic_font_gap(&log_content)) {
+            return Err(format!("Tectonic cannot build a required font. Select the document's matching pdfLaTeX, XeLaTeX, or LuaLaTeX engine from the PDF toolbar and install MiKTeX or TeX Live if needed. Lemlio has not substituted the font or switched engines.\n{msg}"));
+        }
         Err(format!("Compilation failed ({})\n\n{}", backend_label, msg))
     }
 }
@@ -1374,6 +1481,54 @@ pub async fn cleanup_all_builds(state: &LatexCompilerState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compiler_choice_is_portable_and_invalid_choices_are_not_silently_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().to_string_lossy().to_string();
+        assert!(matches!(
+            project_compiler(path.clone(), None).unwrap(),
+            ProjectCompiler::Default
+        ));
+        for choice in [
+            ProjectCompiler::Tectonic,
+            ProjectCompiler::Pdflatex,
+            ProjectCompiler::Xelatex,
+            ProjectCompiler::Lualatex,
+        ] {
+            let encoded = serde_json::to_string(&choice).unwrap();
+            project_compiler(path.clone(), Some(choice)).unwrap();
+            assert_eq!(
+                serde_json::to_string(&project_compiler(path.clone(), None).unwrap()).unwrap(),
+                encoded
+            );
+        }
+        std::fs::write(
+            temp.path().join("lemlio-compiler.json"),
+            "\"unknown-engine\"",
+        )
+        .unwrap();
+        assert!(project_compiler(path, None)
+            .unwrap_err()
+            .contains("Invalid lemlio-compiler.json"));
+    }
+
+    #[tokio::test]
+    async fn tectonic_does_not_silently_ignore_requested_pdftex_or_luatex() {
+        for engine in ["pdflatex", "lualatex"] {
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("main.tex"), format!("% !TEX program = {engine}\n\\documentclass{{article}}\n\\begin{{document}}Test\\end{{document}}" )).unwrap();
+            let error = compile_project(
+                &LatexCompilerState::default(),
+                temp.path().to_string_lossy().into(),
+                "main.tex".into(),
+                false,
+            )
+            .await
+            .unwrap_err();
+            assert!(error.contains("Choose the matching engine"), "{error}");
+        }
+    }
 
     #[test]
     fn tectonic_font_gaps_are_recognised_and_ordinary_errors_are_not() {
