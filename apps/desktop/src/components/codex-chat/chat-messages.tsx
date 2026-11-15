@@ -1,3 +1,4 @@
+import { PermissionCard } from "./permission-card";
 import { type FC, memo, useEffect, useMemo, useRef } from "react";
 import { AlertCircleIcon } from "lucide-react";
 import {
@@ -114,6 +115,7 @@ export const ChatMessages: FC = () => {
       {displayMessages.map((msg, idx) => (
         <MessageBubble key={idx} message={msg} toolResultMap={toolResultMap} />
       ))}
+      <PermissionCard />
     </div>
   );
 };

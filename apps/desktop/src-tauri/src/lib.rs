@@ -1,3 +1,4 @@
+mod agent_shims;
 mod backup_store;
 mod claude;
 mod codex;
