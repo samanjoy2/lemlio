@@ -27,5 +27,18 @@
       },
       "additionalProperties": false
     }
+  },
+  {
+    "name": "lemlio_run_tool",
+    "description": "Run an enabled, user-installed AI tool through Lemlio's shared Python environment. Prefer this to guessing Python paths or using the agent shell. Returns actual exit code, stdout and stderr.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tool_id": { "type": "string" },
+        "arguments": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["tool_id", "arguments"],
+      "additionalProperties": false
+    }
   }
 ]

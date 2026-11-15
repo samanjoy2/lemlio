@@ -28,3 +28,14 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
             (Path(sys.argv[2])/Path(name).name).write_bytes(archive.read(name))
 PY
 echo 'Packaged macOS Tectonic and Latin Modern fonts are ready.'
+uv_resources="$root/apps/desktop/src-tauri/resources/uv"
+mkdir -p "$uv_resources"
+case "$(uname -m)" in
+  arm64) uv_target=aarch64-apple-darwin; uv_hash=5bb0e5fe008a773c3dbcb97ff79cd89e1241464fe9d2f986d52ad8f1b037bd62 ;;
+  x86_64) uv_target=x86_64-apple-darwin; uv_hash=b3b2137477cf96c9686ebfb71524614cec780c673fd73e59bce099aef02e70e8 ;;
+esac
+curl --fail --location --retry 3 "https://github.com/astral-sh/uv/releases/download/0.12.5/uv-$uv_target.tar.gz" -o "$archive"
+printf '%s  %s\n' "$uv_hash" "$archive" | shasum -a 256 -c -
+tar -xzf "$archive" --strip-components=1 -C "$uv_resources" "uv-$uv_target/uv"
+chmod +x "$uv_resources/uv"
+curl --fail --location --retry 3 https://raw.githubusercontent.com/astral-sh/uv/0.12.5/LICENSE-MIT -o "$uv_resources/LICENSE-MIT"

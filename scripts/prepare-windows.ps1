@@ -1,5 +1,18 @@
 $ErrorActionPreference = 'Stop'
 $prismRoot = Split-Path $PSScriptRoot -Parent
+$uvDir = Join-Path $prismRoot 'apps\desktop\src-tauri\resources\uv'
+New-Item -ItemType Directory -Force $uvDir | Out-Null
+if (!(Test-Path (Join-Path $uvDir 'uv.exe'))) {
+    $uvArchive = Join-Path $uvDir 'uv.zip'
+    Invoke-WebRequest 'https://github.com/astral-sh/uv/releases/download/0.12.5/uv-x86_64-pc-windows-msvc.zip' -OutFile $uvArchive
+    if ((Get-FileHash $uvArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4c4d49d8738847d9b71ba319e49a5688c93eac0fe6204b1df24e98528dddf39a') { throw 'uv checksum mismatch' }
+    Expand-Archive $uvArchive -DestinationPath $uvDir -Force
+    Remove-Item -LiteralPath $uvArchive
+    Remove-Item -LiteralPath (Join-Path $uvDir 'uvx.exe') -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $uvDir 'uvw.exe') -ErrorAction SilentlyContinue
+}
+Invoke-WebRequest 'https://raw.githubusercontent.com/astral-sh/uv/0.12.5/LICENSE-MIT' -OutFile (Join-Path $uvDir 'LICENSE-MIT')
+Remove-Item -LiteralPath (Join-Path $uvDir 'uvw.exe') -ErrorAction SilentlyContinue
 $resourceDir = Join-Path $prismRoot 'apps\desktop\src-tauri\resources\tectonic'
 New-Item -ItemType Directory -Force $resourceDir | Out-Null
 $archive = Join-Path $resourceDir 'tectonic.zip'

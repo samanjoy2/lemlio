@@ -186,3 +186,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+# uv
+
+Lemlio bundles uv 0.12.5 from https://github.com/astral-sh/uv, Copyright Astral Software Inc., under the MIT license (or Apache-2.0). Its MIT license is included alongside the binary in resources/uv/LICENSE-MIT.

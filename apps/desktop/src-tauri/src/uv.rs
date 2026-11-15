@@ -15,6 +15,9 @@ use std::os::windows::process::CommandExt;
 /// Discover the uv binary on the system.
 /// Checks: which → cargo bin → standard paths → bare fallback.
 pub(crate) fn find_uv_binary() -> Result<String, String> {
+    if let Ok(binary) = crate::tool_runtime::uv() {
+        return Ok(binary.to_string_lossy().into());
+    }
     // 1. Try to find uv on PATH
     if let Ok(path) = which::which("uv") {
         return Ok(path.to_string_lossy().to_string());

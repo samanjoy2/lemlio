@@ -21,6 +21,15 @@ mod speech;
 mod handy;
 mod templates;
 mod tools;
+mod tool_runtime;
+pub fn setup_tools_runtime_headless() -> Result<(), String> {
+    let root = dirs::data_dir().ok_or("Cannot locate Lemlio data")?.join("com.lemlio.desktop/tools");
+    tauri::async_runtime::block_on(tool_runtime::initialize(&root, true))
+}
+pub fn run_tool_headless(project: String, id: String, arguments: Vec<String>) -> Result<serde_json::Value, String> {
+    let root = dirs::data_dir().ok_or("Cannot locate Lemlio data")?.join("com.lemlio.desktop/tools");
+    tauri::async_runtime::block_on(tools::run_at(&root, project, id, arguments))
+}
 mod updates;
 mod uv;
 
@@ -557,6 +566,8 @@ pub fn run() {
             handy::handy_control,
             uv::install_uv,
             tools::tools_list,
+            tools::tools_runtime_setup,
+            tools::tools_run,
             tools::tools_preview,
             tools::tools_install,
             tools::tools_set_enabled,

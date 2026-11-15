@@ -285,6 +285,9 @@ async fn start_turn(
     let mut extra_paths: Vec<PathBuf> = crate::tools::env_bin_dir(window.app_handle())
         .into_iter()
         .collect();
+    if let Some(env) = extra_paths.first().and_then(|p| p.parent()) {
+        cmd.env("VIRTUAL_ENV", env).env("LEMLIO_TOOLS_PYTHON", crate::uv::venv_python(env)).env_remove("PYTHONHOME").env_remove("PYTHONPATH");
+    }
     if let Some(system_tex) = crate::latex::system_tex_bin_dir() {
         // So the assistant can run MiKTeX / TeX Live tools (mf, mpm, tlmgr, pdflatex) itself.
         extra_paths.push(system_tex);

@@ -86,6 +86,10 @@ Codex uses your account's allowance; Lemlio does not include an AI subscription.
 
 ## Voice prompts and main documents
 
+AI tools run through Lemlio's shared Python runtime. **Settings → Tools → Set up / Repair runtime** downloads Python into Lemlio's own tools folder and preserves installed packages. Windows installation also offers this setup. The app bundles its own uv manager, so tools do not depend on another app's installation. Ask the agent to use `lemlio_run_tool`; older chats can use the app's CLI fallback. Registered tools remain opt-in.
+
+Successful compilation also updates the PDF beside the chosen `.tex` file, including nested source files. Failed compilation leaves the last good project PDF intact.
+
 Click the microphone in Codex chat to dictate with Windows speech recognition. A colorful glow responds to the microphone; words go into the editable prompt and are sent only when you press Send. Stop with the square button or close the chat. Windows needs an installed speech recognizer and microphone permission. **Settings → Voice** explains how to install a speech language. No extra OpenAI API key is required; recognition is unavailable until that Windows component is installed.
 
 On macOS, use the system Dictation shortcut in the prompt. The microphone button opens Voice setup; the Windows speech recorder is Windows-only.

@@ -63,6 +63,7 @@ export function ToolsLibrary() {
   const [error, setError] = useState<string | null>(null);
   const [uvMissing, setUvMissing] = useState(false);
   const [uvInstalling, setUvInstalling] = useState(false);
+  const [runtimeMessage, setRuntimeMessage] = useState("");
 
   const review = async () => {
     if (!draft) return;
@@ -124,6 +125,42 @@ export function ToolsLibrary() {
         the AI should use it. Python tools are installed once into a shared
         environment, never into your projects.
       </p>
+      <div className="space-y-2 rounded-lg border p-3">
+        <p className="text-sm">Lemlio Python runtime</p>
+        <p className="text-muted-foreground text-xs">
+          Downloads Python into Lemlio's own tools folder and repairs its shared
+          environment. Existing tool packages are kept. This does not use
+          another app's Python or create environments in projects.
+        </p>
+        <Button
+          variant="outline"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            setRuntimeMessage("");
+            try {
+              setRuntimeMessage(await invoke<string>("tools_runtime_setup"));
+            } catch (error) {
+              setError(String(error));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Working…" : "Set up / Repair runtime"}
+        </Button>
+        {runtimeMessage && (
+          <p role="status" className="break-all text-xs">
+            {runtimeMessage}
+          </p>
+        )}
+        {error && !draft && (
+          <p role="alert" className="break-words text-destructive text-xs">
+            {error}
+          </p>
+        )}
+      </div>
       <div className="space-y-2">
         {tools.length === 0 && (
           <p className="text-muted-foreground text-sm">No tools added yet.</p>

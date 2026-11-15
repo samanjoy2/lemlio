@@ -130,3 +130,24 @@ it("honors the optional system compiler and rejects non-PDF compiler responses",
     expect.objectContaining({ useTexlive: true }),
   );
 });
+it("routes registered AI tools through the native shared environment", async () => {
+  vi.mocked(invoke).mockResolvedValue({
+    success: true,
+    exitCode: 0,
+    stdout: "ACL check complete",
+  });
+  const result = await runCompilerTool({
+    tool: "lemlio_run_tool",
+    projectPath: "C:/Paper",
+    arguments: {
+      tool_id: "acl-paper-format-check",
+      arguments: ["--paper_type", "long", "main.pdf"],
+    },
+  });
+  expect(result.success).toBe(true);
+  expect(invoke).toHaveBeenCalledWith("tools_run", {
+    projectDir: "C:/Paper",
+    toolId: "acl-paper-format-check",
+    arguments: ["--paper_type", "long", "main.pdf"],
+  });
+});

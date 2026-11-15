@@ -169,6 +169,9 @@ impl Rpc {
         }
         let mut extra_paths: Vec<PathBuf> = vec![];
         if let Some(bin) = crate::tools::env_bin_dir(window.app_handle()) {
+            if let Some(env) = bin.parent() {
+                launch.env("VIRTUAL_ENV", env).env("LEMLIO_TOOLS_PYTHON", crate::uv::venv_python(env)).env_remove("PYTHONHOME").env_remove("PYTHONPATH");
+            }
             extra_paths.push(bin);
         }
         #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -278,7 +281,7 @@ impl Rpc {
                 if method == "item/tool/call"
                     && (!matches!(
                         p["tool"].as_str(),
-                        Some("lemlio_compile" | "lemlio_view_pdf_page")
+                        Some("lemlio_compile" | "lemlio_view_pdf_page" | "lemlio_run_tool")
                     ) || self.cancelled.lock().await.contains(&tab))
                 {
                     let _ = self.send(json!({"id":msg["id"],"result":{"success":false,"contentItems":[{"type":"inputText","text":"Unknown tool or cancelled turn"}]}})).await;
@@ -872,9 +875,10 @@ mod tests {
     #[test]
     fn compiler_tools_are_bounded_and_visible_in_chat_history() {
         let tools = compiler_tools();
-        assert_eq!(tools.as_array().unwrap().len(), 2);
+        assert_eq!(tools.as_array().unwrap().len(), 3);
         assert_eq!(tools[0]["name"], "lemlio_compile");
         assert_eq!(tools[1]["name"], "lemlio_view_pdf_page");
+        assert_eq!(tools[2]["name"], "lemlio_run_tool");
         assert!(tools[0]["inputSchema"]["properties"]
             .get("projectPath")
             .is_none());

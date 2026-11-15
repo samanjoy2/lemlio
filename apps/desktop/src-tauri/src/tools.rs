@@ -100,15 +100,21 @@ pub fn validate(mut spec: ToolSpec) -> Result<ToolSpec, String> {
     }
     if spec.command.is_empty()
         || spec.command.chars().count() > 300
-        || spec.command.contains(['\n', '\r', '"', '`', '$', ';', '&', '|', '<', '>'])
+        || spec
+            .command
+            .contains(['\n', '\r', '"', '`', '$', ';', '&', '|', '<', '>'])
     {
-        return Err("The command must be a single program name or path, without shell characters".into());
+        return Err(
+            "The command must be a single program name or path, without shell characters".into(),
+        );
     }
     match spec.kind.as_str() {
         "git" => {
             let ok = spec.source.starts_with("https://")
                 && !spec.source.contains(char::is_whitespace)
-                && !spec.source.contains(['"', '`', '$', ';', '&', '|', '<', '>'])
+                && !spec
+                    .source
+                    .contains(['"', '`', '$', ';', '&', '|', '<', '>'])
                 && spec.source.len() > 12;
             if !ok {
                 return Err("Use an https:// git repository URL".into());
@@ -120,9 +126,8 @@ pub fn validate(mut spec: ToolSpec) -> Result<ToolSpec, String> {
                 && s.len() <= 120
                 && !s.starts_with('-')
                 && !s.contains("://")
-                && s.chars().all(|c| {
-                    c.is_ascii_alphanumeric() || "._-[],=<>!~".contains(c)
-                });
+                && s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "._-[],=<>!~".contains(c));
             if !ok {
                 return Err("Use a package name such as aclpubcheck or pkg==1.2".into());
             }
@@ -144,15 +149,26 @@ fn install_steps(spec: &ToolSpec, uv: &str, env: &Path) -> Vec<Step> {
         spec.source.clone()
     };
     let mut steps = vec![];
-    if !crate::uv::venv_python(env).exists() {
-        steps.push(Step {
-            program: uv.into(),
-            args: vec!["venv".into(), env.to_string_lossy().to_string()],
-        });
+    let root = env.parent().unwrap_or(env);
+    if !root.join("runtime-v1.json").is_file() || !crate::uv::venv_python(env).exists() {
+        steps.extend(
+            crate::tool_runtime::steps(root)
+                .into_iter()
+                .map(|args| Step {
+                    program: uv.into(),
+                    args,
+                }),
+        );
     }
     steps.push(Step {
         program: uv.into(),
-        args: vec!["pip".into(), "install".into(), "--python".into(), python, target],
+        args: vec![
+            "pip".into(),
+            "install".into(),
+            "--python".into(),
+            python,
+            target,
+        ],
     });
     steps
 }
@@ -182,9 +198,98 @@ pub fn tools_list(app: AppHandle) -> Vec<ToolSpec> {
 }
 
 #[tauri::command]
+pub async fn tools_runtime_setup(app: AppHandle) -> Result<String, String> {
+    let root = tools_root(&app)?;
+    crate::tool_runtime::initialize(&root, true).await?;
+    Ok(format!(
+        "Python runtime ready at {}. Installed packages have been preserved.",
+        root.display()
+    ))
+}
+
+#[tauri::command]
+pub async fn tools_run(
+    app: AppHandle,
+    project_dir: String,
+    tool_id: String,
+    arguments: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    run_at(&tools_root(&app)?, project_dir, tool_id, arguments).await
+}
+pub(crate) async fn run_at(
+    root: &Path,
+    project_dir: String,
+    tool_id: String,
+    arguments: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    let _guard = crate::tool_runtime::RUNTIME_LOCK.lock().await;
+    let specs: Vec<ToolSpec> =
+        serde_json::from_slice(&std::fs::read(root.join("tools.json")).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    let spec = specs
+        .into_iter()
+        .find(|tool| tool.id == tool_id && tool.enabled)
+        .ok_or("This tool is not registered or is disabled")?;
+    if arguments.len() > 100
+        || arguments
+            .iter()
+            .any(|a| a.len() > 16384 || a.contains('\0'))
+    {
+        return Err("Invalid tool arguments".into());
+    }
+    let cwd = std::fs::canonicalize(&project_dir).map_err(|e| e.to_string())?;
+    if !cwd.is_dir() {
+        return Err("Open a project folder before running its tools".into());
+    }
+    let program = crate::tool_runtime::executable(&spec, &root)?;
+    let mut cmd = tokio::process::Command::new(&program);
+    if spec.kind != "command" {
+        // Do not depend on console-script launchers' embedded absolute Python paths.
+        cmd.args(["-I", "-c", "import importlib.metadata as m, sys\nname=sys.argv.pop(1)\nentries=list(m.entry_points(group='console_scripts', name=name))\nif len(entries)!=1: raise SystemExit('Installed entry point not found: '+name+'; check the tool command in Settings > Tools')\nsys.argv[0]=name\nsys.exit(entries[0].load()())", &spec.command]);
+    }
+    cmd.args(arguments)
+        .current_dir(cwd)
+        .kill_on_drop(true)
+        .env("VIRTUAL_ENV", root.join("env"))
+        .env(
+            "LEMLIO_TOOLS_PYTHON",
+            crate::uv::venv_python(&root.join("env")),
+        )
+        .env_remove("PYTHONHOME")
+        .env_remove("PYTHONPATH");
+    let mut paths = vec![crate::uv::venv_bin_dir(&root.join("env"))];
+    if let Some(path) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&path));
+    }
+    cmd.env(
+        "PATH",
+        std::env::join_paths(paths).map_err(|e| e.to_string())?,
+    );
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000);
+    let out = tokio::time::timeout(std::time::Duration::from_secs(180), cmd.output())
+        .await
+        .map_err(|_| "Tool timed out")?
+        .map_err(|e| {
+            format!(
+                "Cannot launch {}: {e}. Repair runtime in Settings → Tools.",
+                spec.name
+            )
+        })?;
+    Ok(
+        serde_json::json!({"success":out.status.success(),"exitCode":out.status.code(),"executable":program,
+        "python":crate::uv::venv_python(&root.join("env")),"stdout":String::from_utf8_lossy(&out.stdout).chars().take(64000).collect::<String>(),"stderr":String::from_utf8_lossy(&out.stderr).chars().take(64000).collect::<String>()}),
+    )
+}
+
+#[tauri::command]
 pub fn tools_preview(app: AppHandle, spec: ToolSpec) -> Result<InstallPreview, String> {
     let spec = validate(spec)?;
-    let uv = crate::uv::find_uv_binary()?;
+    let uv = if spec.kind == "command" {
+        String::new()
+    } else {
+        crate::tool_runtime::uv()?.to_string_lossy().to_string()
+    };
     let steps = install_steps(&spec, &uv, &env_dir(&app)?);
     let warning = match spec.kind.as_str() {
         "command" => "Nothing will be downloaded. The AI will be allowed to run this command on your computer.".to_string(),
@@ -201,16 +306,20 @@ pub fn tools_preview(app: AppHandle, spec: ToolSpec) -> Result<InstallPreview, S
 /// user confirmed the steps returned by `tools_preview`.
 #[tauri::command]
 pub async fn tools_install(app: AppHandle, spec: ToolSpec) -> Result<ToolSpec, String> {
+    let _guard = crate::tool_runtime::RUNTIME_LOCK.lock().await;
     let spec = validate(spec)?;
     let env = env_dir(&app)?;
     if spec.kind != "command" {
-        let uv = crate::uv::find_uv_binary()?;
+        let uv = crate::tool_runtime::uv()?.to_string_lossy().to_string();
         if which::which(&uv).is_err() && !Path::new(&uv).is_file() {
-            return Err("uv is required to install tools. Install it first, then try again.".into());
+            return Err(
+                "uv is required to install tools. Install it first, then try again.".into(),
+            );
         }
         std::fs::create_dir_all(tools_root(&app)?).map_err(|e| e.to_string())?;
         for step in install_steps(&spec, &uv, &env) {
             let mut cmd = tokio::process::Command::new(&step.program);
+            crate::tool_runtime::configure(&mut cmd, &tools_root(&app)?);
             cmd.args(&step.args).kill_on_drop(true);
             #[cfg(target_os = "windows")]
             cmd.creation_flags(0x08000000);
@@ -220,10 +329,22 @@ pub async fn tools_install(app: AppHandle, spec: ToolSpec) -> Result<ToolSpec, S
                 .map_err(|e| format!("Could not run {}: {e}", step.program))?;
             if !out.status.success() {
                 let err = String::from_utf8_lossy(&out.stderr);
-                let tail: String = err.chars().rev().take(1500).collect::<Vec<_>>().into_iter().rev().collect();
+                let tail: String = err
+                    .chars()
+                    .rev()
+                    .take(1500)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
                 return Err(format!("`{}` failed:\n{}", step.display(), tail.trim()));
             }
         }
+        std::fs::write(
+            tools_root(&app)?.join("runtime-v1.json"),
+            b"{\"managedBy\":\"Lemlio\"}",
+        )
+        .map_err(|e| e.to_string())?;
     }
     let mut tools = load(&app);
     tools.retain(|t| t.id != spec.id);
@@ -258,7 +379,7 @@ pub fn prompt_section(app: &AppHandle) -> String {
 pub fn describe(tools: &[ToolSpec], bin: Option<&Path>) -> String {
     let enabled: Vec<_> = tools.iter().filter(|t| t.enabled).collect();
     let mut text = String::from(
-        "Python environment: do not create per-project virtual environments or install packages into the project. Reuse a project's existing .venv only if it already has one.",
+        "Python environment: do not create per-project environments. Installed AI tools use Lemlio's shared Python environment, not a project's .venv. Use lemlio_run_tool with the enabled tool's id and an arguments array. Do not guess Python paths or reinstall tools from the agent shell. If setup is broken, report the runner's error and use Settings → Tools → Repair runtime.",
     );
     if enabled.is_empty() {
         return text;
@@ -271,7 +392,13 @@ pub fn describe(tools: &[ToolSpec], bin: Option<&Path>) -> String {
     }
     text.push_str("\nTools the user added (run them from the terminal when their description fits; show the user the result):");
     for t in enabled {
-        text.push_str(&format!("\n- {} — run as `{}`. {}", t.name, t.command, t.description));
+        text.push_str(&format!(
+            "\n- {} — tool_id: {:?}, command: `{}`. {}",
+            t.name, t.id, t.command, t.description
+        ));
+    }
+    if let Ok(app) = std::env::current_exe() {
+        text.push_str(&format!("\nIf lemlio_run_tool is unavailable in this older chat, run the Lemlio executable {:?} with arguments --run-tool <absolute-project-folder> <tool-id> <tool-arguments...>. On Windows use Start-Process -WindowStyle Hidden -Wait with redirected output and read ExitCode, just as for compilation. This runner uses the installed tool environment directly.", app));
     }
     text
 }
@@ -304,7 +431,10 @@ pub fn validate_images(images: Option<Vec<String>>) -> Result<Vec<(String, Strin
             if data.is_empty() || data.len() > 12 * 1024 * 1024 {
                 return Err("The attached image is empty or larger than 9 MB".to_string());
             }
-            if !data.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b)) {
+            if !data
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b))
+            {
                 return Err("The attached image is not valid base64".to_string());
             }
             Ok((mime.to_string(), data.to_string()))
@@ -314,10 +444,35 @@ pub fn validate_images(images: Option<Vec<String>>) -> Result<Vec<(String, Strin
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn runner_rejects_disabled_or_unregistered_tools_before_launching() {
+        let root = tempfile::tempdir().unwrap();
+        let mut tool = super::validate(spec("package", "aclpubcheck")).unwrap();
+        tool.enabled = false;
+        std::fs::write(
+            root.path().join("tools.json"),
+            serde_json::to_vec(&vec![tool.clone()]).unwrap(),
+        )
+        .unwrap();
+        for id in [tool.id, "missing".into()] {
+            assert!(super::run_at(
+                root.path(),
+                root.path().to_string_lossy().into(),
+                id,
+                vec![]
+            )
+            .await
+            .unwrap_err()
+            .contains("not registered or is disabled"));
+        }
+    }
     #[test]
     fn image_validation() {
         assert!(validate_images(None).unwrap().is_empty());
-        assert_eq!(validate_images(Some(vec!["data:image/png;base64,AAAA".into()])).unwrap()[0].0, "image/png");
+        assert_eq!(
+            validate_images(Some(vec!["data:image/png;base64,AAAA".into()])).unwrap()[0].0,
+            "image/png"
+        );
         assert!(validate_images(Some(vec!["https://x/y.png".into()])).is_err());
         assert!(validate_images(Some(vec!["data:image/png;base64,A\"<".into()])).is_err());
         assert!(validate_images(Some(vec!["data:image/png;base64,AA".into(); 5])).is_err());
@@ -353,10 +508,17 @@ mod tests {
     fn steps_are_shared_env_and_never_in_project() {
         let s = validate(spec("git", "https://github.com/acl-org/aclpubcheck.git")).unwrap();
         let steps = install_steps(&s, "uv", Path::new("/nonexistent/env"));
-        assert_eq!(steps.len(), 2);
-        assert!(steps[0].display().starts_with("uv venv"));
-        assert!(steps[1].display().contains("git+https://github.com/acl-org/aclpubcheck.git"));
-        assert!(install_steps(&validate(spec("command", "")).unwrap(), "uv", Path::new("/e")).is_empty());
+        assert_eq!(steps.len(), 3);
+        assert!(steps[0].display().starts_with("uv python install"));
+        assert!(steps[2]
+            .display()
+            .contains("git+https://github.com/acl-org/aclpubcheck.git"));
+        assert!(install_steps(
+            &validate(spec("command", "")).unwrap(),
+            "uv",
+            Path::new("/e")
+        )
+        .is_empty());
     }
     #[test]
     fn only_enabled_tools_are_described() {
@@ -366,7 +528,7 @@ mod tests {
         b.enabled = false;
         a.enabled = true;
         let text = describe(&[a, b], None);
-        assert!(text.contains("ACL Pub Check") && !text.contains("Hidden"));
+        assert!(text.contains("ACL Pub Check") && !text.contains("\n- Hidden"));
         assert!(describe(&[], None).contains("per-project"));
     }
 }

@@ -1121,6 +1121,13 @@ pub(crate) async fn compile_project(
         _ => true,
     };
     let t0 = std::time::Instant::now();
+    let original_root = std::fs::canonicalize(&project_dir).map_err(|e| e.to_string())?;
+    let original_main =
+        std::fs::canonicalize(original_root.join(&main_file)).map_err(|e| e.to_string())?;
+    if !original_main.starts_with(&original_root) {
+        return Err("The main file must stay inside the project".into());
+    }
+    let project_pdf = original_main.with_extension("pdf");
     let build_root = persistent_build_dir(&project_dir);
     let (work_dir, main_file) = compilation_directory(&build_root, &main_file)?;
 
@@ -1376,6 +1383,7 @@ pub(crate) async fn compile_project(
             .await
             .map_err(|e| format!("PDF read task panicked: {}", e))?
             .map_err(|e| format!("Failed to read PDF: {}", e))?;
+        save_project_pdf(&project_pdf, &pdf_bytes)?;
         eprintln!(
             "[latex] +{:.0}ms total (reuse={}, backend={}) pdf_size={}KB",
             t0.elapsed().as_millis(),
@@ -1416,6 +1424,20 @@ pub(crate) async fn compile_project(
         }
         Err(format!("Compilation failed ({})\n\n{}", backend_label, msg))
     }
+}
+
+fn save_project_pdf(destination: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    if std::fs::symlink_metadata(destination).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err("Cannot replace a PDF symlink; choose a regular project output file".into());
+    }
+    let mut output =
+        tempfile::NamedTempFile::new_in(destination.parent().ok_or("Invalid PDF path")?)
+            .map_err(|e| e.to_string())?;
+    output.write_all(bytes).map_err(|e| e.to_string())?;
+    output.as_file().sync_all().map_err(|e| e.to_string())?;
+    output.persist(destination).map_err(|e| format!("Compiled successfully, but could not update {}: {}. Close any external PDF reader locking this file and retry.", destination.display(), e.error))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1481,6 +1503,14 @@ pub async fn cleanup_all_builds(state: &LatexCompilerState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn successful_pdf_save_replaces_the_existing_project_copy() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("paper.pdf");
+        std::fs::write(&destination, b"old PDF").unwrap();
+        save_project_pdf(&destination, b"%PDF-new").unwrap();
+        assert_eq!(std::fs::read(destination).unwrap(), b"%PDF-new");
+    }
 
     #[test]
     fn compiler_choice_is_portable_and_invalid_choices_are_not_silently_ignored() {
